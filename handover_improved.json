@@ -1,0 +1,684 @@
+{
+  "version": "1.0",
+  "domains": [
+    {
+      "domain_id": "income_deduction",
+      "domain_name": "소득공제",
+      "systems": [
+        {
+          "system_id": "kkk_bank",
+          "system_name": "KKK은행",
+          "task_name": "소득공제",
+          "overview": {
+            "title": "KKK은행 소득공제 업무 개요",
+            "content": "KKK은행에서 발생한 카드 승인 및 매입 데이터, 가맹점 정보, 고객 정보 등을 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 등은 별도 기준에 따라 제외 또는 보정 처리한다.",
+            "summary": "카드 승인·매입·가맹점·고객 데이터를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무",
+            "input_data": [
+              "카드 승인 데이터",
+              "카드 매입 데이터",
+              "고객 정보",
+              "가맹점 정보",
+              "취소 및 정정 거래"
+            ],
+            "target_transactions": [
+              "체크카드",
+              "신용카드",
+              "현금성 거래 중 소득공제 대상"
+            ],
+            "exclusions": [
+              "거래 취소",
+              "오류 데이터",
+              "대상 제외 업종"
+            ],
+            "outputs": [
+              "내부 관리 시스템 반영 데이터",
+              "대외 제출 파일"
+            ],
+            "key_points": [
+              "원천 데이터 적재 후 대상 거래 선별",
+              "제외 업종/비대상 거래 제거",
+              "고객별 월별·연간 집계 생성"
+            ]
+          },
+          "batch_process": {
+            "title": "KKK은행 소득공제 배치 프로세스",
+            "steps": [
+              {
+                "step": 1,
+                "name": "데이터 적재",
+                "execution": "parallel",
+                "jobs": [
+                  {
+                    "job_id": "BATCH_01_CARD_APPROVAL_LOAD",
+                    "description": "카드 승인 데이터 수집 및 적재"
+                  },
+                  {
+                    "job_id": "BATCH_02_CARD_PURCHASE_LOAD",
+                    "description": "카드 매입 데이터 수집 및 적재"
+                  },
+                  {
+                    "job_id": "BATCH_03_CUSTOMER_INFO_LOAD",
+                    "description": "고객 기본정보 적재"
+                  },
+                  {
+                    "job_id": "BATCH_04_MERCHANT_INFO_LOAD",
+                    "description": "가맹점 정보 및 업종코드 적재"
+                  },
+                  {
+                    "job_id": "BATCH_05_CANCEL_DATA_LOAD",
+                    "description": "취소 및 정정 거래 데이터 적재"
+                  }
+                ],
+                "description": "소득공제 판별을 위한 원천 데이터를 병렬로 수집하고 적재하는 단계",
+                "key_jobs": [
+                  "BATCH_01_CARD_APPROVAL_LOAD",
+                  "BATCH_02_CARD_PURCHASE_LOAD"
+                ]
+              },
+              {
+                "step": 2,
+                "name": "소득공제 대상 처리",
+                "execution": "sequential",
+                "jobs": [
+                  {
+                    "job_id": "BATCH_06_DEDUCTION_TARGET_FILTER",
+                    "description": "소득공제 대상 거래 판별 및 제외 업종/비대상 거래 제거"
+                  },
+                  {
+                    "job_id": "BATCH_07_DEDUCTION_AGGREGATION",
+                    "description": "고객별 소득공제 금액 집계 및 월별/연간 기준 데이터 생성"
+                  }
+                ],
+                "description": "소득공제 대상 거래를 선별하고 고객별 집계 기준 데이터를 생성하는 핵심 처리 단계",
+                "key_jobs": [
+                  "BATCH_06_DEDUCTION_TARGET_FILTER",
+                  "BATCH_07_DEDUCTION_AGGREGATION"
+                ]
+              },
+              {
+                "step": 3,
+                "name": "최종 결과 생성",
+                "execution": "sequential",
+                "jobs": [
+                  {
+                    "job_id": "BATCH_08_DEDUCTION_FILE_GENERATION",
+                    "description": "대외 제출용 소득공제 파일 생성 및 내부 조회 시스템 반영 데이터 생성"
+                  }
+                ],
+                "description": "대외 제출 파일과 내부 조회용 결과 데이터를 생성하는 마감 단계",
+                "key_jobs": [
+                  "BATCH_08_DEDUCTION_FILE_GENERATION"
+                ]
+              }
+            ]
+          },
+          "batch_flow": {
+            "title": "KKK은행 소득공제 배치 흐름도",
+            "nodes": [
+              {
+                "id": "BATCH_01_CARD_APPROVAL_LOAD",
+                "label": "카드 승인 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_02_CARD_PURCHASE_LOAD",
+                "label": "카드 매입 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_03_CUSTOMER_INFO_LOAD",
+                "label": "고객정보 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_04_MERCHANT_INFO_LOAD",
+                "label": "가맹점정보 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_05_CANCEL_DATA_LOAD",
+                "label": "취소데이터 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_06_DEDUCTION_TARGET_FILTER",
+                "label": "소득공제 대상 판별",
+                "type": "job",
+                "step": 2
+              },
+              {
+                "id": "BATCH_07_DEDUCTION_AGGREGATION",
+                "label": "소득공제 집계",
+                "type": "job",
+                "step": 2
+              },
+              {
+                "id": "BATCH_08_DEDUCTION_FILE_GENERATION",
+                "label": "파일 생성",
+                "type": "job",
+                "step": 3
+              }
+            ],
+            "edges": [
+              {
+                "from": "BATCH_01_CARD_APPROVAL_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_02_CARD_PURCHASE_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_03_CUSTOMER_INFO_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_04_MERCHANT_INFO_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_05_CANCEL_DATA_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_06_DEDUCTION_TARGET_FILTER",
+                "to": "BATCH_07_DEDUCTION_AGGREGATION"
+              },
+              {
+                "from": "BATCH_07_DEDUCTION_AGGREGATION",
+                "to": "BATCH_08_DEDUCTION_FILE_GENERATION"
+              }
+            ],
+            "summary": "1단계 병렬 적재 이후 2단계 대상 판별과 집계를 거쳐 3단계 파일 생성으로 종료된다.",
+            "highlight_nodes": [
+              "BATCH_06_DEDUCTION_TARGET_FILTER",
+              "BATCH_07_DEDUCTION_AGGREGATION"
+            ],
+            "start_nodes": [
+              "BATCH_01_CARD_APPROVAL_LOAD",
+              "BATCH_02_CARD_PURCHASE_LOAD",
+              "BATCH_03_CUSTOMER_INFO_LOAD",
+              "BATCH_04_MERCHANT_INFO_LOAD",
+              "BATCH_05_CANCEL_DATA_LOAD"
+            ],
+            "end_nodes": [
+              "BATCH_08_DEDUCTION_FILE_GENERATION"
+            ]
+          },
+          "table_lineage": {
+            "title": "KKK은행 소득공제 테이블 리니지",
+            "tables": [
+              {
+                "id": "TB_CARD_APPROVAL",
+                "layer": "source"
+              },
+              {
+                "id": "TB_CARD_PURCHASE",
+                "layer": "source"
+              },
+              {
+                "id": "TB_CUSTOMER_INFO",
+                "layer": "source"
+              },
+              {
+                "id": "TB_MERCHANT_INFO",
+                "layer": "source"
+              },
+              {
+                "id": "TB_CANCEL_DATA",
+                "layer": "source"
+              },
+              {
+                "id": "TB_DEDUCTION_TARGET",
+                "layer": "intermediate"
+              },
+              {
+                "id": "TB_DEDUCTION_EXCLUDE",
+                "layer": "intermediate"
+              },
+              {
+                "id": "TB_DEDUCTION_AGG",
+                "layer": "intermediate"
+              },
+              {
+                "id": "TB_DEDUCTION_RESULT",
+                "layer": "result"
+              },
+              {
+                "id": "TB_DEDUCTION_FILE",
+                "layer": "result"
+              },
+              {
+                "id": "TB_DEDUCTION_LOG",
+                "layer": "result"
+              }
+            ],
+            "edges": [
+              {
+                "from": "TB_CARD_APPROVAL",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_CARD_PURCHASE",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_CUSTOMER_INFO",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_MERCHANT_INFO",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_CANCEL_DATA",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_DEDUCTION_TARGET",
+                "to": "TB_DEDUCTION_EXCLUDE"
+              },
+              {
+                "from": "TB_DEDUCTION_TARGET",
+                "to": "TB_DEDUCTION_AGG"
+              },
+              {
+                "from": "TB_DEDUCTION_EXCLUDE",
+                "to": "TB_DEDUCTION_AGG"
+              },
+              {
+                "from": "TB_DEDUCTION_AGG",
+                "to": "TB_DEDUCTION_RESULT"
+              },
+              {
+                "from": "TB_DEDUCTION_RESULT",
+                "to": "TB_DEDUCTION_FILE"
+              },
+              {
+                "from": "TB_DEDUCTION_RESULT",
+                "to": "TB_DEDUCTION_LOG"
+              }
+            ],
+            "summary": "원천 테이블을 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+            "highlight_tables": [
+              "TB_DEDUCTION_TARGET",
+              "TB_DEDUCTION_AGG",
+              "TB_DEDUCTION_RESULT"
+            ],
+            "source_tables": [
+              "TB_CARD_APPROVAL",
+              "TB_CARD_PURCHASE",
+              "TB_CUSTOMER_INFO",
+              "TB_MERCHANT_INFO",
+              "TB_CANCEL_DATA"
+            ],
+            "result_tables": [
+              "TB_DEDUCTION_RESULT",
+              "TB_DEDUCTION_FILE",
+              "TB_DEDUCTION_LOG"
+            ]
+          }
+        },
+        {
+          "system_id": "bbb_securities",
+          "system_name": "BBB증권",
+          "task_name": "소득공제",
+          "overview": {
+            "title": "BBB증권 소득공제 업무 개요",
+            "content": "BBB증권에서 발생한 카드 및 금융거래 데이터, 가맹점 정보, 고객 계좌 및 회원 정보를 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 계좌 기반 결제 및 일부 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 및 금융상품 관련 비대상 거래는 별도 기준에 따라 제외 또는 보정 처리한다.",
+            "summary": "카드·금융거래·계좌·회원 정보를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무",
+            "input_data": [
+              "카드 승인 데이터",
+              "카드 매입 데이터",
+              "고객 기본정보",
+              "계좌정보",
+              "가맹점 정보",
+              "취소 및 정정 거래"
+            ],
+            "target_transactions": [
+              "체크카드",
+              "신용카드",
+              "계좌 기반 결제",
+              "일부 현금성 거래 중 소득공제 대상"
+            ],
+            "exclusions": [
+              "거래 취소",
+              "오류 데이터",
+              "대상 제외 업종",
+              "금융상품 관련 비대상 거래"
+            ],
+            "outputs": [
+              "내부 관리 시스템 반영 데이터",
+              "고객 리포트 반영 데이터",
+              "대외 제출 파일"
+            ],
+            "key_points": [
+              "계좌 기반 거래를 함께 반영",
+              "금융상품 관련 비대상 거래 제거",
+              "고객별 월별·연간 집계 생성"
+            ]
+          },
+          "batch_process": {
+            "title": "BBB증권 소득공제 배치 프로세스",
+            "steps": [
+              {
+                "step": 1,
+                "name": "데이터 적재",
+                "execution": "parallel",
+                "jobs": [
+                  {
+                    "job_id": "BATCH_01_CARD_APPROVAL_LOAD",
+                    "description": "카드 승인 데이터 수집 및 적재"
+                  },
+                  {
+                    "job_id": "BATCH_02_CARD_PURCHASE_LOAD",
+                    "description": "카드 매입 데이터 수집 및 적재"
+                  },
+                  {
+                    "job_id": "BATCH_03_CUSTOMER_INFO_LOAD",
+                    "description": "고객 기본정보 및 계좌정보 적재"
+                  },
+                  {
+                    "job_id": "BATCH_04_MERCHANT_INFO_LOAD",
+                    "description": "가맹점 정보 및 업종코드 적재"
+                  },
+                  {
+                    "job_id": "BATCH_05_CANCEL_DATA_LOAD",
+                    "description": "취소 및 정정 거래 데이터 적재"
+                  }
+                ],
+                "description": "카드·고객·계좌·가맹점 등 원천 데이터를 병렬로 적재하는 단계",
+                "key_jobs": [
+                  "BATCH_03_CUSTOMER_INFO_LOAD"
+                ]
+              },
+              {
+                "step": 2,
+                "name": "소득공제 대상 처리",
+                "execution": "sequential",
+                "jobs": [
+                  {
+                    "job_id": "BATCH_06_DEDUCTION_TARGET_FILTER",
+                    "description": "소득공제 대상 거래 판별 및 금융상품 관련 거래/제외 업종 제거"
+                  },
+                  {
+                    "job_id": "BATCH_07_DEDUCTION_AGGREGATION",
+                    "description": "고객별 소득공제 금액 집계, 계좌 기준 통합 및 월별/연간 데이터 생성"
+                  }
+                ],
+                "description": "금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성하는 핵심 단계",
+                "key_jobs": [
+                  "BATCH_06_DEDUCTION_TARGET_FILTER",
+                  "BATCH_07_DEDUCTION_AGGREGATION"
+                ]
+              },
+              {
+                "step": 3,
+                "name": "최종 결과 생성",
+                "execution": "sequential",
+                "jobs": [
+                  {
+                    "job_id": "BATCH_08_DEDUCTION_FILE_GENERATION",
+                    "description": "대외 제출용 소득공제 파일 생성 및 내부 조회 시스템/고객 리포트 반영 데이터 생성"
+                  }
+                ],
+                "description": "대외 제출 파일과 내부 조회/고객 리포트 반영 데이터를 생성하는 마감 단계",
+                "key_jobs": [
+                  "BATCH_08_DEDUCTION_FILE_GENERATION"
+                ]
+              }
+            ]
+          },
+          "batch_flow": {
+            "title": "BBB증권 소득공제 배치 흐름도",
+            "nodes": [
+              {
+                "id": "BATCH_01_CARD_APPROVAL_LOAD",
+                "label": "카드 승인 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_02_CARD_PURCHASE_LOAD",
+                "label": "카드 매입 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_03_CUSTOMER_INFO_LOAD",
+                "label": "고객/계좌정보 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_04_MERCHANT_INFO_LOAD",
+                "label": "가맹점정보 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_05_CANCEL_DATA_LOAD",
+                "label": "취소데이터 적재",
+                "type": "job",
+                "step": 1
+              },
+              {
+                "id": "BATCH_06_DEDUCTION_TARGET_FILTER",
+                "label": "소득공제 대상 판별",
+                "type": "job",
+                "step": 2
+              },
+              {
+                "id": "BATCH_07_DEDUCTION_AGGREGATION",
+                "label": "소득공제 집계",
+                "type": "job",
+                "step": 2
+              },
+              {
+                "id": "BATCH_08_DEDUCTION_FILE_GENERATION",
+                "label": "파일 생성",
+                "type": "job",
+                "step": 3
+              }
+            ],
+            "edges": [
+              {
+                "from": "BATCH_01_CARD_APPROVAL_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_02_CARD_PURCHASE_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_03_CUSTOMER_INFO_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_04_MERCHANT_INFO_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_05_CANCEL_DATA_LOAD",
+                "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+              },
+              {
+                "from": "BATCH_06_DEDUCTION_TARGET_FILTER",
+                "to": "BATCH_07_DEDUCTION_AGGREGATION"
+              },
+              {
+                "from": "BATCH_07_DEDUCTION_AGGREGATION",
+                "to": "BATCH_08_DEDUCTION_FILE_GENERATION"
+              }
+            ],
+            "summary": "1단계 병렬 적재 이후 2단계 대상 판별과 계좌 기준 집계를 거쳐 3단계 파일 생성으로 종료된다.",
+            "highlight_nodes": [
+              "BATCH_06_DEDUCTION_TARGET_FILTER",
+              "BATCH_07_DEDUCTION_AGGREGATION"
+            ],
+            "start_nodes": [
+              "BATCH_01_CARD_APPROVAL_LOAD",
+              "BATCH_02_CARD_PURCHASE_LOAD",
+              "BATCH_03_CUSTOMER_INFO_LOAD",
+              "BATCH_04_MERCHANT_INFO_LOAD",
+              "BATCH_05_CANCEL_DATA_LOAD"
+            ],
+            "end_nodes": [
+              "BATCH_08_DEDUCTION_FILE_GENERATION"
+            ]
+          },
+          "table_lineage": {
+            "title": "BBB증권 소득공제 테이블 리니지",
+            "tables": [
+              {
+                "id": "TB_CARD_APPROVAL",
+                "layer": "source"
+              },
+              {
+                "id": "TB_CARD_PURCHASE",
+                "layer": "source"
+              },
+              {
+                "id": "TB_CUSTOMER_INFO",
+                "layer": "source"
+              },
+              {
+                "id": "TB_ACCOUNT_INFO",
+                "layer": "source"
+              },
+              {
+                "id": "TB_MERCHANT_INFO",
+                "layer": "source"
+              },
+              {
+                "id": "TB_CANCEL_DATA",
+                "layer": "source"
+              },
+              {
+                "id": "TB_DEDUCTION_TARGET",
+                "layer": "intermediate"
+              },
+              {
+                "id": "TB_DEDUCTION_EXCLUDE",
+                "layer": "intermediate"
+              },
+              {
+                "id": "TB_DEDUCTION_AGG",
+                "layer": "intermediate"
+              },
+              {
+                "id": "TB_DEDUCTION_RESULT",
+                "layer": "result"
+              },
+              {
+                "id": "TB_DEDUCTION_FILE",
+                "layer": "result"
+              },
+              {
+                "id": "TB_DEDUCTION_LOG",
+                "layer": "result"
+              }
+            ],
+            "edges": [
+              {
+                "from": "TB_CARD_APPROVAL",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_CARD_PURCHASE",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_CUSTOMER_INFO",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_ACCOUNT_INFO",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_MERCHANT_INFO",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_CANCEL_DATA",
+                "to": "TB_DEDUCTION_TARGET"
+              },
+              {
+                "from": "TB_DEDUCTION_TARGET",
+                "to": "TB_DEDUCTION_EXCLUDE"
+              },
+              {
+                "from": "TB_DEDUCTION_TARGET",
+                "to": "TB_DEDUCTION_AGG"
+              },
+              {
+                "from": "TB_DEDUCTION_EXCLUDE",
+                "to": "TB_DEDUCTION_AGG"
+              },
+              {
+                "from": "TB_DEDUCTION_AGG",
+                "to": "TB_DEDUCTION_RESULT"
+              },
+              {
+                "from": "TB_DEDUCTION_RESULT",
+                "to": "TB_DEDUCTION_FILE"
+              },
+              {
+                "from": "TB_DEDUCTION_RESULT",
+                "to": "TB_DEDUCTION_LOG"
+              }
+            ],
+            "summary": "원천 테이블과 계좌 정보를 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+            "highlight_tables": [
+              "TB_DEDUCTION_TARGET",
+              "TB_DEDUCTION_AGG",
+              "TB_DEDUCTION_RESULT"
+            ],
+            "source_tables": [
+              "TB_CARD_APPROVAL",
+              "TB_CARD_PURCHASE",
+              "TB_CUSTOMER_INFO",
+              "TB_ACCOUNT_INFO",
+              "TB_MERCHANT_INFO",
+              "TB_CANCEL_DATA"
+            ],
+            "result_tables": [
+              "TB_DEDUCTION_RESULT",
+              "TB_DEDUCTION_FILE",
+              "TB_DEDUCTION_LOG"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "realtime_queries": [
+    {
+      "query_id": "billing_monthly_amount",
+      "title": "청구 이용내역서 월별 금액 조회",
+      "render_type": "chart",
+      "chart_type": "bar",
+      "x_field": "billing_month",
+      "y_field": "amount",
+      "series_name": "월별 청구금액",
+      "data_source": {
+        "type": "database",
+        "table": "TB_BILLING_MONTHLY",
+        "query_purpose": "월별 청구 금액 조회"
+      },
+      "response_template": "청구 이용내역서 월별 금액을 조회한 후 월별 그래프로 표시한다."
+    },
+    {
+      "query_id": "today_incidents",
+      "title": "오늘 장애현황",
+      "render_type": "table",
+      "response_template": "오늘 장애현황을 조회한 후 표 형태로 보여준다."
+    }
+  ]
+}

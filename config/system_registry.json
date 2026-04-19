@@ -1,0 +1,20 @@
+[
+  {
+    "system_id": "kkk_bank",
+    "canonical_name": "KKK은행",
+    "aliases": [
+      "KKK은행",
+      "케이케이케이은행",
+      "KKK"
+    ]
+  },
+  {
+    "system_id": "bbb_securities",
+    "canonical_name": "BBB증권",
+    "aliases": [
+      "BBB증권",
+      "비비비증권",
+      "BBB"
+    ]
+  }
+]

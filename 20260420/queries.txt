@@ -1,0 +1,8 @@
+A은행 소득공제 알려줘
+A은행 소득공제 배치 흐름도 보여줘
+A은행 소득공제 테이블 리니지 보여줘
+B증권 청구 알려줘
+오늘 장애 현황 알려줘
+청구이용내역서 보여줘
+
+python ingest.py --json_path ./handover_rag_overview_full.json --persist_directory ./chroma --collection_name handover-agent

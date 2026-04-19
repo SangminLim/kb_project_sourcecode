@@ -1,0 +1,246 @@
+1. KKK은행 소득공제 업무 개요를 알려줘
+2. KKK은행 소득공제 배치 프로세스를 설명해줘
+3. KKK은행 소득공제 배치 흐름도를 그려줘
+ - 흐름도는 외부라이브러로 그린다
+4. KKK은행 소득공제 테이블 리니지를 보여줘
+- 리니지는 외부라이브러로 그린다
+
+5. BBB증권 소득공제 업무 개요를 알려줘
+
+6. BBB증권 소득공제 배치 프로세스를 설명해줘
+
+7. BBBK증권 소득공제 배치 흐름도를 그려줘
+- 흐름도는 외부라이브러로 그린다
+
+8. BBB증권 소득공제 테이블 리니지를 보여줘
+- 리니지는 외부라이브러로 그린다
+
+9. 청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘
+- db조회해서  외부라이브러로 그래프 그린다.
+
+10. 오늘 장애현황 알려줘
+- db  조회해서 장애 현황 보여준다
+
+11. 전통시장 가맹점코드 전송파일 배치 개발 해줘
+
+1. 하드코딩최소화 하고 실무적으로 해줘
+
+2. 유사질문이 나와도 dictionary 사용해서 질문을 잘할수있게하고
+llm 을 통해서 질문을 다시 작성해서 할수있게 해주고
+
+3. chat history 도 추가해줘
+
+4. system prompt 도 상황에 맞게 잘 만들어줘
+5. few shot 2,3개 추가해줘 
+
+내가 이렇게 하는이유는 경진대회에서 이렇게 모델링 했다고하려고해 
+기본적이지만 진짜 실무적으로 보여주려고 한다고
+이거참조해서 ingest.py, testcase.py, llm.py 만들어줘
+
+python ingest_chunked.py --json_path ./handover.json --persist_dir ./chroma --collection handover_agent --reset
+
+
+python ingest.py --json_path ./handover.json --persist_dir ./chroma --collection handover_agent --reset
+python testcase.py --json_path ./handover.json --question "KKK은행 소득공제 배치 프로세스를 설명해줘" --debug
+
+이 상태가 의미하는 것
+
+너가 경진대회에서 말하려는 포인트로 보면 지금 이렇게 설명할 수 있다.
+
+1차 정규화: dictionary 기반 alias / 표현 보정
+2차 정규화: LLM rewrite
+검색 정확도 향상: system_id + section 기반 retrieval
+대화형 처리 준비: chat history 반영 가능
+질문 유형 분기: text / graph / chart / table
+
+이 정도면 “기본적이지만 실무적으로 보이게 했다”는 말이 충분히 가능하다.
+
+유사질문
+python testcase.py --json_path ./handover.json --question "KKK 소득공제 설명해줘" --debug
+
+배치프로세스
+python testcase.py --json_path ./handover.json --question "KKK은행 소득공제 배치 프로세스를 설명해줘" --debug
+python testcase.py --json_path ./handover.json --question "BBBK증권 흐름도 보여줘" --debug
+python testcase.py --json_path ./handover.json --question "BBB증권 리니지 보여줘" --debug
+python testcase.py --json_path ./handover.json --question "월별 금액 그래프로 보여줘" --debug
+python testcase.py --json_path ./handover.json --question "오늘 장애현황 알려줘" --debug
+python testcase.py --json_path ./handover.json --question "KKK은행 소득공제 업무 개요를 알려줘" --debug
+python testcase.py --json_path ./handover.json --question "KKK은행 소득공제 배치 프로세스를 설명해줘" --debug
+python testcase.py --json_path ./handover.json --question "BBBK증권 흐름도 보여줘" --debug
+
+pip install streamlit plotly pandas sqlalchemy pymysql graphviz python-dotenv
+
+streamlit run streamlit_practical_app.py
+
+
+“dictionary는 빠른 처리용이고
+few-shot은 애매한 질문을 표준화하는 역할입니다”
+
+dictionary → 1차 보정
+few-shot → 2차 보정
+history → 문맥 보정
+
+사용자 질문
+   ↓
+1. dictionary rewrite
+   ↓
+2. few-shot + LLM rewrite
+   ↓
+3. system_id / intent 판단
+   ↓
+4. 검색 / 응답
+
+👉 dictionary는 “과거 데이터” 절대 안 본다.
+흐름도 보여줘 => 배치 흐름도를 그려줘
+👉 few-shot(LLM) + chat history가 과거를 본다.
+이전 대화:
+BBB증권 소득공제 업무 개요 알려줘
+...
+BBB증권 흐름도 보여줘 → BBB증권 소득공제 배치 흐름도를 그려줘
+
+1. dictionary:
+   "흐름도 보여줘"
+   → "배치 흐름도를 그려줘"
+
+2. few-shot + LLM (+ chat history):
+   "배치 흐름도를 그려줘"
+   → "BBB증권 소득공제 배치 흐름도를 그려줘"
+
+   DB 조회
+↓
+df (데이터프레임)
+↓
+JSON 변환
+↓
+프롬프트 생성
+↓
+🔥 ollama_generate (LLM 호출)
+↓
+👉 지금 너가 본 문장 생성
+
+
+
+그래서 실무 흐름은 이거다
+1단계 (가장 중요)
+
+👉 구조 기반 분해
+
+너 지금 상태:
+✔ 이미 잘 하고 있음
+
+2단계 (보조)
+
+👉 긴 텍스트만 청킹
+
+예:
+
+overview가 1000자 이상
+batch_process가 너무 길어짐
+
+👉 이때만 chunk 추가
+
+🚨 핵심 결론
+
+👉 너 말이 맞다
+
+지금은 “청킹”을 사용한 건 아니다
+
+하지만 동시에
+
+👉 이미 청킹 없이도 잘 동작하는 구조를 만들어놓은 상태다
+
+💡 쉽게 비유해줄게
+네 방식
+
+책을:
+
+목차
+챕터
+절
+
+로 나눠놓은 상태
+
+청킹
+
+👉 챕터가 너무 길면
+👉 페이지 단위로 잘라놓는 것
+
+1. retrieval 품질이 아직 약함
+
+지금 구조:
+
+rewrite → embedding → top_k → LLM
+
+👉 문제:
+
+rerank 없음
+scoring 튜닝 없음
+top_k 고정
+
+→ 데이터 늘어나면 바로 무너짐
+
+2. 문맥 조합이 약함
+documents[:1]
+
+👉 이건 위험하다
+
+chunk 나뉘면 정보 일부만 사용
+복합 질문 대응 약함
+
+→ 최소 2~3개는 써야 실무형
+
+3. ingestion 전략이 단순함
+
+지금은:
+
+JSON → flatten → 그대로 넣기
+
+👉 부족한 점:
+
+중요도 weighting 없음
+section별 전략 없음
+embedding 최적화 없음
+4. 테스트 전략 없음
+
+지금 느낌상:
+
+“잘 되는 것 같음”
+
+👉 실무에서는:
+
+질문 50~100개 고정
+정확도 측정
+regression 테스트
+
+이거 없으면 절대 못씀
+
+5. 확장성은 아직 중간 수준
+
+구조는 좋은데:
+
+데이터 늘어나면?
+시스템 10개 되면?
+schema 바뀌면?
+
+👉 이거 대응 로직 없음
+
+왜 지금 안 넣어도 되냐
+
+지금 너는 이미
+
+구조 분해(overview / batch_process / batch_step / batch_job)
+metadata filter
+intent 분기
+
+이 3개가 있어서 검색 단위가 충분히 잘 나뉘어 있음.
+
+👉 그래서 긴 문서가 아직 없다면 청킹 없어도 정상
+
+나중에 넣어도 되는 “조건”
+1️⃣ ingest 단계에서만 처리해야 한다
+
+청킹은 반드시 여기서만:
+
+ingest.py에서 문서 쪼개기
+
+👉 llm.py, streamlit.py 건드리면 안 됨
