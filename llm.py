@@ -604,13 +604,20 @@ class HandoverAgent:
         source_rows: List[Dict[str, Any]] = []
         debug_logs.append(f"[STEP 10] retrieved_doc_count = {len(documents)}")
 
-        for doc, meta in zip(documents, metadatas):
+        for rank, (doc, meta) in enumerate(zip(documents, metadatas), start=1):
             source_rows.append(
                 {
+                    "rank": rank,
                     "title": meta.get("title"),
-                    "section": meta.get("section"),
+                    "system_id": meta.get("system_id"),
                     "system_name": meta.get("system_name"),
-                    "preview": (doc[:160] + "...") if len(doc) > 160 else doc,
+                    "section": meta.get("section"),
+                    "doc_level": meta.get("doc_level"),
+                    "chunk_id": meta.get("chunk_id"),
+                    "chunk_type": meta.get("chunk_type"),
+                    "step": meta.get("step"),
+                    "job_id": meta.get("job_id"),
+                    "preview": (doc[:300] + "...") if len(doc) > 300 else doc,
                 }
             )
 

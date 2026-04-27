@@ -1,0 +1,435 @@
+[
+  {
+    "question": "KKK은행 소득공제 업무 개요를 알려줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "KKK은행 소득공제 업무 개요를 알려줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "카드 승인",
+        "카드 매입"
+      ],
+      [
+        "대외 제출 파일",
+        "내부 관리 시스템"
+      ]
+    ],
+    "forbidden_keywords": [
+      "BBB증권",
+      "계좌정보",
+      "금융상품"
+    ]
+  },
+  {
+    "question": "KKK 업무 알려줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "KKK은행 소득공제 업무 개요를 알려줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "카드 승인",
+        "카드 매입"
+      ],
+      [
+        "대외 제출 파일",
+        "내부 관리 시스템"
+      ]
+    ],
+    "forbidden_keywords": [
+      "BBB증권",
+      "계좌정보",
+      "금융상품"
+    ]
+  },
+  {
+    "question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+    "required_all": [
+      "1단계",
+      "2단계",
+      "3단계"
+    ],
+    "required_any_groups": [
+      [
+        "병렬",
+        "순차"
+      ],
+      [
+        "대상 거래 판별",
+        "대상 처리",
+        "대상 거래를 선별"
+      ]
+    ],
+    "forbidden_keywords": [
+      "BBB증권",
+      "계좌 기준",
+      "금융상품 관련"
+    ]
+  },
+  {
+    "question": "KKK 흐름도 보여줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_flow",
+    "expected_render_type": "graph",
+    "expected_rewritten_question": "KKK은행 소득공제 배치 흐름도를 그려줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "1단계 병렬 적재",
+        "병렬 적재"
+      ],
+      [
+        "3단계 파일 생성",
+        "파일 생성"
+      ]
+    ],
+    "forbidden_keywords": [
+      "BBB증권",
+      "계좌 기준 집계"
+    ],
+    "require_graph_data": true
+  },
+  {
+    "question": "KKK 리니지 보여줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "table_lineage",
+    "expected_render_type": "graph",
+    "expected_rewritten_question": "KKK은행 소득공제 테이블 리니지를 보여줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "원천 테이블",
+        "원천"
+      ],
+      [
+        "결과·파일·로그",
+        "결과 테이블",
+        "파일·로그"
+      ]
+    ],
+    "forbidden_keywords": [
+      "BBB증권",
+      "TB_ACCOUNT_INFO"
+    ],
+    "require_graph_data": true
+  },
+  {
+    "question": "BBB증권 소득공제 업무 개요를 알려줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "BBB증권 소득공제 업무 개요를 알려줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "계좌",
+        "계좌정보",
+        "계좌 기반"
+      ],
+      [
+        "고객 리포트",
+        "고객 리포트 반영 데이터",
+        "리포트 반영 데이터"
+      ],
+      [
+        "금융상품",
+        "금융상품 관련 비대상 거래",
+        "비대상 거래"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ]
+  },
+  {
+    "question": "BBB 업무 알려줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "BBB증권 소득공제 업무 개요를 알려줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "계좌",
+        "계좌정보",
+        "계좌 기반"
+      ],
+      [
+        "고객 리포트",
+        "고객 리포트 반영 데이터",
+        "리포트 반영 데이터"
+      ],
+      [
+        "금융상품",
+        "금융상품 관련 비대상 거래",
+        "비대상 거래"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ]
+  },
+  {
+    "question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+    "required_all": [
+      "1단계",
+      "2단계",
+      "3단계"
+    ],
+    "required_any_groups": [
+      [
+        "계좌",
+        "계좌정보",
+        "계좌 기준"
+      ],
+      [
+        "금융상품",
+        "금융상품 관련 거래",
+        "금융상품 관련 비대상 거래",
+        "비대상 거래"
+      ],
+      [
+        "고객 리포트",
+        "고객 리포트 반영 데이터",
+        "리포트 반영 데이터"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ]
+  },
+  {
+    "question": "BBB 프로세스 알려줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_rewritten_question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+    "required_all": [
+      "1단계",
+      "2단계",
+      "3단계"
+    ],
+    "required_any_groups": [
+      [
+        "계좌",
+        "계좌정보",
+        "계좌 기준"
+      ],
+      [
+        "금융상품",
+        "금융상품 관련 거래",
+        "금융상품 관련 비대상 거래",
+        "비대상 거래"
+      ],
+      [
+        "고객 리포트",
+        "고객 리포트 반영 데이터",
+        "리포트 반영 데이터"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ]
+  },
+  {
+    "question": "BBB 흐름도 보여줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "batch_flow",
+    "expected_render_type": "graph",
+    "expected_rewritten_question": "BBB증권 소득공제 배치 흐름도를 그려줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "계좌 기준 집계",
+        "계좌 기준"
+      ],
+      [
+        "파일 생성",
+        "3단계 파일 생성"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ],
+    "require_graph_data": true
+  },
+  {
+    "question": "BBB 리니지 좀",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "table_lineage",
+    "expected_render_type": "graph",
+    "expected_rewritten_question": "BBB증권 소득공제 테이블 리니지를 보여줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "계좌 정보",
+        "계좌",
+        "TB_ACCOUNT_INFO"
+      ],
+      [
+        "결과·파일·로그",
+        "결과 테이블",
+        "파일·로그"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ],
+    "require_graph_data": true
+  },
+  {
+    "question": "BBBK 리니지 좀",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "table_lineage",
+    "expected_render_type": "graph",
+    "expected_rewritten_question": "BBB증권 소득공제 테이블 리니지를 보여줘",
+    "required_all": [],
+    "required_any_groups": [
+      [
+        "계좌 정보",
+        "계좌",
+        "TB_ACCOUNT_INFO"
+      ],
+      [
+        "결과·파일·로그",
+        "결과 테이블",
+        "파일·로그"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행"
+    ],
+    "require_graph_data": true
+  },
+  {
+    "question": "오늘 장애 알려줘",
+    "expected_system_id": null,
+    "expected_intent": "today_incidents",
+    "expected_render_type": "table",
+    "expected_rewritten_contains": [
+      "오늘",
+      "장애현황"
+    ],
+    "required_all": [
+      "오늘 장애현황"
+    ],
+    "required_any_groups": [],
+    "forbidden_keywords": [
+      "KKK은행",
+      "BBB증권"
+    ],
+    "require_query_meta": true
+  },
+  {
+    "question": "장애 알려줘",
+    "expected_system_id": null,
+    "expected_intent": "today_incidents",
+    "expected_render_type": "table",
+    "expected_rewritten_contains": [
+      "오늘",
+      "장애현황"
+    ],
+    "required_all": [
+      "오늘 장애현황"
+    ],
+    "required_any_groups": [],
+    "forbidden_keywords": [
+      "KKK은행",
+      "BBB증권"
+    ],
+    "require_query_meta": true
+  },
+  {
+    "question": "오늘 장애현황 알려줘",
+    "expected_system_id": null,
+    "expected_intent": "today_incidents",
+    "expected_render_type": "table",
+    "expected_rewritten_contains": [
+      "오늘",
+      "장애현황"
+    ],
+    "required_all": [
+      "오늘 장애현황"
+    ],
+    "required_any_groups": [],
+    "forbidden_keywords": [
+      "KKK은행",
+      "BBB증권"
+    ],
+    "require_query_meta": true
+  },
+  {
+    "question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+    "expected_system_id": null,
+    "expected_intent": "billing_monthly_amount",
+    "expected_render_type": "chart",
+    "expected_rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+    "required_all": [
+      "시각화"
+    ],
+    "required_any_groups": [
+      [
+        "월별 추이",
+        "분포"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행",
+      "BBB증권"
+    ],
+    "require_query_meta": true
+  },
+  {
+    "question": "이용내역서 보여줘",
+    "expected_system_id": null,
+    "expected_intent": "billing_monthly_amount",
+    "expected_render_type": "chart",
+    "expected_rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+    "required_all": [
+      "시각화"
+    ],
+    "required_any_groups": [
+      [
+        "월별 추이",
+        "분포"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행",
+      "BBB증권"
+    ],
+    "require_query_meta": true
+  },
+  {
+    "question": "이용내역서 조회해줘",
+    "expected_system_id": null,
+    "expected_intent": "billing_monthly_amount",
+    "expected_render_type": "chart",
+    "expected_rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+    "required_all": [
+      "시각화"
+    ],
+    "required_any_groups": [
+      [
+        "월별 추이",
+        "분포"
+      ]
+    ],
+    "forbidden_keywords": [
+      "KKK은행",
+      "BBB증권"
+    ],
+    "require_query_meta": true
+  }
+]

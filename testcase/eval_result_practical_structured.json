@@ -1,0 +1,1367 @@
+{
+  "summary": {
+    "total": 18,
+    "final_pass": 18,
+    "final_accuracy": 100.0,
+    "system_accuracy": 100.0,
+    "intent_accuracy": 100.0,
+    "render_accuracy": 100.0,
+    "rewritten_accuracy": 100.0,
+    "answer_accuracy": 100.0,
+    "execution_accuracy": 100.0
+  },
+  "fail_cases": [],
+  "results": [
+    {
+      "question": "KKK은행 소득공제 업무 개요를 알려줘",
+      "result": {
+        "system_id": "kkk_bank",
+        "intent": "overview",
+        "render_type": "text",
+        "rewritten_question": "KKK은행 소득공제 업무 개요를 알려줘",
+        "answer": "KKK은행 소득공제 업무 개요는 다음과 같습니다.\n\n소득공제 업무는 원천 데이터 적재 후 대상 거래 선별을 통해 제외 업종/비대상 거래를 제거하고, 고객별 월별·연간 집계를 생성합니다. 주요 입력 데이터로는 카드 승인 데이터, 카드 매입 데이터, 고객 정보, 가맹점 정보, 취소 및 정정 거래가 있습니다. 대상 거래는 체크카드, 신용카드, 현금성 거래 중 소득공제 대상입니다.\n\n이 업무의 최종 산출물은 내부 관리 시스템 반영 데이터와 대외 제출 파일입니다.",
+        "text_for_eval": "KKK은행 소득공제 업무 개요\n카드 승인·매입·가맹점·고객 데이터를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무\nKKK은행에서 발생한 카드 승인 및 매입 데이터, 가맹점 정보, 고객 정보 등을 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 등은 별도 기준에 따라 제외 또는 보정 처리한다.\n카드 승인 데이터\n카드 매입 데이터\n고객 정보\n가맹점 정보\n취소 및 정정 거래\n체크카드\n신용카드\n현금성 거래 중 소득공제 대상\n거래 취소\n오류 데이터\n대상 제외 업종\n내부 관리 시스템 반영 데이터\n대외 제출 파일\n원천 데이터 적재 후 대상 거래 선별\n제외 업종/비대상 거래 제거\n고객별 월별·연간 집계 생성\nKKK은행 소득공제 업무 개요는 다음과 같습니다.\n\n소득공제 업무는 원천 데이터 적재 후 대상 거래 선별을 통해 제외 업종/비대상 거래를 제거하고, 고객별 월별·연간 집계를 생성합니다. 주요 입력 데이터로는 카드 승인 데이터, 카드 매입 데이터, 고객 정보, 가맹점 정보, 취소 및 정정 거래가 있습니다. 대상 거래는 체크카드, 신용카드, 현금성 거래 중 소득공제 대상입니다.\n\n이 업무의 최종 산출물은 내부 관리 시스템 반영 데이터와 대외 제출 파일입니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "카드 승인",
+                  "카드 매입"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "대외 제출 파일",
+                  "내부 관리 시스템"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "KKK은행 소득공제 업무 개요를 알려줘",
+        "expected_system_id": "kkk_bank",
+        "expected_intent": "overview",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "KKK은행 소득공제 업무 개요를 알려줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "카드 승인",
+            "카드 매입"
+          ],
+          [
+            "대외 제출 파일",
+            "내부 관리 시스템"
+          ]
+        ],
+        "forbidden_keywords": [
+          "BBB증권",
+          "계좌정보",
+          "금융상품"
+        ]
+      }
+    },
+    {
+      "question": "KKK 업무 알려줘",
+      "result": {
+        "system_id": "kkk_bank",
+        "intent": "overview",
+        "render_type": "text",
+        "rewritten_question": "KKK은행 소득공제 업무 개요를 알려줘",
+        "answer": "KKK은행 소득공제 업무 개요는 다음과 같습니다.\n\n소득공제 업무의 주요 목적은 카드 승인 데이터, 카드 매입 데이터, 고객 정보, 가맹점 정보, 취소 및 정정 거래를 기반으로 대상 거래 선별하고, 제외 업종/비대상 거래 제거하여 고객별 월별·연간 집계를 생성하는 것입니다. 이 업무는 체크카드, 신용카드, 현금성 거래 중 소득공제 대상에 해당하는 거래만을 대상으로 하여 원천 데이터 적재 후 대상 거래 선별을 통해 최종 산출물을 내부 관리 시스템 반영 데이터와 대외 제출 파일로 생성합니다.",
+        "text_for_eval": "KKK은행 소득공제 업무 개요\n카드 승인·매입·가맹점·고객 데이터를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무\nKKK은행에서 발생한 카드 승인 및 매입 데이터, 가맹점 정보, 고객 정보 등을 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 등은 별도 기준에 따라 제외 또는 보정 처리한다.\n카드 승인 데이터\n카드 매입 데이터\n고객 정보\n가맹점 정보\n취소 및 정정 거래\n체크카드\n신용카드\n현금성 거래 중 소득공제 대상\n거래 취소\n오류 데이터\n대상 제외 업종\n내부 관리 시스템 반영 데이터\n대외 제출 파일\n원천 데이터 적재 후 대상 거래 선별\n제외 업종/비대상 거래 제거\n고객별 월별·연간 집계 생성\nKKK은행 소득공제 업무 개요는 다음과 같습니다.\n\n소득공제 업무의 주요 목적은 카드 승인 데이터, 카드 매입 데이터, 고객 정보, 가맹점 정보, 취소 및 정정 거래를 기반으로 대상 거래 선별하고, 제외 업종/비대상 거래 제거하여 고객별 월별·연간 집계를 생성하는 것입니다. 이 업무는 체크카드, 신용카드, 현금성 거래 중 소득공제 대상에 해당하는 거래만을 대상으로 하여 원천 데이터 적재 후 대상 거래 선별을 통해 최종 산출물을 내부 관리 시스템 반영 데이터와 대외 제출 파일로 생성합니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "카드 승인",
+                  "카드 매입"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "대외 제출 파일",
+                  "내부 관리 시스템"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "KKK 업무 알려줘",
+        "expected_system_id": "kkk_bank",
+        "expected_intent": "overview",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "KKK은행 소득공제 업무 개요를 알려줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "카드 승인",
+            "카드 매입"
+          ],
+          [
+            "대외 제출 파일",
+            "내부 관리 시스템"
+          ]
+        ],
+        "forbidden_keywords": [
+          "BBB증권",
+          "계좌정보",
+          "금융상품"
+        ]
+      }
+    },
+    {
+      "question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+      "result": {
+        "system_id": "kkk_bank",
+        "intent": "batch_process",
+        "render_type": "text",
+        "rewritten_question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+        "answer": "핵심 흐름은 1단계 데이터 적재(병렬) → 2단계 소득공제 대상 처리(순차) → 3단계 최종 결과 생성(순차) 순입니다.",
+        "text_for_eval": "KKK은행 소득공제 배치 프로세스\n1단계 데이터 적재(병렬)\n소득공제 판별을 위한 원천 데이터를 병렬로 수집하고 적재하는 단계\nBATCH_01_CARD_APPROVAL_LOAD\nBATCH_02_CARD_PURCHASE_LOAD\nBATCH_01_CARD_APPROVAL_LOAD\n카드 승인 데이터 수집 및 적재\nBATCH_02_CARD_PURCHASE_LOAD\n카드 매입 데이터 수집 및 적재\nBATCH_03_CUSTOMER_INFO_LOAD\n고객 기본정보 적재\nBATCH_04_MERCHANT_INFO_LOAD\n가맹점 정보 및 업종코드 적재\nBATCH_05_CANCEL_DATA_LOAD\n취소 및 정정 거래 데이터 적재\n2단계 소득공제 대상 처리(순차)\n소득공제 대상 거래를 선별하고 고객별 집계 기준 데이터를 생성하는 핵심 처리 단계\nBATCH_06_DEDUCTION_TARGET_FILTER\nBATCH_07_DEDUCTION_AGGREGATION\nBATCH_06_DEDUCTION_TARGET_FILTER\n소득공제 대상 거래 판별 및 제외 업종/비대상 거래 제거\nBATCH_07_DEDUCTION_AGGREGATION\n고객별 소득공제 금액 집계 및 월별/연간 기준 데이터 생성\n3단계 최종 결과 생성(순차)\n대외 제출 파일과 내부 조회용 결과 데이터를 생성하는 마감 단계\nBATCH_08_DEDUCTION_FILE_GENERATION\nBATCH_08_DEDUCTION_FILE_GENERATION\n대외 제출용 소득공제 파일 생성 및 내부 조회 시스템 반영 데이터 생성\n핵심 흐름은 1단계 데이터 적재(병렬) → 2단계 소득공제 대상 처리(순차) → 3단계 최종 결과 생성(순차) 순입니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "병렬",
+                  "순차"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "대상 거래 판별",
+                  "대상 처리",
+                  "대상 거래를 선별"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+        "expected_system_id": "kkk_bank",
+        "expected_intent": "batch_process",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+        "required_all": [
+          "1단계",
+          "2단계",
+          "3단계"
+        ],
+        "required_any_groups": [
+          [
+            "병렬",
+            "순차"
+          ],
+          [
+            "대상 거래 판별",
+            "대상 처리",
+            "대상 거래를 선별"
+          ]
+        ],
+        "forbidden_keywords": [
+          "BBB증권",
+          "계좌 기준",
+          "금융상품 관련"
+        ]
+      }
+    },
+    {
+      "question": "KKK 흐름도 보여줘",
+      "result": {
+        "system_id": "kkk_bank",
+        "intent": "batch_flow",
+        "render_type": "graph",
+        "rewritten_question": "KKK은행 소득공제 배치 흐름도를 그려줘",
+        "answer": "1단계 병렬 적재 이후 2단계 대상 판별과 집계를 거쳐 3단계 파일 생성으로 종료된다.",
+        "text_for_eval": "1단계 병렬 적재 이후 2단계 대상 판별과 집계를 거쳐 3단계 파일 생성으로 종료된다.",
+        "has_graph_data": true,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "1단계 병렬 적재",
+                  "병렬 적재"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "3단계 파일 생성",
+                  "파일 생성"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "KKK 흐름도 보여줘",
+        "expected_system_id": "kkk_bank",
+        "expected_intent": "batch_flow",
+        "expected_render_type": "graph",
+        "expected_rewritten_question": "KKK은행 소득공제 배치 흐름도를 그려줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "1단계 병렬 적재",
+            "병렬 적재"
+          ],
+          [
+            "3단계 파일 생성",
+            "파일 생성"
+          ]
+        ],
+        "forbidden_keywords": [
+          "BBB증권",
+          "계좌 기준 집계"
+        ],
+        "require_graph_data": true
+      }
+    },
+    {
+      "question": "KKK 리니지 보여줘",
+      "result": {
+        "system_id": "kkk_bank",
+        "intent": "table_lineage",
+        "render_type": "graph",
+        "rewritten_question": "KKK은행 소득공제 테이블 리니지를 보여줘",
+        "answer": "원천 테이블을 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+        "text_for_eval": "원천 테이블을 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+        "has_graph_data": true,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "원천 테이블",
+                  "원천"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "결과·파일·로그",
+                  "결과 테이블",
+                  "파일·로그"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "KKK 리니지 보여줘",
+        "expected_system_id": "kkk_bank",
+        "expected_intent": "table_lineage",
+        "expected_render_type": "graph",
+        "expected_rewritten_question": "KKK은행 소득공제 테이블 리니지를 보여줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "원천 테이블",
+            "원천"
+          ],
+          [
+            "결과·파일·로그",
+            "결과 테이블",
+            "파일·로그"
+          ]
+        ],
+        "forbidden_keywords": [
+          "BBB증권",
+          "TB_ACCOUNT_INFO"
+        ],
+        "require_graph_data": true
+      }
+    },
+    {
+      "question": "BBB증권 소득공제 업무 개요를 알려줘",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "overview",
+        "render_type": "text",
+        "rewritten_question": "BBB증권 소득공제 업무 개요를 알려줘",
+        "answer": "카드·금융거래·계좌·회원 정보를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무 최종 산출물은 내부 관리 시스템 반영 데이터, 고객 리포트 반영 데이터, 대외 제출 파일입니다.",
+        "text_for_eval": "BBB증권 소득공제 업무 개요\n카드·금융거래·계좌·회원 정보를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무\nBBB증권에서 발생한 카드 및 금융거래 데이터, 가맹점 정보, 고객 계좌 및 회원 정보를 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 계좌 기반 결제 및 일부 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 및 금융상품 관련 비대상 거래는 별도 기준에 따라 제외 또는 보정 처리한다.\n카드 승인 데이터\n카드 매입 데이터\n고객 기본정보\n계좌정보\n가맹점 정보\n취소 및 정정 거래\n체크카드\n신용카드\n계좌 기반 결제\n일부 현금성 거래 중 소득공제 대상\n거래 취소\n오류 데이터\n대상 제외 업종\n금융상품 관련 비대상 거래\n내부 관리 시스템 반영 데이터\n고객 리포트 반영 데이터\n대외 제출 파일\n계좌 기반 거래를 함께 반영\n금융상품 관련 비대상 거래 제거\n고객별 월별·연간 집계 생성\n카드·금융거래·계좌·회원 정보를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무 최종 산출물은 내부 관리 시스템 반영 데이터, 고객 리포트 반영 데이터, 대외 제출 파일입니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 3,
+            "total_groups": 3,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌",
+                  "계좌정보",
+                  "계좌 기반"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "고객 리포트",
+                  "고객 리포트 반영 데이터",
+                  "리포트 반영 데이터"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "금융상품",
+                  "금융상품 관련 비대상 거래",
+                  "비대상 거래"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBB증권 소득공제 업무 개요를 알려줘",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "overview",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "BBB증권 소득공제 업무 개요를 알려줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "계좌",
+            "계좌정보",
+            "계좌 기반"
+          ],
+          [
+            "고객 리포트",
+            "고객 리포트 반영 데이터",
+            "리포트 반영 데이터"
+          ],
+          [
+            "금융상품",
+            "금융상품 관련 비대상 거래",
+            "비대상 거래"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ]
+      }
+    },
+    {
+      "question": "BBB 업무 알려줘",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "overview",
+        "render_type": "text",
+        "rewritten_question": "BBB증권 소득공제 업무 개요를 알려줘",
+        "answer": "BBB증권 소득공제 업무 개요는 다음과 같습니다.\n\n소득공제 업무는 계좌 기반 거래를 함께 반영하여 금융상품 관련 비대상 거래를 제거하고, 고객별 월별·연간 집계를 생성합니다. 주요 입력 데이터로는 카드 승인 데이터, 카드 매입 데이터, 고객 기본정보, 계좌정보, 가맹점 정보, 취소 및 정정 거래가 있습니다.\n\n주요 대상 거래는 체크카드, 신용카드, 계좌 기반 결제, 일부 현금성 거래 중 소득공제 대상입니다.",
+        "text_for_eval": "BBB증권 소득공제 업무 개요\n카드·금융거래·계좌·회원 정보를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무\nBBB증권에서 발생한 카드 및 금융거래 데이터, 가맹점 정보, 고객 계좌 및 회원 정보를 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 계좌 기반 결제 및 일부 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 및 금융상품 관련 비대상 거래는 별도 기준에 따라 제외 또는 보정 처리한다.\n카드 승인 데이터\n카드 매입 데이터\n고객 기본정보\n계좌정보\n가맹점 정보\n취소 및 정정 거래\n체크카드\n신용카드\n계좌 기반 결제\n일부 현금성 거래 중 소득공제 대상\n거래 취소\n오류 데이터\n대상 제외 업종\n금융상품 관련 비대상 거래\n내부 관리 시스템 반영 데이터\n고객 리포트 반영 데이터\n대외 제출 파일\n계좌 기반 거래를 함께 반영\n금융상품 관련 비대상 거래 제거\n고객별 월별·연간 집계 생성\nBBB증권 소득공제 업무 개요는 다음과 같습니다.\n\n소득공제 업무는 계좌 기반 거래를 함께 반영하여 금융상품 관련 비대상 거래를 제거하고, 고객별 월별·연간 집계를 생성합니다. 주요 입력 데이터로는 카드 승인 데이터, 카드 매입 데이터, 고객 기본정보, 계좌정보, 가맹점 정보, 취소 및 정정 거래가 있습니다.\n\n주요 대상 거래는 체크카드, 신용카드, 계좌 기반 결제, 일부 현금성 거래 중 소득공제 대상입니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 3,
+            "total_groups": 3,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌",
+                  "계좌정보",
+                  "계좌 기반"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "고객 리포트",
+                  "고객 리포트 반영 데이터",
+                  "리포트 반영 데이터"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "금융상품",
+                  "금융상품 관련 비대상 거래",
+                  "비대상 거래"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBB 업무 알려줘",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "overview",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "BBB증권 소득공제 업무 개요를 알려줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "계좌",
+            "계좌정보",
+            "계좌 기반"
+          ],
+          [
+            "고객 리포트",
+            "고객 리포트 반영 데이터",
+            "리포트 반영 데이터"
+          ],
+          [
+            "금융상품",
+            "금융상품 관련 비대상 거래",
+            "비대상 거래"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ]
+      }
+    },
+    {
+      "question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "batch_process",
+        "render_type": "text",
+        "rewritten_question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+        "answer": "핵심 흐름은 1단계 데이터 적재(병렬) → 2단계 소득공제 대상 처리(순차) → 3단계 최종 결과 생성(순차) 순입니다.",
+        "text_for_eval": "BBB증권 소득공제 배치 프로세스\n1단계 데이터 적재(병렬)\n카드·고객·계좌·가맹점 등 원천 데이터를 병렬로 적재하는 단계\nBATCH_03_CUSTOMER_INFO_LOAD\nBATCH_01_CARD_APPROVAL_LOAD\n카드 승인 데이터 수집 및 적재\nBATCH_02_CARD_PURCHASE_LOAD\n카드 매입 데이터 수집 및 적재\nBATCH_03_CUSTOMER_INFO_LOAD\n고객 기본정보 및 계좌정보 적재\nBATCH_04_MERCHANT_INFO_LOAD\n가맹점 정보 및 업종코드 적재\nBATCH_05_CANCEL_DATA_LOAD\n취소 및 정정 거래 데이터 적재\n2단계 소득공제 대상 처리(순차)\n금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성하는 핵심 단계\nBATCH_06_DEDUCTION_TARGET_FILTER\nBATCH_07_DEDUCTION_AGGREGATION\nBATCH_06_DEDUCTION_TARGET_FILTER\n소득공제 대상 거래 판별 및 금융상품 관련 거래/제외 업종 제거\nBATCH_07_DEDUCTION_AGGREGATION\n고객별 소득공제 금액 집계, 계좌 기준 통합 및 월별/연간 데이터 생성\n3단계 최종 결과 생성(순차)\n대외 제출 파일과 내부 조회/고객 리포트 반영 데이터를 생성하는 마감 단계\nBATCH_08_DEDUCTION_FILE_GENERATION\nBATCH_08_DEDUCTION_FILE_GENERATION\n대외 제출용 소득공제 파일 생성 및 내부 조회 시스템/고객 리포트 반영 데이터 생성\n핵심 흐름은 1단계 데이터 적재(병렬) → 2단계 소득공제 대상 처리(순차) → 3단계 최종 결과 생성(순차) 순입니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 3,
+            "total_groups": 3,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌",
+                  "계좌정보",
+                  "계좌 기준"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "금융상품",
+                  "금융상품 관련 거래",
+                  "금융상품 관련 비대상 거래",
+                  "비대상 거래"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "고객 리포트",
+                  "고객 리포트 반영 데이터",
+                  "리포트 반영 데이터"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "batch_process",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+        "required_all": [
+          "1단계",
+          "2단계",
+          "3단계"
+        ],
+        "required_any_groups": [
+          [
+            "계좌",
+            "계좌정보",
+            "계좌 기준"
+          ],
+          [
+            "금융상품",
+            "금융상품 관련 거래",
+            "금융상품 관련 비대상 거래",
+            "비대상 거래"
+          ],
+          [
+            "고객 리포트",
+            "고객 리포트 반영 데이터",
+            "리포트 반영 데이터"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ]
+      }
+    },
+    {
+      "question": "BBB 프로세스 알려줘",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "batch_process",
+        "render_type": "text",
+        "rewritten_question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+        "answer": "BBB증권 소득공제 배치 프로세스를 설명드리겠습니다.\n\n**Overview**\n소득공제 배치 프로세스는 금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성하는 프로세스입니다. 이 프로세스는 3개의 주요 단계로 구성되어 있습니다.\n\n**Batch Process**\n1. 데이터 적재 (step=1): 카드·고객·계좌·가맹점 등 원천 데이터를 병렬로 적재합니다.\n2. 소득공제 대상 처리 (step=2): 금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성합니다.\n3. 최종 결과 생성 (step=3): 대외 제출 파일과 내부 조회/고객 리포트 반영 데이터를 생성하는 마감 단계입니다.\n\n이러한 프로세스를 통해 소득공제 배치가 정상적으로 처리됩니다.",
+        "text_for_eval": "BBB증권 소득공제 배치 프로세스\n1단계 데이터 적재(병렬)\n카드·고객·계좌·가맹점 등 원천 데이터를 병렬로 적재하는 단계\nBATCH_03_CUSTOMER_INFO_LOAD\nBATCH_01_CARD_APPROVAL_LOAD\n카드 승인 데이터 수집 및 적재\nBATCH_02_CARD_PURCHASE_LOAD\n카드 매입 데이터 수집 및 적재\nBATCH_03_CUSTOMER_INFO_LOAD\n고객 기본정보 및 계좌정보 적재\nBATCH_04_MERCHANT_INFO_LOAD\n가맹점 정보 및 업종코드 적재\nBATCH_05_CANCEL_DATA_LOAD\n취소 및 정정 거래 데이터 적재\n2단계 소득공제 대상 처리(순차)\n금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성하는 핵심 단계\nBATCH_06_DEDUCTION_TARGET_FILTER\nBATCH_07_DEDUCTION_AGGREGATION\nBATCH_06_DEDUCTION_TARGET_FILTER\n소득공제 대상 거래 판별 및 금융상품 관련 거래/제외 업종 제거\nBATCH_07_DEDUCTION_AGGREGATION\n고객별 소득공제 금액 집계, 계좌 기준 통합 및 월별/연간 데이터 생성\n3단계 최종 결과 생성(순차)\n대외 제출 파일과 내부 조회/고객 리포트 반영 데이터를 생성하는 마감 단계\nBATCH_08_DEDUCTION_FILE_GENERATION\nBATCH_08_DEDUCTION_FILE_GENERATION\n대외 제출용 소득공제 파일 생성 및 내부 조회 시스템/고객 리포트 반영 데이터 생성\nBBB증권 소득공제 배치 프로세스를 설명드리겠습니다.\n\n**Overview**\n소득공제 배치 프로세스는 금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성하는 프로세스입니다. 이 프로세스는 3개의 주요 단계로 구성되어 있습니다.\n\n**Batch Process**\n1. 데이터 적재 (step=1): 카드·고객·계좌·가맹점 등 원천 데이터를 병렬로 적재합니다.\n2. 소득공제 대상 처리 (step=2): 금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성합니다.\n3. 최종 결과 생성 (step=3): 대외 제출 파일과 내부 조회/고객 리포트 반영 데이터를 생성하는 마감 단계입니다.\n\n이러한 프로세스를 통해 소득공제 배치가 정상적으로 처리됩니다.",
+        "has_graph_data": false,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 3,
+            "total_groups": 3,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌",
+                  "계좌정보",
+                  "계좌 기준"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "금융상품",
+                  "금융상품 관련 거래",
+                  "금융상품 관련 비대상 거래",
+                  "비대상 거래"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "고객 리포트",
+                  "고객 리포트 반영 데이터",
+                  "리포트 반영 데이터"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBB 프로세스 알려줘",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "batch_process",
+        "expected_render_type": "text",
+        "expected_rewritten_question": "BBB증권 소득공제 배치 프로세스를 설명해줘",
+        "required_all": [
+          "1단계",
+          "2단계",
+          "3단계"
+        ],
+        "required_any_groups": [
+          [
+            "계좌",
+            "계좌정보",
+            "계좌 기준"
+          ],
+          [
+            "금융상품",
+            "금융상품 관련 거래",
+            "금융상품 관련 비대상 거래",
+            "비대상 거래"
+          ],
+          [
+            "고객 리포트",
+            "고객 리포트 반영 데이터",
+            "리포트 반영 데이터"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ]
+      }
+    },
+    {
+      "question": "BBB 흐름도 보여줘",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "batch_flow",
+        "render_type": "graph",
+        "rewritten_question": "BBB증권 소득공제 배치 흐름도를 그려줘",
+        "answer": "1단계 병렬 적재 이후 2단계 대상 판별과 계좌 기준 집계를 거쳐 3단계 파일 생성으로 종료된다.",
+        "text_for_eval": "1단계 병렬 적재 이후 2단계 대상 판별과 계좌 기준 집계를 거쳐 3단계 파일 생성으로 종료된다.",
+        "has_graph_data": true,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌 기준 집계",
+                  "계좌 기준"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "파일 생성",
+                  "3단계 파일 생성"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBB 흐름도 보여줘",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "batch_flow",
+        "expected_render_type": "graph",
+        "expected_rewritten_question": "BBB증권 소득공제 배치 흐름도를 그려줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "계좌 기준 집계",
+            "계좌 기준"
+          ],
+          [
+            "파일 생성",
+            "3단계 파일 생성"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ],
+        "require_graph_data": true
+      }
+    },
+    {
+      "question": "BBB 리니지 좀",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "table_lineage",
+        "render_type": "graph",
+        "rewritten_question": "BBB증권 소득공제 테이블 리니지를 보여줘",
+        "answer": "원천 테이블과 계좌 정보를 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+        "text_for_eval": "원천 테이블과 계좌 정보를 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+        "has_graph_data": true,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌 정보",
+                  "계좌",
+                  "TB_ACCOUNT_INFO"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "결과·파일·로그",
+                  "결과 테이블",
+                  "파일·로그"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBB 리니지 좀",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "table_lineage",
+        "expected_render_type": "graph",
+        "expected_rewritten_question": "BBB증권 소득공제 테이블 리니지를 보여줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "계좌 정보",
+            "계좌",
+            "TB_ACCOUNT_INFO"
+          ],
+          [
+            "결과·파일·로그",
+            "결과 테이블",
+            "파일·로그"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ],
+        "require_graph_data": true
+      }
+    },
+    {
+      "question": "BBBK 리니지 좀",
+      "result": {
+        "system_id": "bbb_securities",
+        "intent": "table_lineage",
+        "render_type": "graph",
+        "rewritten_question": "BBB증권 소득공제 테이블 리니지를 보여줘",
+        "answer": "원천 테이블과 계좌 정보를 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+        "text_for_eval": "원천 테이블과 계좌 정보를 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.",
+        "has_graph_data": true,
+        "has_query_meta": false
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 2,
+            "total_groups": 2,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "계좌 정보",
+                  "계좌",
+                  "TB_ACCOUNT_INFO"
+                ],
+                "matched": true
+              },
+              {
+                "group": [
+                  "결과·파일·로그",
+                  "결과 테이블",
+                  "파일·로그"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "BBBK 리니지 좀",
+        "expected_system_id": "bbb_securities",
+        "expected_intent": "table_lineage",
+        "expected_render_type": "graph",
+        "expected_rewritten_question": "BBB증권 소득공제 테이블 리니지를 보여줘",
+        "required_all": [],
+        "required_any_groups": [
+          [
+            "계좌 정보",
+            "계좌",
+            "TB_ACCOUNT_INFO"
+          ],
+          [
+            "결과·파일·로그",
+            "결과 테이블",
+            "파일·로그"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행"
+        ],
+        "require_graph_data": true
+      }
+    },
+    {
+      "question": "오늘 장애 알려줘",
+      "result": {
+        "system_id": null,
+        "intent": "today_incidents",
+        "render_type": "table",
+        "rewritten_question": "오늘 장애현황 알려줘",
+        "answer": "오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.",
+        "text_for_eval": "오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.",
+        "has_graph_data": false,
+        "has_query_meta": true
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 0,
+            "total_groups": 0,
+            "ok": true,
+            "details": []
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "오늘 장애 알려줘",
+        "expected_system_id": null,
+        "expected_intent": "today_incidents",
+        "expected_render_type": "table",
+        "expected_rewritten_contains": [
+          "오늘",
+          "장애현황"
+        ],
+        "required_all": [
+          "오늘 장애현황"
+        ],
+        "required_any_groups": [],
+        "forbidden_keywords": [
+          "KKK은행",
+          "BBB증권"
+        ],
+        "require_query_meta": true
+      }
+    },
+    {
+      "question": "장애 알려줘",
+      "result": {
+        "system_id": null,
+        "intent": "today_incidents",
+        "render_type": "table",
+        "rewritten_question": "today_incidents 오늘 장애현황 확인해줘",
+        "answer": "오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.",
+        "text_for_eval": "오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.",
+        "has_graph_data": false,
+        "has_query_meta": true
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 0,
+            "total_groups": 0,
+            "ok": true,
+            "details": []
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "장애 알려줘",
+        "expected_system_id": null,
+        "expected_intent": "today_incidents",
+        "expected_render_type": "table",
+        "expected_rewritten_contains": [
+          "오늘",
+          "장애현황"
+        ],
+        "required_all": [
+          "오늘 장애현황"
+        ],
+        "required_any_groups": [],
+        "forbidden_keywords": [
+          "KKK은행",
+          "BBB증권"
+        ],
+        "require_query_meta": true
+      }
+    },
+    {
+      "question": "오늘 장애현황 알려줘",
+      "result": {
+        "system_id": null,
+        "intent": "today_incidents",
+        "render_type": "table",
+        "rewritten_question": "today_incidents 오늘 장애현황 확인해줘",
+        "answer": "오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.",
+        "text_for_eval": "오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.",
+        "has_graph_data": false,
+        "has_query_meta": true
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 0,
+            "total_groups": 0,
+            "ok": true,
+            "details": []
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "오늘 장애현황 알려줘",
+        "expected_system_id": null,
+        "expected_intent": "today_incidents",
+        "expected_render_type": "table",
+        "expected_rewritten_contains": [
+          "오늘",
+          "장애현황"
+        ],
+        "required_all": [
+          "오늘 장애현황"
+        ],
+        "required_any_groups": [],
+        "forbidden_keywords": [
+          "KKK은행",
+          "BBB증권"
+        ],
+        "require_query_meta": true
+      }
+    },
+    {
+      "question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+      "result": {
+        "system_id": null,
+        "intent": "billing_monthly_amount",
+        "render_type": "chart",
+        "rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "answer": "청구 이용내역서 월별 금액 조회를 시각화했습니다. 월별 추이와 분포를 바로 확인할 수 있습니다.",
+        "text_for_eval": "청구 이용내역서 월별 금액 조회를 시각화했습니다. 월별 추이와 분포를 바로 확인할 수 있습니다.",
+        "has_graph_data": false,
+        "has_query_meta": true
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 1,
+            "total_groups": 1,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "월별 추이",
+                  "분포"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "expected_system_id": null,
+        "expected_intent": "billing_monthly_amount",
+        "expected_render_type": "chart",
+        "expected_rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "required_all": [
+          "시각화"
+        ],
+        "required_any_groups": [
+          [
+            "월별 추이",
+            "분포"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행",
+          "BBB증권"
+        ],
+        "require_query_meta": true
+      }
+    },
+    {
+      "question": "이용내역서 보여줘",
+      "result": {
+        "system_id": null,
+        "intent": "billing_monthly_amount",
+        "render_type": "chart",
+        "rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "answer": "청구 이용내역서 월별 금액 조회를 시각화했습니다. 월별 추이와 분포를 바로 확인할 수 있습니다.",
+        "text_for_eval": "청구 이용내역서 월별 금액 조회를 시각화했습니다. 월별 추이와 분포를 바로 확인할 수 있습니다.",
+        "has_graph_data": false,
+        "has_query_meta": true
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 1,
+            "total_groups": 1,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "월별 추이",
+                  "분포"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "이용내역서 보여줘",
+        "expected_system_id": null,
+        "expected_intent": "billing_monthly_amount",
+        "expected_render_type": "chart",
+        "expected_rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "required_all": [
+          "시각화"
+        ],
+        "required_any_groups": [
+          [
+            "월별 추이",
+            "분포"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행",
+          "BBB증권"
+        ],
+        "require_query_meta": true
+      }
+    },
+    {
+      "question": "이용내역서 조회해줘",
+      "result": {
+        "system_id": null,
+        "intent": "billing_monthly_amount",
+        "render_type": "chart",
+        "rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "answer": "청구 이용내역서 월별 금액 조회를 시각화했습니다. 월별 추이와 분포를 바로 확인할 수 있습니다.",
+        "text_for_eval": "청구 이용내역서 월별 금액 조회를 시각화했습니다. 월별 추이와 분포를 바로 확인할 수 있습니다.",
+        "has_graph_data": false,
+        "has_query_meta": true
+      },
+      "evaluation": {
+        "system_ok": true,
+        "intent_ok": true,
+        "render_ok": true,
+        "rewritten": {
+          "exact_ok": true,
+          "contains_ok": true,
+          "ok": true
+        },
+        "answer_eval": {
+          "required_all_ok": true,
+          "group_ok": true,
+          "group_result": {
+            "matched_groups": 1,
+            "total_groups": 1,
+            "ok": true,
+            "details": [
+              {
+                "group": [
+                  "월별 추이",
+                  "분포"
+                ],
+                "matched": true
+              }
+            ]
+          },
+          "forbidden_ok": true,
+          "ok": true
+        },
+        "execution_ok": true,
+        "final_ok": true
+      },
+      "expected": {
+        "question": "이용내역서 조회해줘",
+        "expected_system_id": null,
+        "expected_intent": "billing_monthly_amount",
+        "expected_render_type": "chart",
+        "expected_rewritten_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘",
+        "required_all": [
+          "시각화"
+        ],
+        "required_any_groups": [
+          [
+            "월별 추이",
+            "분포"
+          ]
+        ],
+        "forbidden_keywords": [
+          "KKK은행",
+          "BBB증권"
+        ],
+        "require_query_meta": true
+      }
+    }
+  ]
+}
