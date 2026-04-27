@@ -134,14 +134,18 @@ def build_incident_summary_prompt(rows_json: str) -> str:
 규칙:
 - 데이터에 있는 내용만 사용한다
 - 반드시 한국어로만 답한다
+- 조치 방법은 action_detail 컬럼이 있을 때만 사용한다
+- action_detail이 비어 있으면 '등록된 조치 방법 없음'이라고 표시한다
+- action_owner가 비어 있으면 '담당자 미지정'이라고 표시한다
 - 아래 순서로만 간단히 정리한다
 1. 전체 장애 건수
 2. 장애 배치명 목록
 3. 주요 오류 원인 요약
-4. 확인 필요사항
+4. 조치 방법 요약
+5. 담당자
+6. 확인 필요사항
 - 데이터가 비어 있으면 '오늘 장애는 없습니다'라고 답한다
 """.strip()
-
 
 def summarize_billing_dataframe(df: pd.DataFrame, x_field: str, y_field: str) -> Dict[str, Any]:
     if df.empty:
@@ -223,17 +227,80 @@ def build_billing_summary_prompt(query_meta: Dict[str, Any], summary_payload: Di
 """.strip()
 
 
+def _get_first_existing_column(df: pd.DataFrame, candidates: List[str]) -> Optional[str]:
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _safe_cell(row: pd.Series, column: Optional[str], default: str = "") -> str:
+    if not column:
+        return default
+    value = row.get(column)
+    if pd.isna(value) or value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
 def generate_incident_summary(df: pd.DataFrame) -> Optional[str]:
+    """
+    장애현황은 정형 데이터이므로 LLM 호출 없이 코드로 요약한다.
+    - Ollama timeout 방지
+    - 조회 결과가 있을 때 '오늘 장애는 없습니다'가 섞여 출력되는 문제 방지
+    - SQL alias가 영문/한글이어도 동작하도록 주요 컬럼 후보를 함께 처리
+    """
     if df.empty:
         return None
-    rows_json = df.to_json(orient="records", force_ascii=False)
-    summary_prompt = build_incident_summary_prompt(rows_json)
-    return ollama_generate(
-        prompt=summary_prompt,
-        system_prompt="반드시 한국어로만, 데이터 기반으로 요약해라.",
-        config=ChatConfig(),
-    )
 
+    batch_col = _get_first_existing_column(df, ["batch_name", "배치명"])
+    error_code_col = _get_first_existing_column(df, ["error_code", "오류코드"])
+    error_msg_col = _get_first_existing_column(df, ["error_message", "오류메시지", "오류내용"])
+    action_detail_col = _get_first_existing_column(df, ["action_detail", "조치방법", "조치내용"])
+    action_owner_col = _get_first_existing_column(df, ["action_owner", "담당자", "조치담당자"])
+
+    total_count = len(df)
+    batch_names = []
+    error_messages = []
+    action_lines = []
+    owners = []
+
+    for _, row in df.iterrows():
+        batch_name = _safe_cell(row, batch_col, "배치명 없음")
+        error_code = _safe_cell(row, error_code_col, "오류코드 없음")
+        error_message = _safe_cell(row, error_msg_col, "오류 메시지 없음")
+        action_detail = _safe_cell(row, action_detail_col, "등록된 조치 방법 없음")
+        action_owner = _safe_cell(row, action_owner_col, "담당자 미지정")
+
+        batch_names.append(batch_name)
+        error_messages.append(error_message)
+        action_lines.append(f"- {batch_name} ({error_code}): {action_detail}")
+        owners.append(action_owner)
+
+    unique_error_messages = list(dict.fromkeys(error_messages))
+    unique_owners = [owner for owner in dict.fromkeys(owners) if owner != "담당자 미지정"]
+
+    lines = [
+        "장애 현황 조회 결과",
+        "",
+        f"전체 장애 건수: {total_count}건",
+        "",
+        "장애 배치명 목록:",
+        *[f"- {name}" for name in batch_names],
+        "",
+        "주요 오류 원인 요약:",
+        f"- {', '.join(unique_error_messages)}",
+        "",
+        "조치 방법 요약:",
+        *action_lines,
+        "",
+        f"담당자: {', '.join(unique_owners) if unique_owners else '담당자 미지정'}",
+        "",
+        "확인 필요사항: 조치 후 배치 재실행 여부와 후속 배치 영향도를 확인하세요.",
+    ]
+
+    return "\n".join(lines)
 
 def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Optional[str]:
     if df.empty:

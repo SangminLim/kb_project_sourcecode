@@ -18,20 +18,35 @@ from sqlalchemy.engine import Engine
 
 
 QUERY_REGISTRY: Dict[str, Dict[str, Any]] = {
-    "today_incidents": {
+"today_incidents": {
         "sql": """
-            SELECT
-                batch_name,
-                status,
-                error_code,
-                error_message,
-                start_time,
-                end_time
-            FROM TB_BATCH_INCIDENT
-            WHERE DATE(start_time) = CURRENT_DATE
-              AND status = :status
-            ORDER BY start_time DESC
-            LIMIT :limit_count
+        SELECT
+            i.batch_name as 배치명,
+            i.status as 상태,
+            i.error_code as 오류코드,
+            i.error_message as 오류메시지,
+            i.start_time as 오류발생시간,
+            a.action_detail as 조치내용,
+            a.action_owner as 담당자
+        FROM testDB.TB_BATCH_INCIDENT i
+        LEFT JOIN (
+            SELECT *
+            FROM (
+                SELECT *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY batch_name, error_code
+                        ORDER BY created_at DESC
+                    ) AS rn
+                FROM testDB.TB_BATCH_ACTION_HISTORY
+            ) t
+            WHERE rn = 1
+        ) a
+        ON i.batch_name = a.batch_name
+        AND i.error_code = a.error_code
+        WHERE DATE(i.start_time) = CURRENT_DATE
+        AND i.status = :status
+        ORDER BY i.start_time DESC
+        LIMIT :limit_count
         """,
         "params": {
             "status": "FAIL",
