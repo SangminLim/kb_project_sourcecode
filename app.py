@@ -303,21 +303,64 @@ def generate_incident_summary(df: pd.DataFrame) -> Optional[str]:
 
     return "\n".join(lines)
 
+def format_krw(amount: Any) -> str:
+    """DB 금액은 원 단위 정수로 관리하고, 화면/요약에서만 사람이 읽기 좋은 형태로 변환한다."""
+    amount_int = int(round(float(amount or 0)))
+    if amount_int != 0 and amount_int % 10000 == 0:
+        return f"{amount_int // 10000:,}만 원"
+    return f"{amount_int:,}원"
+
+
+def _billing_pattern_text(summary: Dict[str, Any]) -> str:
+    """최근 증감률 기준으로 간단한 패턴 문구를 만든다."""
+    change_rate_pct = summary.get("change_rate_pct")
+    if change_rate_pct is None:
+        return "데이터 패턴은 단일 구간이므로 증감 판단은 생략합니다."
+    if change_rate_pct > 0:
+        return "데이터 패턴은 최근 구간에서 증가하는 흐름입니다."
+    if change_rate_pct < 0:
+        return "데이터 패턴은 최근 구간에서 감소하는 흐름입니다."
+    return "데이터 패턴은 최근 구간에서 전월과 동일한 흐름입니다."
+
+
 def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Optional[str]:
+    """
+    청구 월별 금액 요약은 LLM이 숫자 단위를 오해하지 않도록 코드로 생성한다.
+    - 계산은 summarize_billing_dataframe에서 수행
+    - 금액 표시는 원 단위 기준으로 format_krw에서 수행
+    """
     if df.empty:
         return None
-    summary_payload = summarize_billing_dataframe(
+
+    summary = summarize_billing_dataframe(
         df,
         x_field=query_meta.get("x_field", "billing_month"),
         y_field=query_meta.get("y_field", "amount"),
     )
-    summary_prompt = build_billing_summary_prompt(query_meta, summary_payload)
-    return ollama_generate(
-        prompt=summary_prompt,
-        system_prompt="반드시 한국어로만, 요약 데이터 기반으로 간단히 해석해라.",
-        config=ChatConfig(),
-    )
 
+    lines = [
+        (
+            f"전체 흐름 요약: 총 {summary['row_count']}개월치의 청구 이용내역서 월별 금액 조회 결과, "
+            f"총액은 {format_krw(summary['total_amount'])}으로 확인됩니다."
+        ),
+        (
+            f"최고 금액 구간: 최고 금액은 {format_krw(summary['max_amount'])}으로, "
+            f"{summary['max_period']}에 발생했습니다."
+        ),
+        (
+            f"최저 금액 구간: 최저 금액은 {format_krw(summary['min_amount'])}으로, "
+            f"{summary['min_period']}에 발생했습니다."
+        ),
+    ]
+
+    if summary.get("change_rate_pct") is not None:
+        lines.append(
+            f"최근 구간의 증감 포인트: 최근 구간인 {summary['latest_period']}에는 "
+            f"{format_krw(summary['latest_amount'])}으로, 전월 대비 {summary['change_rate_pct']}% 변동했습니다."
+        )
+
+    lines.append(_billing_pattern_text(summary))
+    return "\n\n".join(lines)
 
 def _render_bullets(items: List[str]) -> None:
     for item in items or []:
@@ -726,8 +769,56 @@ def build_evaluation_checks(result: Any) -> List[str]:
     )
     return checks
 
+
+def render_batch_development_evaluation_panel(result: Any) -> None:
+    payload = getattr(result, "batch_dev_result", None) or {}
+    batch_spec = payload.get("batch_spec", {}) or {}
+
+    with st.expander("📊 배치개발 평가용 근거 확인", expanded=True):
+        st.markdown("##### 1) 요청 해석 결과")
+        st.json({
+            "original_question": getattr(result, "original_question", ""),
+            "normalized_question": getattr(result, "normalized_question", ""),
+            "rewritten_question": getattr(result, "rewritten_question", ""),
+            "intent": getattr(result, "intent", None),
+            "render_type": getattr(result, "render_type", None),
+            "success": payload.get("success"),
+        })
+
+        st.markdown("##### 2) 생성된 배치 명세")
+        st.json({
+            "batch_id": batch_spec.get("batch_id"),
+            "batch_name": batch_spec.get("batch_name"),
+            "batch_type": batch_spec.get("batch_type"),
+            "source": batch_spec.get("source"),
+            "target": batch_spec.get("target"),
+        })
+
+        st.markdown("##### 3) 사용한 ERWIN 메타")
+        st.json(batch_spec.get("meta_source", {}))
+
+        st.markdown("##### 4) 사용한 Rule / SQL Template")
+        st.json(batch_spec.get("rule_source", {}))
+
+        st.markdown("##### 5) 생성 SQL")
+        st.code(batch_spec.get("sql", ""), language="sql")
+
+        st.markdown("##### 6) 생성 파일")
+        for file_path in payload.get("created_files", []):
+            st.code(file_path, language="text")
+
+        st.markdown("##### 7) 검증 결과")
+        st.json({
+            "warnings": payload.get("warnings", []),
+            "errors": payload.get("errors", []),
+        })
+
 def render_evaluation_panel(result: Any) -> None:
     if not st.session_state.evaluation_mode:
+        return
+
+    if getattr(result, "intent", None) == "batch_development":
+        render_batch_development_evaluation_panel(result)
         return
 
     used_json = build_used_json_view(result)
