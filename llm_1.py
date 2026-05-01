@@ -10,11 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import chromadb
 import requests
 
-try:
-    from batch_dev.request_classifier import detect_structured_request_type
-except Exception:
-    detect_structured_request_type = None
-
 BASE_DIR = Path(__file__).resolve().parent
 SYSTEM_REGISTRY_PATH = Path(os.getenv("SYSTEM_REGISTRY_PATH", str(BASE_DIR / "system_registry.json")))
 QUESTION_DICTIONARY_PATH = Path(os.getenv("QUESTION_DICTIONARY_PATH", str(BASE_DIR / "question_dictionary.json")))
@@ -180,13 +175,6 @@ def detect_system_id_with_history(question: str, chat_history: List[Dict[str, st
 
 def detect_intent(question: str) -> str:
     q = normalize_whitespace(question)
-
-    # 배치 요청서처럼 구조화된 입력은 업무 키워드가 아니라 request_schema.json 기준으로 판별한다.
-    if detect_structured_request_type is not None:
-        structured_type = detect_structured_request_type(q)
-        if structured_type:
-            return structured_type
-
     for intent, patterns in INTENT_PATTERNS.items():
         if any(p in q for p in patterns):
             return intent

@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "batch_id": "BATCH_TRADITIONAL_MARKET_MERCHANT_EXPORT",
+  "batch_name": "전통시장 가맹점 정보 파일 생성",
+  "batch_type": "db_to_file",
+  "description": "전통시장 가맹점 정보를 기준일자로 조회해서 CSV 파일 생성하는 배치 만들어줘. 테이블은 TB_TRADITIONAL_MARKET_MERCHANT. 컬럼은 MERCHANT_ID, MERCHANT_NAME, BUSINESS_NO, MARKET_TYPE. 파일명은 traditional_market_YYYYMMDD.csv.",
+  "schedule_type": "daily",
+  "parameters": [
+    {
+      "name": "base_date",
+      "required": true,
+      "description": "기준일자(YYYYMMDD)"
+    }
+  ],
+  "source": {
+    "table": "TB_TRADITIONAL_MARKET_MERCHANT",
+    "columns": [
+      "MERCHANT_ID",
+      "MERCHANT_NAME",
+      "BUSINESS_NO",
+      "MARKET_TYPE"
+    ],
+    "base_date_column": "BASE_DATE"
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "traditional_market",
+    "output_file_pattern": "traditional_market_{base_date}.csv",
+    "output_dir": "./output",
+    "encoding": "utf-8-sig"
+  },
+  "sql": "SELECT\n    MERCHANT_ID,\n    MERCHANT_NAME,\n    BUSINESS_NO,\n    MARKET_TYPE\nFROM TB_TRADITIONAL_MARKET_MERCHANT\nWHERE BASE_DATE = :base_date",
+  "validation_rules": {
+    "min_rows": 0,
+    "not_null_columns": []
+  }
+}

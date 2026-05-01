@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "batch_id": "BATCH_TRAD_MARKET_MERCHANT_EXPORT",
+  "batch_name": "전통시장 가맹점 파일 생성",
+  "batch_type": "db_to_file",
+  "description": "[배치 개발 요청서] 배치명: 전통시장 가맹점 파일 생성 기준 테이블: TB_TRAD_MARKET_MERCHANT 출력 목적: 소득공제 대상 전통시장 가맹점 추출 출력 형식: CSV 파일명: traditional_market_merchant_YYYYMMDD.csv 기준일자: APPLY_START_DT 조건: - 기준일자가 적용시작일자와 종료일자 사이 - USE_YN = 'Y' 위 명세로 배치 만들어줘.",
+  "schedule_type": "daily",
+  "parameters": [
+    {
+      "name": "base_date",
+      "required": true,
+      "description": "기준일자(YYYYMMDD)"
+    }
+  ],
+  "source": {
+    "table": "TB_TRAD_MARKET_MERCHANT",
+    "columns": [
+      "MERCHANT_ID",
+      "MERCHANT_NM",
+      "MARKET_NM",
+      "BIZ_NO",
+      "APPLY_START_DT",
+      "APPLY_END_DT",
+      "USE_YN",
+      "REG_DTM",
+      "UPD_DTM"
+    ],
+    "base_date_column": "APPLY_START_DT"
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "traditional_market_merchant",
+    "output_file_pattern": "traditional_market_merchant_{base_date}.csv",
+    "output_dir": "./output",
+    "encoding": "utf-8-sig"
+  },
+  "sql": "SELECT\n    MERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE :base_date BETWEEN APPLY_START_DT AND IFNULL(APPLY_END_DT, '99991231')\n  AND USE_YN = 'Y'",
+  "validation_rules": {
+    "min_rows": 0,
+    "not_null_columns": [
+      "MERCHANT_ID",
+      "APPLY_START_DT"
+    ]
+  },
+  "meta_source": {
+    "type": "erwin_meta",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
+    "tables": [
+      "TB_TRAD_MARKET_MERCHANT"
+    ]
+  },
+  "rule_source": {
+    "rule_id": "active_period_export",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\active_period_export.json",
+    "sql_template": "active_period_export.sql.j2"
+  }
+}

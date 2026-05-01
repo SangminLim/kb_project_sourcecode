@@ -953,17 +953,6 @@ def render_history_messages() -> None:
                 st.write(content)
 
 
-
-def read_uploaded_text_file(uploaded_file: Any) -> str:
-    """Streamlit 업로드 TXT 요청서를 문자열로 읽는다."""
-    raw = uploaded_file.read()
-    for encoding in ("utf-8-sig", "utf-8", "cp949", "euc-kr"):
-        try:
-            return raw.decode(encoding).strip()
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="ignore").strip()
-
 def main() -> None:
     st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
     init_session_state()
@@ -974,21 +963,6 @@ def main() -> None:
         st.markdown("### 설정")
         st.session_state.evaluation_mode = st.checkbox("평가용 근거 보기", value=st.session_state.evaluation_mode)
         st.session_state.debug_mode = st.checkbox("디버그 정보 보기", value=st.session_state.debug_mode)
-
-        st.markdown("### 배치 요청서 업로드")
-        uploaded_batch_request = st.file_uploader(
-            "TXT 요청서",
-            type=["txt"],
-            key="batch_request_txt",
-            help="배치명/기준 테이블/파일명/기준일자/조건 등이 적힌 현업 요청서 TXT를 업로드합니다.",
-        )
-        if uploaded_batch_request is not None and st.button("요청서로 배치 생성", use_container_width=True):
-            request_text = read_uploaded_text_file(uploaded_batch_request)
-            if request_text:
-                st.session_state.pending_question = request_text
-            else:
-                st.warning("요청서 파일 내용이 비어 있습니다.")
-
         st.markdown("### 최근 질문")
         recent_questions = get_recent_questions(st.session_state.message_list, limit=10)
         if recent_questions:

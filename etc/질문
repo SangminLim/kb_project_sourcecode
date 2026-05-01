@@ -1,6 +1,6 @@
 python rag/ingest_overview_batchprocess_chunked.py --json_path ./handover_improved.json --persist_dir ./chroma --collection handover_agent --reset
 
-
+python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-date 20260430
 
 python test_eval_practical_structured.py --dataset ./eval_dataset_practical_structured.json --json_path ./handover_improved.json --persist_dir ./chroma --collection handover_agent --output ./eval_result_practical_structured.json
 
@@ -21,6 +21,13 @@ INSERT INTO testDB.TB_BATCH_INCIDENT (
 
 
 SELECT * FROM testDB.TB_BATCH_INCIDENT;
+
+KKK은행 소득공제 업무 개요를 알려줘
+=> 오리지날 질문
+
+배치 프로세스 보여줘
+=> history + 
+
 
 1. KKK은행 소득공제 업무 개요를 알려줘
 2. KKK은행 소득공제 배치 프로세스를 설명해줘

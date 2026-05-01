@@ -1,0 +1,21 @@
+{
+  "rule_id": "generic_export",
+  "description": "일반 단일 테이블 기준일자 조회 파일 생성",
+  "batch_type": "db_to_file",
+  "priority": 1,
+  "match": {
+    "request_any": ["파일", "CSV", "csv", "생성", "조회", "추출", "배치"]
+  },
+  "sql_template": "generic_export.sql.j2",
+  "defaults": {
+    "output_format": "csv",
+    "schedule_type": "manual",
+    "base_date_column": "BASE_DATE"
+  },
+  "conditions": [
+    {
+      "id": "base_date_equal",
+      "template": "{{ base_date_column }} = :base_date"
+    }
+  ]
+}

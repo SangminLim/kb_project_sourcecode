@@ -1,0 +1,38 @@
+{
+  "request_type": "batch_development",
+  "minimum_matched_fields": 3,
+  "fields": {
+    "batch_name": {
+      "required": true,
+      "aliases": ["배치명", "작업명", "프로그램명", "JOB명", "job_name"]
+    },
+    "source_table": {
+      "required": true,
+      "aliases": ["기준 테이블", "소스 테이블", "원천 테이블", "입력 테이블", "테이블", "source_table"]
+    },
+    "purpose": {
+      "required": false,
+      "aliases": ["출력 목적", "업무 목적", "목적", "사용 목적", "purpose"]
+    },
+    "output_format": {
+      "required": false,
+      "aliases": ["출력 형식", "파일 형식", "포맷", "format"]
+    },
+    "output_file": {
+      "required": true,
+      "aliases": ["파일명", "출력 파일명", "생성 파일명", "output_file"]
+    },
+    "base_date_column": {
+      "required": true,
+      "aliases": ["기준일자", "기준일자 컬럼", "기준일", "base_date_column"]
+    },
+    "columns": {
+      "required": false,
+      "aliases": ["컬럼", "대상 컬럼", "출력 컬럼", "항목", "columns"]
+    },
+    "condition": {
+      "required": false,
+      "aliases": ["조건", "조회 조건", "추출 조건", "필터", "condition"]
+    }
+  }
+}

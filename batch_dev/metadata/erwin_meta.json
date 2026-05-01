@@ -1,0 +1,97 @@
+{
+  "version": "1.0",
+  "description": "소득공제 배치 개발용 ERWIN 메타 초안. 실제 운영 반영 전 회사 ERWIN/DB 컬럼명과 반드시 대조해야 한다.",
+  "tables": [
+    {
+      "table_name": "TB_BOOK_PERF_MERCHANT",
+      "table_kor_name": "도서공연가맹점테이블",
+      "aliases": ["도서공연가맹점", "도서공연 가맹점", "도서공연"],
+      "description": "도서/공연 소득공제 대상 가맹점 정보를 관리하는 테이블",
+      "primary_keys": ["MERCHANT_ID", "APPLY_START_DT"],
+      "columns": [
+        {"column_name":"MERCHANT_ID","column_kor_name":"가맹점ID","data_type":"VARCHAR2","length":20,"nullable":false},
+        {"column_name":"MERCHANT_NM","column_kor_name":"가맹점명","data_type":"VARCHAR2","length":100,"nullable":false},
+        {"column_name":"BIZ_NO","column_kor_name":"사업자번호","data_type":"VARCHAR2","length":10,"nullable":true},
+        {"column_name":"MCC_CD","column_kor_name":"MCC코드","data_type":"VARCHAR2","length":4,"nullable":true},
+        {"column_name":"APPLY_START_DT","column_kor_name":"적용시작일자","data_type":"VARCHAR2","length":8,"nullable":false},
+        {"column_name":"APPLY_END_DT","column_kor_name":"적용종료일자","data_type":"VARCHAR2","length":8,"nullable":true},
+        {"column_name":"USE_YN","column_kor_name":"사용여부","data_type":"CHAR","length":1,"nullable":false},
+        {"column_name":"REG_DTM","column_kor_name":"등록일시","data_type":"DATE","nullable":false},
+        {"column_name":"UPD_DTM","column_kor_name":"수정일시","data_type":"DATE","nullable":true}
+      ]
+    },
+    {
+      "table_name": "TB_TRAD_MARKET_MERCHANT",
+      "table_kor_name": "전통시장가맹점테이블",
+      "aliases": ["전통시장가맹점", "전통시장 가맹점", "전통시장"],
+      "description": "전통시장 소득공제 대상 가맹점 정보를 관리하는 테이블",
+      "primary_keys": ["MERCHANT_ID", "APPLY_START_DT"],
+      "columns": [
+        {"column_name":"MERCHANT_ID","column_kor_name":"가맹점ID","data_type":"VARCHAR2","length":20,"nullable":false},
+        {"column_name":"MERCHANT_NM","column_kor_name":"가맹점명","data_type":"VARCHAR2","length":100,"nullable":false},
+        {"column_name":"MARKET_NM","column_kor_name":"시장명","data_type":"VARCHAR2","length":100,"nullable":true},
+        {"column_name":"BIZ_NO","column_kor_name":"사업자번호","data_type":"VARCHAR2","length":10,"nullable":true},
+        {"column_name":"APPLY_START_DT","column_kor_name":"적용시작일자","data_type":"VARCHAR2","length":8,"nullable":false},
+        {"column_name":"APPLY_END_DT","column_kor_name":"적용종료일자","data_type":"VARCHAR2","length":8,"nullable":true},
+        {"column_name":"USE_YN","column_kor_name":"사용여부","data_type":"CHAR","length":1,"nullable":false},
+        {"column_name":"REG_DTM","column_kor_name":"등록일시","data_type":"DATE","nullable":false},
+        {"column_name":"UPD_DTM","column_kor_name":"수정일시","data_type":"DATE","nullable":true}
+      ]
+    },
+    {
+      "table_name": "TB_GENERAL_DEDUCT_MERCHANT",
+      "table_kor_name": "소득공제가맹점테이블",
+      "aliases": ["소득공제가맹점", "소득공제 가맹점", "일반 소득공제 가맹점", "일반소득공제가맹점"],
+      "description": "도서공연/전통시장을 제외한 일반 소득공제 대상 가맹점 정보를 관리하는 테이블",
+      "primary_keys": ["MERCHANT_ID", "APPLY_START_DT"],
+      "columns": [
+        {"column_name":"MERCHANT_ID","column_kor_name":"가맹점ID","data_type":"VARCHAR2","length":20,"nullable":false},
+        {"column_name":"MERCHANT_NM","column_kor_name":"가맹점명","data_type":"VARCHAR2","length":100,"nullable":false},
+        {"column_name":"BIZ_NO","column_kor_name":"사업자번호","data_type":"VARCHAR2","length":10,"nullable":true},
+        {"column_name":"MCC_CD","column_kor_name":"MCC코드","data_type":"VARCHAR2","length":4,"nullable":true},
+        {"column_name":"APPLY_START_DT","column_kor_name":"적용시작일자","data_type":"VARCHAR2","length":8,"nullable":false},
+        {"column_name":"APPLY_END_DT","column_kor_name":"적용종료일자","data_type":"VARCHAR2","length":8,"nullable":true},
+        {"column_name":"USE_YN","column_kor_name":"사용여부","data_type":"CHAR","length":1,"nullable":false},
+        {"column_name":"REG_DTM","column_kor_name":"등록일시","data_type":"DATE","nullable":false},
+        {"column_name":"UPD_DTM","column_kor_name":"수정일시","data_type":"DATE","nullable":true}
+      ]
+    },
+    {
+      "table_name": "TB_CARD_SALES_LEDGER",
+      "table_kor_name": "매출원장테이블",
+      "aliases": ["매출원장", "매출 원장", "카드매출원장", "매출테이블"],
+      "description": "카드 승인/매입 기준의 원천 매출 거래 내역을 저장하는 원장 테이블",
+      "primary_keys": ["SALES_SEQ_NO"],
+      "columns": [
+        {"column_name":"SALES_SEQ_NO","column_kor_name":"매출일련번호","data_type":"VARCHAR2","length":30,"nullable":false},
+        {"column_name":"SALES_DT","column_kor_name":"매출일자","data_type":"VARCHAR2","length":8,"nullable":false},
+        {"column_name":"SALES_TM","column_kor_name":"매출시간","data_type":"VARCHAR2","length":6,"nullable":true},
+        {"column_name":"CARD_NO","column_kor_name":"카드번호","data_type":"VARCHAR2","length":20,"nullable":false},
+        {"column_name":"CUSTOMER_ID","column_kor_name":"고객ID","data_type":"VARCHAR2","length":20,"nullable":false},
+        {"column_name":"MERCHANT_ID","column_kor_name":"가맹점ID","data_type":"VARCHAR2","length":20,"nullable":false},
+        {"column_name":"APPROVAL_NO","column_kor_name":"승인번호","data_type":"VARCHAR2","length":20,"nullable":true},
+        {"column_name":"SALES_AMT","column_kor_name":"매출금액","data_type":"NUMBER","precision":15,"scale":0,"nullable":false},
+        {"column_name":"VAT_AMT","column_kor_name":"부가세금액","data_type":"NUMBER","precision":15,"scale":0,"nullable":true},
+        {"column_name":"SERVICE_FEE","column_kor_name":"봉사료","data_type":"NUMBER","precision":15,"scale":0,"nullable":true},
+        {"column_name":"INSTALLMENT_MONTH","column_kor_name":"할부개월수","data_type":"NUMBER","precision":2,"scale":0,"nullable":true},
+        {"column_name":"CANCEL_YN","column_kor_name":"취소여부","data_type":"CHAR","length":1,"nullable":false},
+        {"column_name":"SALES_STATUS_CD","column_kor_name":"매출상태코드","data_type":"VARCHAR2","length":2,"nullable":false},
+        {"column_name":"MCC_CD","column_kor_name":"업종코드","data_type":"VARCHAR2","length":4,"nullable":true},
+        {"column_name":"ORG_FILE_NM","column_kor_name":"원천파일명","data_type":"VARCHAR2","length":100,"nullable":true},
+        {"column_name":"BASE_YM","column_kor_name":"기준년월","data_type":"VARCHAR2","length":6,"nullable":false},
+        {"column_name":"REG_DTM","column_kor_name":"등록일시","data_type":"DATE","nullable":false},
+        {"column_name":"UPD_DTM","column_kor_name":"수정일시","data_type":"DATE","nullable":true}
+      ],
+      "indexes": [
+        {"index_name":"IDX_CARD_SALES_LEDGER_01","columns":["SALES_DT"]},
+        {"index_name":"IDX_CARD_SALES_LEDGER_02","columns":["MERCHANT_ID"]},
+        {"index_name":"IDX_CARD_SALES_LEDGER_03","columns":["CUSTOMER_ID"]}
+      ]
+    }
+  ],
+  "relations": [
+    {"relation_name":"REL_LEDGER_BOOK_PERF_MERCHANT","left_table":"TB_CARD_SALES_LEDGER","right_table":"TB_BOOK_PERF_MERCHANT","join_columns":[{"left_column":"MERCHANT_ID","right_column":"MERCHANT_ID"}],"effective_date":{"transaction_date_column":"SALES_DT","start_column":"APPLY_START_DT","end_column":"APPLY_END_DT"}},
+    {"relation_name":"REL_LEDGER_TRAD_MARKET_MERCHANT","left_table":"TB_CARD_SALES_LEDGER","right_table":"TB_TRAD_MARKET_MERCHANT","join_columns":[{"left_column":"MERCHANT_ID","right_column":"MERCHANT_ID"}],"effective_date":{"transaction_date_column":"SALES_DT","start_column":"APPLY_START_DT","end_column":"APPLY_END_DT"}},
+    {"relation_name":"REL_LEDGER_GENERAL_DEDUCT_MERCHANT","left_table":"TB_CARD_SALES_LEDGER","right_table":"TB_GENERAL_DEDUCT_MERCHANT","join_columns":[{"left_column":"MERCHANT_ID","right_column":"MERCHANT_ID"}],"effective_date":{"transaction_date_column":"SALES_DT","start_column":"APPLY_START_DT","end_column":"APPLY_END_DT"}}
+  ]
+}
