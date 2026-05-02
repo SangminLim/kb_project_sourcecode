@@ -24,7 +24,6 @@ TYPO_NORMALIZATION_PATH = Path(os.getenv("TYPO_NORMALIZATION_PATH", str(CONF_DIR
 INTENT_REGISTRY_PATH = Path(os.getenv("INTENT_REGISTRY_PATH", str(CONF_DIR / "intent_registry.json")))
 PROMPT_TEMPLATE_PATH = Path(os.getenv("PROMPT_TEMPLATE_PATH", str(CONF_DIR / "prompt_templates.json")))
 FEW_SHOT_PATH = Path(os.getenv("FEW_SHOT_PATH", str(CONF_DIR / "few_shot_examples.json")))
-CONVERSATION_POLICY_PATH = Path(os.getenv("CONVERSATION_POLICY_PATH", str(CONF_DIR / "conversation_policy.json")))
 
 
 def _load_required_json_file(path: Path, config_name: str) -> Any:
@@ -109,29 +108,12 @@ def load_few_shot_examples() -> List[Dict[str, str]]:
             loaded.append({"user": user, "assistant": assistant})
     return loaded
 
-def load_conversation_policy() -> Dict[str, Any]:
-    """conf/conversation_policy.json에서 대화 정책을 읽는다.
-
-    운영 설정으로 관리할 항목:
-    - followup_signals
-    - intent_conflict_keywords
-    - system_required_intents
-    - out_of_scope_message
-    - missing_system_message
-    """
-    data = _load_required_json_file(CONVERSATION_POLICY_PATH, "conversation_policy")
-    if not isinstance(data, dict):
-        raise ValueError("conversation_policy.json 형식이 올바르지 않습니다. dict여야 합니다.")
-    return data
-
-
 SYSTEM_SPECS = load_system_specs()
 QUESTION_REPLACEMENTS = load_question_replacements()
 TYPO_NORMALIZATION = load_typo_normalization()
 INTENT_PATTERNS = load_intent_patterns()
 SYSTEM_PROMPT_BY_INTENT = load_prompt_templates()
 FEW_SHOT_EXAMPLES = load_few_shot_examples()
-CONVERSATION_POLICY = load_conversation_policy()
 SYSTEM_NAME_BY_ID: Dict[str, str] = {spec["system_id"]: spec["canonical_name"] for spec in SYSTEM_SPECS}
 
 
@@ -214,14 +196,20 @@ def history_to_text(chat_history: List[Dict[str, str]], max_turns: int = 4) -> s
 def is_followup_question(question: str) -> bool:
     """이전 답변/질문을 이어서 말하는 짧은 후속 질문인지 판단한다.
 
-    followup 신호는 코드에 박지 않고 conf/conversation_policy.json에서 관리한다.
+    특정 업무 문장을 하드코딩하지 않고, 대명사/재표현/출력형식 변경 신호만 본다.
+    예: 다시 보여줘, 그거 표로, 테이블로 보여줘, 그래프로 그려줘 등
     """
     q = normalize_whitespace(question)
     if not q:
         return False
 
-    followup_signals = CONVERSATION_POLICY.get("followup_signals", [])
-    return any(str(signal) in q for signal in followup_signals if str(signal).strip())
+    followup_signals = {
+        "다시", "방금", "이전", "아까", "위에",
+        "그거", "그걸", "그럼", "그걸로", "이걸", "저걸",
+        "표로", "테이블로", "그래프로", "차트로",
+        "그려줘", "보여줘", "정리해줘", "요약해줘",
+    }
+    return any(signal in q for signal in followup_signals)
 
 
 def detect_previous_user_intent(chat_history: List[Dict[str, str]]) -> str:
@@ -251,20 +239,10 @@ def build_canonical_question(question: str, resolved_system_id: Optional[str], i
         "today_incidents": "오늘 장애현황 알려줘",
         "batch_development": question,
     }
-
-    system_required_intents = set(CONVERSATION_POLICY.get("system_required_intents", []))
-    if intent in system_required_intents:
-        if system_name:
-            return templates[intent].format(system_name=system_name)
-        # 시스템명이 없으면 {system_name} 템플릿을 절대 반환하지 않는다.
-        return question
-
-    if intent in {"billing_monthly_amount", "today_incidents"}:
+    if intent in {"overview", "batch_process", "batch_flow", "table_lineage"} and system_name:
+        return templates[intent].format(system_name=system_name)
+    if intent in templates:
         return templates[intent]
-
-    if intent == "batch_development":
-        return question
-
     return question
 
 
@@ -359,17 +337,30 @@ def is_valid_rewritten_question(text: str, resolved_intent: Optional[str] = None
         return False
 
     # rewrite 결과가 이미 결정된 intent와 충돌하면 버린다.
-    # 충돌 키워드는 conf/conversation_policy.json에서 관리한다.
-    intent_conflict_keywords = CONVERSATION_POLICY.get("intent_conflict_keywords", {})
-    conflict_keywords = intent_conflict_keywords.get(resolved_intent, []) if resolved_intent else []
-    if any(str(keyword) in q for keyword in conflict_keywords if str(keyword).strip()):
-        return False
+    # 예: batch_process인데 LLM이 임의로 "흐름도"를 붙이는 경우.
+    intent_conflict_keywords: Dict[str, List[str]] = {
+        "overview": ["배치 프로세스", "배치 흐름도", "테이블 리니지", "월별 금액", "장애현황"],
+        "batch_process": ["흐름도", "리니지", "월별 금액", "장애현황", "그래프"],
+        "batch_flow": ["리니지", "월별 금액", "장애현황"],
+        "table_lineage": ["배치 프로세스", "배치 흐름도", "월별 금액", "장애현황"],
+        "billing_monthly_amount": ["배치 프로세스", "배치 흐름도", "리니지", "장애현황"],
+        "today_incidents": ["월별 금액", "배치 흐름도", "리니지"],
+    }
+    if resolved_intent in intent_conflict_keywords:
+        if any(keyword in q for keyword in intent_conflict_keywords[resolved_intent]):
+            return False
 
-    # valid keyword도 코드 하드코딩 대신 intent_registry.json의 patterns를 사용한다.
-    valid_keywords: List[str] = []
-    for patterns in INTENT_PATTERNS.values():
-        valid_keywords.extend([str(item) for item in patterns if str(item).strip()])
-
+    valid_keywords = [
+        "업무 개요",
+        "배치 프로세스",
+        "배치 흐름도",
+        "테이블 리니지",
+        "월별 금액",
+        "장애현황",
+        "배치 개발",
+        "배치 생성",
+        "배치 만들어",
+    ]
     return any(k in q for k in valid_keywords)
 
 
@@ -620,66 +611,21 @@ class HandoverAgent:
         normalized_question = apply_dictionary_rewrite(question)
         debug_logs.append(f"[PREP 1] normalized_question = {normalized_question}")
 
+        system_id = detect_system_id_with_history(normalized_question, chat_history)
+        debug_logs.append(f"[PREP 2] resolved_system_id_before_rewrite = {system_id}")
+
         initial_intent = detect_intent(normalized_question)
         if initial_intent == "default" and chat_history:
             if is_followup_question(normalized_question):
                 previous_intent = detect_previous_user_intent(chat_history)
                 if previous_intent != "default":
                     initial_intent = previous_intent
-                    debug_logs.append(f"[PREP 2-1] followup_intent_inherited = {previous_intent}")
+                    debug_logs.append(f"[PREP 3-1] followup_intent_inherited = {previous_intent}")
                 else:
-                    debug_logs.append("[PREP 2-1] followup_intent_inherited = skipped (previous intent 없음)")
+                    debug_logs.append("[PREP 3-1] followup_intent_inherited = skipped (previous intent 없음)")
             else:
-                debug_logs.append("[PREP 2-1] history_intent_inherited = skipped (followup 아님)")
-
-        direct_system_id = detect_system_id(normalized_question)
-        if direct_system_id:
-            system_id = direct_system_id
-            debug_logs.append("[PREP 2-2] system_id_source = current_question")
-        elif initial_intent != "default" or is_followup_question(normalized_question):
-            # 업무 intent가 잡혔거나 후속질문이면 이전 시스템 문맥을 상속한다.
-            # 예: "배치 프로세스도 설명해줘" → 직전 KKK은행 문맥 상속
-            system_id = detect_system_id_with_history(normalized_question, chat_history)
-            debug_logs.append("[PREP 2-2] system_id_source = history_context")
-        else:
-            system_id = None
-            debug_logs.append("[PREP 2-2] system_id_source = none")
-
-        debug_logs.append(f"[PREP 2] resolved_system_id_before_rewrite = {system_id}")
+                debug_logs.append("[PREP 3-1] history_intent_inherited = skipped (followup 아님)")
         debug_logs.append(f"[PREP 3] resolved_intent_before_rewrite = {initial_intent}")
-
-        if initial_intent == "default" and not system_id:
-            debug_logs.append("[PREP 4] out_of_scope_detected = True")
-            return AgentResult(
-                original_question=question,
-                normalized_question=normalized_question,
-                rewritten_question=normalized_question,
-                system_id=None,
-                intent="out_of_scope",
-                answer=str(CONVERSATION_POLICY.get(
-                    "out_of_scope_message",
-                    "현재 에이전트의 지원 범위를 벗어난 질문입니다."
-                )),
-                render_type="text",
-                debug_logs=debug_logs,
-            )
-
-        system_required_intents = set(CONVERSATION_POLICY.get("system_required_intents", []))
-        if initial_intent in system_required_intents and not system_id:
-            debug_logs.append("[PREP 4] missing_system_id = True")
-            return AgentResult(
-                original_question=question,
-                normalized_question=normalized_question,
-                rewritten_question=normalized_question,
-                system_id=None,
-                intent=initial_intent,
-                answer=str(CONVERSATION_POLICY.get(
-                    "missing_system_message",
-                    "어느 시스템 기준인지 확인할 수 없습니다. 시스템명을 포함해서 다시 질문해주세요."
-                )),
-                render_type="text",
-                debug_logs=debug_logs,
-            )
 
         rewritten_question, rewrite_logs = rewrite_question(
             question=normalized_question,
@@ -690,9 +636,7 @@ class HandoverAgent:
         )
         debug_logs.extend(rewrite_logs)
 
-        intent = initial_intent
-        if intent == "default":
-            intent = detect_intent(rewritten_question)
+        intent = detect_intent(rewritten_question)
         debug_logs.append(f"[STEP 5] detected_system_id = {system_id}")
         debug_logs.append(f"[STEP 6] detected_intent = {intent}")
 

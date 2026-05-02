@@ -5,6 +5,8 @@ python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+
 python test_eval_practical_structured.py --dataset ./eval_dataset_practical_structured.json --json_path ./handover_improved.json --persist_dir ./chroma --collection handover_agent --output ./eval_result_practical_structured.json
 
 
+python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
 INSERT INTO testDB.TB_BATCH_INCIDENT (
     batch_name,
     status,
@@ -29,16 +31,16 @@ KKK은행 소득공제 업무 개요를 알려줘
 => history + 
 
 
-1. KKK은행 소득공제 업무 개요를 알려줘
-2. KKK은행 소득공제 배치 프로세스를 설명해줘
+1. KKK은행 소득공제 업무 개요를 알려줘 32 34
+2. KKK은행 소득공제 배치 프로세스를 설명해줘 36 40
 3. KKK은행 소득공제 배치 흐름도를 그려줘
  - 흐름도는 외부라이브러로 그린다
 4. KKK은행 소득공제 테이블 리니지를 보여줘
 - 리니지는 외부라이브러로 그린다
 
-5. BBB증권 소득공제 업무 개요를 알려줘
+5. BBB증권 소득공제 업무 개요를 알려줘 43 46
 
-6. BBB증권 소득공제 배치 프로세스를 설명해줘
+6. BBB증권 소득공제 배치 프로세스를 설명해줘 47 51
 
 7. BBBK증권 소득공제 배치 흐름도를 그려줘
 - 흐름도는 외부라이브러로 그린다
@@ -280,13 +282,42 @@ ingest.py에서 문서 쪼개기
 
 내 추천은 이 순서야:
 
-KKK은행 소득공제 업무 개요를 알려줘
-KKK은행 소득공제 배치 프로세스를 설명해줘
-KKK은행 소득공제 배치 흐름도를 그려줘
-KKK은행 소득공제 테이블 리니지를 보여줘
-BBB증권 소득공제 업무 개요를 알려줘
-청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘
-오늘 장애현황 알려줘
+1.KKK은행 소득공제 업무 개요를 알려줘
+- chroma 에서 overview 읽어서 llm 이 요약
+
+2.KKK은행 소득공제 배치 프로세스를 설명해줘
+- chroma 에서 배치프로세스 읽어서 llm 이 요약
+
+3.KKK은행 소득공제 배치 흐름도를 그려줘
+- 외부라이브러리 graphviz사용하여 배치 흐름도 생성
+- 선후행 알수 있음
+
+4.KKK은행 소득공제 테이블 리니지를 보여줘
+- 외부라이브러리 graphviz사용하여 배치 흐름도 생성
+- 선후행에 사용한 테이블 알수가 있음
+
+5.BBB증권 소득공제 업무 개요를 알려줘
+- chroma 에서 overview 읽어서 llm 이 요약
+
+6.BBB증권 소득공제 배치 프로세스를 설명해줘
+- chroma 에서 배치프로세스 읽어서 llm 이 요약
+
+7.BBB증권 소득공제 배치 흐름도를 그려줘
+- 외부라이브러리 graphviz사용하여 배치 흐름도 생성
+- 선후행 알수 있음
+
+8.BBB증권 소득공제 테이블 리니지를 보여줘
+- 외부라이브러리 graphviz사용하여 배치 흐름도 생성
+- 선후행에 사용한 테이블 알수가 있음
+
+9.청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘
+- DB조회해서 그래프그리고 llm 이 요약해서 나옴
+
+10.오늘 장애현황 알려줘
+- DB에 배치명과 장애처리 내용 조회하여  llm 설명
+
+11.전통시장가맹점번호 파일로 생성하는 배치 만들어줘
+- ERWIn 메타를 사용하여 sql생성 및 배치프로그램 생성
 
 이 순서가 좋은 이유:
 
@@ -311,3 +342,76 @@ BBB증권 소득공제 업무 개요를 알려줘
 
 이 말이 되게 중요하다.
 경진대회에서 LLM도 썼고, 실무성도 챙겼다는 인상을 준다.
+
+
+1. 질문 정규화
+2. intent 후보 추출
+3. DB/RAG 검색
+4. 검색 결과 부족하면 fallback
+5. LLM은 최종 요약/설명/코드 초안만 담당
+
+간단 질문 → DB/캐시/룰로 처리
+업무 설명 → RAG 검색 + 짧은 요약
+복잡한 배치 개발 → LLM 사용
+흐름도/리니지 → DB 메타 기반 생성
+동일 질문 → 캐시 사용
+
+네 인수인계 에이전트도 결국 핵심은:
+
+“LLM 호출 횟수를 줄이고, 한 번 호출할 때 넣는 토큰과 출력 토큰을 줄이는 구조”
+
+이걸로 가야 합니다.
+
+네 에이전트에 적용하면
+DB 처리
+용어사전
+담당자
+장애코드
+배치 실행시간
+테이블 목록
+RAG 처리
+업무 개요
+배치 프로세스
+ERWIN 메타 설명
+복잡 SQL 분석
+배치 개발 요청
+
+핵심
+
+“단순 질문은 검색 없이 처리하고, 복잡할 때만 LLM 사용”
+
+
+[사용자 질문]
+      ↓
+[정규화/오타보정/별칭변환]
+      ↓
+[system_id 판단]
+      ↓
+[intent 판단]
+      ↓
+[표준 질문으로 재작성]
+      ↓
+[의도별 처리]
+
+1) overview / batch_process
+   → Chroma 검색 → LLM 요약 → text 출력
+
+2) batch_flow / table_lineage
+   → JSON graph_data → Graphviz 출력
+
+3) billing_monthly_amount
+   → DB 조회 → Plotly 그래프 → 코드 요약
+
+4) today_incidents
+   → DB 조회 → 테이블 → 코드 요약
+
+5) batch_development
+   → ERWin 메타 기반 spec 생성 → 검증 → 코드 생성
+
+   - 질문 정규화 있음
+- system_id / intent 분리 있음
+- Chroma 검색에 where filter 있음
+- 흐름도/리니지는 Graphviz 기반
+- 숫자/장애 요약은 코드 기반
+- 배치 개발은 별도 Agent로 분리
+- 평가용 근거 패널 있음

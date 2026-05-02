@@ -5,7 +5,6 @@ realtime_service.py
 - DB 연결과 실시간 조회형 SQL을 담당하는 서비스 레이어
 - query_id 기준으로 SQL 실행 책임을 분리
 - streamlit.py는 UI 렌더링에 집중하고, llm.py는 질문 해석에 집중하도록 역할 분리
-- SQL 하드코딩 분산을 피하기 위해 QUERY_REGISTRY에서 조회 정의를 관리
 """
 
 from __future__ import annotations
