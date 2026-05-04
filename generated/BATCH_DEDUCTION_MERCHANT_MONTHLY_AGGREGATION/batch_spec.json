@@ -1,0 +1,73 @@
+{
+  "version": "1.0",
+  "batch_id": "BATCH_DEDUCTION_MERCHANT_MONTHLY_AGGREGATION",
+  "batch_name": "소득공제 월별 통합 집계 배치",
+  "batch_type": "aggregation_to_table",
+  "description": "[배치 개발 요청서] 배치명: 소득공제 월별 통합 집계 배치 기준: - 기준년월(BASE_YM) 대상 테이블: - TB_CARD_SALES_LEDGER - TB_BOOK_PERF_MERCHANT - TB_TRAD_MARKET_MERCHANT - TB_GENERAL_DEDUCT_MERCHANT 처리 내용: - 매출원장 기준으로 가맹점별 소득공제 대상 거래를 구분한다 - 도서공연 / 전통시장 / 일반 가맹점을 각각 분류한다 - 유효기간(APPLY_START_DT ~ APPLY_END_DT) 기준으로 가맹점 매칭한다 - 취소 거래 제외 - 고객별, 가맹점 유형별 월별 금액 집계 출력: - 고객ID, 기준년월, 가맹점유형, 총금액, 건수 조건: - CANCEL_YN = 'N' - USE_YN = 'Y'",
+  "parameters": [
+    {
+      "name": "base_ym",
+      "required": true,
+      "description": "기준년월(YYYYMM)"
+    }
+  ],
+  "source": {
+    "base_table": "TB_CARD_SALES_LEDGER",
+    "base_alias": "A",
+    "base_period_param": "base_ym",
+    "base_period_column": "BASE_YM"
+  },
+  "target": {
+    "table": "TB_DEDUCTION_MONTHLY_SUMMARY",
+    "load_strategy": "delete_insert",
+    "delete_condition": "BASE_YM = :base_ym",
+    "columns": [
+      "CUSTOMER_ID",
+      "BASE_YM",
+      "MERCHANT_TYPE",
+      "TOTAL_AMT",
+      "TXN_COUNT",
+      "REG_DTM"
+    ],
+    "delete_sql": "DELETE FROM TB_DEDUCTION_MONTHLY_SUMMARY WHERE BASE_YM = :base_ym"
+  },
+  "requested_tables": [
+    "TB_BOOK_PERF_MERCHANT",
+    "TB_TRAD_MARKET_MERCHANT",
+    "TB_GENERAL_DEDUCT_MERCHANT",
+    "TB_CARD_SALES_LEDGER"
+  ],
+  "requested_output_fields": [
+    "고객ID",
+    "기준년월",
+    "가맹점유형",
+    "총금액",
+    "건수"
+  ],
+  "requested_conditions": [
+    "CANCEL_YN = 'N'",
+    "USE_YN = 'Y'"
+  ],
+  "sql": "INSERT INTO TB_DEDUCTION_MONTHLY_SUMMARY (\n    CUSTOMER_ID,\n    BASE_YM,\n    MERCHANT_TYPE,\n    TOTAL_AMT,\n    TXN_COUNT,\n    REG_DTM\n)\nSELECT\n    S.CUSTOMER_ID,\n    S.BASE_YM,\n    S.MERCHANT_TYPE,\n    S.TOTAL_AMT,\n    S.TXN_COUNT,\n    NOW() AS REG_DTM\nFROM (\nSELECT\n    A.CUSTOMER_ID AS CUSTOMER_ID,\n    A.BASE_YM AS BASE_YM,\n    CASE\n    WHEN B.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN T.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN G.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND AS MERCHANT_TYPE,\n    SUM(A.SALES_AMT) AS TOTAL_AMT,\n    COUNT(*) AS TXN_COUNT\nFROM TB_CARD_SALES_LEDGER A\nLEFT JOIN TB_BOOK_PERF_MERCHANT B\n  ON A.MERCHANT_ID = B.MERCHANT_ID AND A.SALES_DT BETWEEN B.APPLY_START_DT AND IFNULL(B.APPLY_END_DT, '99991231')\n AND B.USE_YN = 'Y'\nLEFT JOIN TB_TRAD_MARKET_MERCHANT T\n  ON A.MERCHANT_ID = T.MERCHANT_ID AND A.SALES_DT BETWEEN T.APPLY_START_DT AND IFNULL(T.APPLY_END_DT, '99991231')\n AND T.USE_YN = 'Y'\nLEFT JOIN TB_GENERAL_DEDUCT_MERCHANT G\n  ON A.MERCHANT_ID = G.MERCHANT_ID AND A.SALES_DT BETWEEN G.APPLY_START_DT AND IFNULL(G.APPLY_END_DT, '99991231')\n AND G.USE_YN = 'Y'\nWHERE A.BASE_YM = :base_ym\n  AND A.CANCEL_YN = 'N'\n  AND (B.MERCHANT_ID IS NOT NULL OR T.MERCHANT_ID IS NOT NULL OR G.MERCHANT_ID IS NOT NULL)\nGROUP BY\n    A.CUSTOMER_ID,\n    A.BASE_YM,\n    CASE\n    WHEN B.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN T.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN G.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND\n) S",
+  "validation_rules": {
+    "min_rows": 0,
+    "not_null_columns": [
+      "CUSTOMER_ID"
+    ]
+  },
+  "meta_source": {
+    "type": "erwin_meta",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
+    "tables": [
+      "TB_BOOK_PERF_MERCHANT",
+      "TB_TRAD_MARKET_MERCHANT",
+      "TB_GENERAL_DEDUCT_MERCHANT",
+      "TB_CARD_SALES_LEDGER"
+    ]
+  },
+  "rule_source": {
+    "rule_id": "deduction_merchant_monthly_aggregation",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\rule_catalog.json",
+    "sql_template": "deduction_merchant_monthly_aggregation.sql.j2"
+  }
+}

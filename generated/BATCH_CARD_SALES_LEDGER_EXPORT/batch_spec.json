@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "batch_id": "BATCH_CARD_SALES_LEDGER_EXPORT",
+  "batch_name": "소득공제 월별 통합 집계 배치 기준: - 기준년월(BASE_YM) 대상",
+  "batch_type": "db_to_file",
+  "description": "[배치 개발 요청서] 배치명: 소득공제 월별 통합 집계 배치 기준: - 기준년월(BASE_YM) 대상 테이블: - TB_CARD_SALES_LEDGER - TB_BOOK_PERF_MERCHANT - TB_TRAD_MARKET_MERCHANT - TB_GENERAL_DEDUCT_MERCHANT 처리 내용: - 매출원장 기준으로 가맹점별 소득공제 대상 거래를 구분한다 - 도서공연 / 전통시장 / 일반 가맹점을 각각 분류한다 - 유효기간(APPLY_START_DT ~ APPLY_END_DT) 기준으로 가맹점 매칭한다 - 취소 거래 제외 - 고객별, 가맹점 유형별 월별 금액 집계 출력: - 고객ID, 기준년월, 가맹점유형, 총금액, 건수 조건: - CANCEL_YN = 'N' - USE_YN = 'Y'",
+  "schedule_type": "manual",
+  "parameters": [
+    {
+      "name": "base_date",
+      "required": true,
+      "description": "기준일자(YYYYMMDD)"
+    }
+  ],
+  "source": {
+    "table": "TB_CARD_SALES_LEDGER",
+    "columns": [
+      "SALES_SEQ_NO",
+      "SALES_DT",
+      "SALES_TM",
+      "CARD_NO",
+      "CUSTOMER_ID",
+      "MERCHANT_ID",
+      "APPROVAL_NO",
+      "SALES_AMT",
+      "VAT_AMT",
+      "SERVICE_FEE",
+      "INSTALLMENT_MONTH",
+      "CANCEL_YN",
+      "SALES_STATUS_CD",
+      "MCC_CD",
+      "ORG_FILE_NM",
+      "BASE_YM",
+      "REG_DTM",
+      "UPD_DTM"
+    ],
+    "base_date_column": "BASE_DATE"
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "card_sales_ledger",
+    "output_file_pattern": "card_sales_ledger_{base_date}.csv",
+    "output_dir": "./output",
+    "encoding": "utf-8-sig"
+  },
+  "sql": "SELECT\n    SALES_SEQ_NO,\n    SALES_DT,\n    SALES_TM,\n    CARD_NO,\n    CUSTOMER_ID,\n    MERCHANT_ID,\n    APPROVAL_NO,\n    SALES_AMT,\n    VAT_AMT,\n    SERVICE_FEE,\n    INSTALLMENT_MONTH,\n    CANCEL_YN,\n    SALES_STATUS_CD,\n    MCC_CD,\n    ORG_FILE_NM,\n    BASE_YM,\n    REG_DTM,\n    UPD_DTM\nFROM TB_CARD_SALES_LEDGER\nWHERE BASE_DATE = :base_date",
+  "validation_rules": {
+    "min_rows": 0,
+    "not_null_columns": [
+      "MERCHANT_ID"
+    ]
+  },
+  "meta_source": {
+    "type": "erwin_meta",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
+    "tables": [
+      "TB_CARD_SALES_LEDGER"
+    ]
+  },
+  "rule_source": {
+    "rule_id": "generic_export",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\generic_export.json",
+    "sql_template": "generic_export.sql.j2"
+  }
+}

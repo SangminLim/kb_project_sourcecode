@@ -8,9 +8,9 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 
 
-BATCH_ID = "BATCH_TRAD_MARKET_MERCHANT_EXPORT"
-BATCH_NAME = "전통시장가맹점테이블 파일 생성"
-OUTPUT_FILE_PREFIX = "trad_market_merchant"
+BATCH_ID = "BATCH_CARD_SALES_LEDGER_EXPORT"
+BATCH_NAME = "소득공제 월별 통합 집계 배치 기준: - 기준년월(BASE_YM) 대상"
+OUTPUT_FILE_PREFIX = "card_sales_ledger"
 OUTPUT_FORMAT = "csv"
 OUTPUT_ENCODING = "utf-8-sig"
 

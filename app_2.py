@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import uuid
-import re
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -236,13 +235,6 @@ def _billing_pattern_text(summary: Dict[str, Any]) -> str:
         return "데이터 패턴은 최근 구간에서 감소하는 흐름입니다."
     return "데이터 패턴은 최근 구간에서 전월과 동일한 흐름입니다."
 
-
-def format_billing_month(value: Any) -> str:
-    text = str(value or "").strip()
-    if re.fullmatch(r"\d{6}", text):
-        return f"{text[:4]}년 {int(text[4:6])}월"
-    return text
-
 def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Optional[str]:
     """
     청구 월별 금액 요약은 LLM이 숫자 단위를 오해하지 않도록 코드로 생성한다.
@@ -265,17 +257,17 @@ def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Op
         ),
         (
             f"최고 금액 구간: 최고 금액은 {format_krw(summary['max_amount'])}으로, "
-            f"{format_billing_month(summary['max_period'])}에 발생했습니다."
+            f"{summary['max_period']}에 발생했습니다."
         ),
         (
             f"최저 금액 구간: 최저 금액은 {format_krw(summary['min_amount'])}으로, "
-            f"{format_billing_month(summary['min_period'])}에 발생했습니다."
+            f"{summary['min_period']}에 발생했습니다."
         ),
     ]
 
     if summary.get("change_rate_pct") is not None:
         lines.append(
-            f"최근 구간의 증감 포인트: 최근 구간인 {format_billing_month(summary['latest_period'])}에는 "
+            f"최근 구간의 증감 포인트: 최근 구간인 {summary['latest_period']}에는 "
             f"{format_krw(summary['latest_amount'])}으로, 전월 대비 {summary['change_rate_pct']}% 변동했습니다."
         )
 

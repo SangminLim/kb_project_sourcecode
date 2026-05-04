@@ -1,0 +1,7 @@
+# 현재 사용 중인 requirements에 이미 대부분 포함되어 있습니다.
+# 누락된 경우에만 추가 설치하세요.
+langchain==0.3.3
+langchain-core==0.3.10
+langchain-community==0.3.2
+langchain-chroma==0.1.4
+chromadb==0.5.13

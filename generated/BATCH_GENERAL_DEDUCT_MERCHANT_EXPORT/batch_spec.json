@@ -1,9 +1,9 @@
 {
   "version": "1.0",
-  "batch_id": "BATCH_TRAD_MARKET_MERCHANT_EXPORT",
-  "batch_name": "전통시장가맹점테이블 파일 생성",
+  "batch_id": "BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT",
+  "batch_name": "소득공제가맹점테이블 파일 생성",
   "batch_type": "db_to_file",
-  "description": "전통시장 가맹점코드 전송파일 배치 개발 해줘",
+  "description": "소득공제가맹점 가맹점번호로 파일 생성하는 배치 만들어줘",
   "schedule_type": "daily",
   "parameters": [
     {
@@ -13,12 +13,12 @@
     }
   ],
   "source": {
-    "table": "TB_TRAD_MARKET_MERCHANT",
+    "table": "TB_GENERAL_DEDUCT_MERCHANT",
     "columns": [
       "MERCHANT_ID",
       "MERCHANT_NM",
-      "MARKET_NM",
       "BIZ_NO",
+      "MCC_CD",
       "APPLY_START_DT",
       "APPLY_END_DT",
       "USE_YN",
@@ -29,12 +29,12 @@
   },
   "target": {
     "output_format": "csv",
-    "output_file_prefix": "trad_market_merchant",
-    "output_file_pattern": "trad_market_merchant_{base_date}.csv",
+    "output_file_prefix": "general_deduct_merchant",
+    "output_file_pattern": "general_deduct_merchant_{base_date}.csv",
     "output_dir": "./output",
     "encoding": "utf-8-sig"
   },
-  "sql": "SELECT\n    MERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE :base_date BETWEEN APPLY_START_DT AND IFNULL(APPLY_END_DT, '99991231')\n  AND USE_YN = 'Y'",
+  "sql": "SELECT\n    MERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE :base_date BETWEEN APPLY_START_DT AND IFNULL(APPLY_END_DT, '99991231')\n  AND USE_YN = 'Y'",
   "validation_rules": {
     "min_rows": 0,
     "not_null_columns": [
@@ -46,7 +46,7 @@
     "type": "erwin_meta",
     "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
     "tables": [
-      "TB_TRAD_MARKET_MERCHANT"
+      "TB_GENERAL_DEDUCT_MERCHANT"
     ]
   },
   "rule_source": {

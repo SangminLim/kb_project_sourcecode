@@ -10,6 +10,25 @@ from typing import Any, Dict, List, Optional, Tuple
 import chromadb
 import requests
 
+# LangChain은 운영 환경에 설치되어 있으면 우선 사용하고,
+# 없거나 오류가 발생하면 기존 requests 기반 Ollama 호출로 자동 fallback한다.
+# 현재 requirements 조합(langchain==0.3.x, langchain-community==0.3.x)에 맞춘 import다.
+try:
+    from langchain_core.prompts import PromptTemplate
+    from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+    from langchain_core.runnables import RunnableLambda, RunnableBranch
+except Exception:  # pragma: no cover - optional dependency
+    PromptTemplate = None
+    StrOutputParser = None
+    JsonOutputParser = None
+    RunnableLambda = None
+    RunnableBranch = None
+
+try:
+    from langchain_community.llms import Ollama as LangChainOllama
+except Exception:  # pragma: no cover - optional dependency
+    LangChainOllama = None
+
 try:
     from batch_dev.request_classifier import detect_structured_request_type
 except Exception:
@@ -24,6 +43,7 @@ TYPO_NORMALIZATION_PATH = Path(os.getenv("TYPO_NORMALIZATION_PATH", str(CONF_DIR
 INTENT_REGISTRY_PATH = Path(os.getenv("INTENT_REGISTRY_PATH", str(CONF_DIR / "intent_registry.json")))
 PROMPT_TEMPLATE_PATH = Path(os.getenv("PROMPT_TEMPLATE_PATH", str(CONF_DIR / "prompt_templates.json")))
 FEW_SHOT_PATH = Path(os.getenv("FEW_SHOT_PATH", str(CONF_DIR / "few_shot_examples.json")))
+CONVERSATION_POLICY_PATH = Path(os.getenv("CONVERSATION_POLICY_PATH", str(CONF_DIR / "conversation_policy.json")))
 
 
 def _load_required_json_file(path: Path, config_name: str) -> Any:
@@ -108,12 +128,29 @@ def load_few_shot_examples() -> List[Dict[str, str]]:
             loaded.append({"user": user, "assistant": assistant})
     return loaded
 
+def load_conversation_policy() -> Dict[str, Any]:
+    """conf/conversation_policy.json에서 대화 정책을 읽는다.
+
+    운영 설정으로 관리할 항목:
+    - followup_signals
+    - intent_conflict_keywords
+    - system_required_intents
+    - out_of_scope_message
+    - missing_system_message
+    """
+    data = _load_required_json_file(CONVERSATION_POLICY_PATH, "conversation_policy")
+    if not isinstance(data, dict):
+        raise ValueError("conversation_policy.json 형식이 올바르지 않습니다. dict여야 합니다.")
+    return data
+
+
 SYSTEM_SPECS = load_system_specs()
 QUESTION_REPLACEMENTS = load_question_replacements()
 TYPO_NORMALIZATION = load_typo_normalization()
 INTENT_PATTERNS = load_intent_patterns()
 SYSTEM_PROMPT_BY_INTENT = load_prompt_templates()
 FEW_SHOT_EXAMPLES = load_few_shot_examples()
+CONVERSATION_POLICY = load_conversation_policy()
 SYSTEM_NAME_BY_ID: Dict[str, str] = {spec["system_id"]: spec["canonical_name"] for spec in SYSTEM_SPECS}
 
 
@@ -196,20 +233,14 @@ def history_to_text(chat_history: List[Dict[str, str]], max_turns: int = 4) -> s
 def is_followup_question(question: str) -> bool:
     """이전 답변/질문을 이어서 말하는 짧은 후속 질문인지 판단한다.
 
-    특정 업무 문장을 하드코딩하지 않고, 대명사/재표현/출력형식 변경 신호만 본다.
-    예: 다시 보여줘, 그거 표로, 테이블로 보여줘, 그래프로 그려줘 등
+    followup 신호는 코드에 박지 않고 conf/conversation_policy.json에서 관리한다.
     """
     q = normalize_whitespace(question)
     if not q:
         return False
 
-    followup_signals = {
-        "다시", "방금", "이전", "아까", "위에",
-        "그거", "그걸", "그럼", "그걸로", "이걸", "저걸",
-        "표로", "테이블로", "그래프로", "차트로",
-        "그려줘", "보여줘", "정리해줘", "요약해줘",
-    }
-    return any(signal in q for signal in followup_signals)
+    followup_signals = CONVERSATION_POLICY.get("followup_signals", [])
+    return any(str(signal) in q for signal in followup_signals if str(signal).strip())
 
 
 def detect_previous_user_intent(chat_history: List[Dict[str, str]]) -> str:
@@ -239,10 +270,20 @@ def build_canonical_question(question: str, resolved_system_id: Optional[str], i
         "today_incidents": "오늘 장애현황 알려줘",
         "batch_development": question,
     }
-    if intent in {"overview", "batch_process", "batch_flow", "table_lineage"} and system_name:
-        return templates[intent].format(system_name=system_name)
-    if intent in templates:
+
+    system_required_intents = set(CONVERSATION_POLICY.get("system_required_intents", []))
+    if intent in system_required_intents:
+        if system_name:
+            return templates[intent].format(system_name=system_name)
+        # 시스템명이 없으면 {system_name} 템플릿을 절대 반환하지 않는다.
+        return question
+
+    if intent in {"billing_monthly_amount", "today_incidents"}:
         return templates[intent]
+
+    if intent == "batch_development":
+        return question
+
     return question
 
 
@@ -280,7 +321,35 @@ class OllamaEmbeddingFunction:
         return vectors
 
 
-def ollama_generate(prompt: str, system_prompt: str, config: ChatConfig) -> str:
+def _use_langchain() -> bool:
+    """LangChain 사용 여부를 환경변수로 제어한다.
+
+    - 기본값은 true다.
+    - LangChain 패키지가 없으면 자동으로 기존 requests 방식으로 fallback된다.
+    - 운영 중 문제가 생기면 LANGCHAIN_ENABLED=false 로 즉시 우회할 수 있다.
+    """
+    return os.getenv("LANGCHAIN_ENABLED", "true").lower() not in {"0", "false", "no", "n"}
+
+
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() not in {"0", "false", "no", "n"}
+
+
+def get_langchain_feature_flags() -> Dict[str, bool]:
+    """운영 중 기능을 켜고 끌 수 있는 LangChain 확장 옵션.
+
+    기본값은 보수적으로 둔다. 기존에 잘 나오던 답변 품질을 깨지 않기 위해
+    router/prompt chain은 켜고, rerank/compression은 명시적으로 켤 때만 동작한다.
+    """
+    return {
+        "langchain_enabled": _use_langchain(),
+        "router_enabled": _env_flag("LANGCHAIN_ROUTER_ENABLED", "true"),
+        "structured_parser_enabled": _env_flag("LANGCHAIN_STRUCTURED_PARSER_ENABLED", "true"),
+        "retrieval_compression_enabled": _env_flag("LANGCHAIN_RETRIEVAL_COMPRESSION_ENABLED", "false"),
+    }
+
+
+def _ollama_generate_requests(prompt: str, system_prompt: str, config: ChatConfig) -> str:
     resp = requests.post(
         f"{config.base_url}/api/generate",
         json={
@@ -294,6 +363,50 @@ def ollama_generate(prompt: str, system_prompt: str, config: ChatConfig) -> str:
     )
     resp.raise_for_status()
     return resp.json().get("response", "").strip()
+
+
+def _ollama_generate_langchain(prompt: str, system_prompt: str, config: ChatConfig) -> str:
+    if PromptTemplate is None or LangChainOllama is None:
+        raise RuntimeError("LangChain 또는 langchain-community Ollama 패키지가 설치되어 있지 않습니다.")
+
+    template = PromptTemplate.from_template(
+        "{system_prompt}\n\n[사용자/검색 프롬프트]\n{prompt}"
+    )
+    llm = LangChainOllama(
+        model=config.model,
+        base_url=config.base_url,
+        temperature=0.1,
+    )
+
+    if StrOutputParser is not None:
+        chain = template | llm | StrOutputParser()
+    else:
+        chain = template | llm
+
+    result = chain.invoke({"system_prompt": system_prompt, "prompt": prompt})
+    return str(result or "").strip()
+
+
+def ollama_generate(prompt: str, system_prompt: str, config: ChatConfig) -> str:
+    """답변 생성 진입점.
+
+    외부 호출부는 기존 함수명을 그대로 사용한다.
+    내부만 LangChain 우선 방식으로 바꿔서 app.py와 기존 AgentResult 구조를 깨지 않는다.
+    """
+    if _use_langchain():
+        try:
+            return _ollama_generate_langchain(prompt=prompt, system_prompt=system_prompt, config=config)
+        except Exception:
+            # LangChain 설정/패키지 문제는 서비스 장애로 번지지 않도록 기존 방식으로 자동 fallback한다.
+            return _ollama_generate_requests(prompt=prompt, system_prompt=system_prompt, config=config)
+
+    return _ollama_generate_requests(prompt=prompt, system_prompt=system_prompt, config=config)
+
+
+def get_llm_engine_name() -> str:
+    if _use_langchain() and PromptTemplate is not None and LangChainOllama is not None:
+        return "langchain_community_ollama"
+    return "requests_ollama"
 
 
 def build_rewrite_prompt(
@@ -337,30 +450,17 @@ def is_valid_rewritten_question(text: str, resolved_intent: Optional[str] = None
         return False
 
     # rewrite 결과가 이미 결정된 intent와 충돌하면 버린다.
-    # 예: batch_process인데 LLM이 임의로 "흐름도"를 붙이는 경우.
-    intent_conflict_keywords: Dict[str, List[str]] = {
-        "overview": ["배치 프로세스", "배치 흐름도", "테이블 리니지", "월별 금액", "장애현황"],
-        "batch_process": ["흐름도", "리니지", "월별 금액", "장애현황", "그래프"],
-        "batch_flow": ["리니지", "월별 금액", "장애현황"],
-        "table_lineage": ["배치 프로세스", "배치 흐름도", "월별 금액", "장애현황"],
-        "billing_monthly_amount": ["배치 프로세스", "배치 흐름도", "리니지", "장애현황"],
-        "today_incidents": ["월별 금액", "배치 흐름도", "리니지"],
-    }
-    if resolved_intent in intent_conflict_keywords:
-        if any(keyword in q for keyword in intent_conflict_keywords[resolved_intent]):
-            return False
+    # 충돌 키워드는 conf/conversation_policy.json에서 관리한다.
+    intent_conflict_keywords = CONVERSATION_POLICY.get("intent_conflict_keywords", {})
+    conflict_keywords = intent_conflict_keywords.get(resolved_intent, []) if resolved_intent else []
+    if any(str(keyword) in q for keyword in conflict_keywords if str(keyword).strip()):
+        return False
 
-    valid_keywords = [
-        "업무 개요",
-        "배치 프로세스",
-        "배치 흐름도",
-        "테이블 리니지",
-        "월별 금액",
-        "장애현황",
-        "배치 개발",
-        "배치 생성",
-        "배치 만들어",
-    ]
+    # valid keyword도 코드 하드코딩 대신 intent_registry.json의 patterns를 사용한다.
+    valid_keywords: List[str] = []
+    for patterns in INTENT_PATTERNS.values():
+        valid_keywords.extend([str(item) for item in patterns if str(item).strip()])
+
     return any(k in q for k in valid_keywords)
 
 
@@ -434,6 +534,106 @@ def get_realtime_query(payload: Dict[str, Any], query_id: str) -> Optional[Dict[
     return None
 
 
+
+def _tokenize_for_score(text: str) -> List[str]:
+    text = normalize_whitespace(text).lower()
+    return [token for token in re.split(r"[^0-9a-zA-Z가-힣_]+", text) if len(token) >= 2]
+
+
+def compress_search_result(
+    search_result: Dict[str, Any],
+    query: str,
+    intent: str,
+    top_k: int = 4,
+) -> Dict[str, Any]:
+    """검색 결과를 가볍게 재정렬/압축한다.
+
+    LangChain의 Document Compressor/Rerank 개념을 현재 구조에 안전하게 얇게 붙인 것이다.
+    - 기본은 OFF: LANGCHAIN_RETRIEVAL_COMPRESSION_ENABLED=true 일 때만 적용
+    - 외부 reranker 모델 없이 동작하므로 CPU 환경에서도 안전하다.
+    - where_filter 결과를 벗어나지 않고, 기존 Chroma 결과 안에서만 재정렬한다.
+    """
+    if not _env_flag("LANGCHAIN_RETRIEVAL_COMPRESSION_ENABLED", "false"):
+        return search_result
+
+    docs = list(search_result.get("documents", [[]])[0] or [])
+    metas = list(search_result.get("metadatas", [[]])[0] or [])
+    distances = list(search_result.get("distances", [[]])[0] or [])
+    ids = list(search_result.get("ids", [[]])[0] or [])
+
+    if not docs:
+        return search_result
+
+    query_tokens = set(_tokenize_for_score(query))
+
+    def score_item(item: Tuple[int, str, Dict[str, Any]]) -> Tuple[float, int]:
+        idx, doc, meta = item
+        doc_tokens = set(_tokenize_for_score(doc))
+        overlap = len(query_tokens & doc_tokens)
+        section_bonus = 3 if meta.get("section") == intent else 0
+        title_bonus = 1 if any(token in str(meta.get("title", "")).lower() for token in query_tokens) else 0
+        return (float(overlap + section_bonus + title_bonus), -idx)
+
+    ranked = sorted(enumerate(zip(docs, metas)), key=lambda pair: score_item((pair[0], pair[1][0], pair[1][1])), reverse=True)
+    keep_indexes = [idx for idx, _ in ranked[: max(1, top_k)]]
+
+    def pick(values: List[Any]) -> List[Any]:
+        return [values[i] for i in keep_indexes if i < len(values)]
+
+    compressed = dict(search_result)
+    compressed["documents"] = [pick(docs)]
+    compressed["metadatas"] = [pick(metas)]
+    if distances:
+        compressed["distances"] = [pick(distances)]
+    if ids:
+        compressed["ids"] = [pick(ids)]
+    return compressed
+
+
+def parse_json_safely(text: str) -> Optional[Dict[str, Any]]:
+    """LLM 출력이 JSON이어야 하는 영역에서 사용할 수 있는 안전 parser.
+
+    현재 일반 답변에는 적용하지 않는다. 배치 개발 요청 파싱처럼 JSON이 필요한 기능을
+    추가할 때 재사용하도록 분리했다.
+    """
+    if not text:
+        return None
+    raw = text.strip()
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return None
+
+
+@dataclass(frozen=True)
+class ResponseRoute:
+    name: str
+    render_type: str
+    realtime_mode: Optional[str] = None
+
+
+def resolve_response_route(intent: str, render_type: str, has_graph: bool, has_query_meta: bool) -> ResponseRoute:
+    """응답 라우팅을 intent별 if문 대신 공통 규칙으로 결정한다.
+
+    새 intent를 추가할 때는 conf/intent_registry.json과 원본 JSON 메타를 먼저 확장하고,
+    이 함수는 render_type 중심으로 최소한만 분기한다.
+    """
+    if render_type == "graph" and has_graph:
+        return ResponseRoute(name="graph", render_type="graph")
+    if render_type == "chart" and has_query_meta:
+        return ResponseRoute(name="chart", render_type="chart", realtime_mode="chart_only")
+    if render_type == "table" and has_query_meta:
+        return ResponseRoute(name="table", render_type="table", realtime_mode="incident_table_with_summary")
+    return ResponseRoute(name="llm_text", render_type=render_type)
+
 def retrieve_docs(
     persist_dir: str,
     collection_name: str,
@@ -493,7 +693,9 @@ def build_answer_prompt(
 - 검색 문맥에 있는 내용만 사용한다.
 - system_id가 주어진 경우 해당 시스템 정보만 사용하고, 다른 시스템 이름/내용은 절대 포함하지 않는다.
 - overview 질문이면 핵심 요약 2~4문장으로 정리한다.
-- batch_process 질문이면 핵심 단계와 핵심 배치를 먼저 요약한다.
+- batch_process 질문이면 한 줄 흐름, STEP별 배치, 핵심 배치 순서로만 답변한다.
+- batch_process 답변에서 같은 STEP/배치 목록을 문장형 설명과 STEP 상세로 두 번 반복하지 않는다.
+- batch_process 답변에서 배치명은 검색 문맥에 있는 job_id만 사용한다.
 - 문맥이 부족하면 부족하다고 말한다.
 """.strip()
     return system_prompt, prompt
@@ -524,16 +726,119 @@ def build_overview_fallback(overview: Dict[str, Any]) -> str:
     return summary
 
 
+def _format_execution_label(execution: str) -> str:
+    """배치 실행 방식을 사용자에게 보여줄 한글 라벨로 변환한다.
+
+    실행 방식 값은 JSON 메타에서 오므로 새 값이 추가되어도 원문을 보존한다.
+    """
+    labels = {
+        "parallel": "병렬",
+        "sequential": "순차",
+    }
+    return labels.get(str(execution or "").strip().lower(), str(execution or "").strip())
+
+
 def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
+    """배치 프로세스를 중복 없이 구조화해서 생성한다.
+
+    원칙:
+    - 하드코딩된 배치명/단계명 없이 JSON steps/jobs/key_jobs 기반으로 생성한다.
+    - 같은 내용을 문장형 설명과 STEP 상세로 두 번 반복하지 않는다.
+    - 한 줄 흐름 -> STEP 상세 -> 핵심 배치 순서로만 출력한다.
+    - LangChain 실패 시 fallback으로 사용해도 그대로 사용자에게 보여줄 수 있는 품질을 유지한다.
+    """
+    title = batch_process.get("title", "배치 프로세스")
     steps = batch_process.get("steps", [])
-    parts = []
+    if not steps:
+        return str(title or "배치 프로세스 정보가 없습니다.")
+
+    lines: List[str] = [f"📌 {title}", ""]
+
+    step_names = [str(step.get("name", "")).strip() for step in steps if str(step.get("name", "")).strip()]
+    if step_names:
+        lines.append("🔹 한 줄 흐름")
+        lines.append(" → ".join(step_names))
+        lines.append("")
+
+    lines.append("🔹 단계별 배치 프로세스")
     for step in steps:
-        execution = step.get("execution")
-        execution_kr = "병렬" if execution == "parallel" else "순차" if execution == "sequential" else execution
-        parts.append(f"{step.get('step')}단계 {step.get('name')}({execution_kr})")
-    if parts:
-        return "핵심 흐름은 " + " → ".join(parts) + " 순입니다."
-    return batch_process.get("title", "배치 프로세스 정보가 없습니다.")
+        step_no = step.get("step", "")
+        step_name = str(step.get("name", "")).strip()
+        execution_label = _format_execution_label(str(step.get("execution", "")))
+        description = str(step.get("description", "")).strip()
+
+        header_parts = [f"STEP {step_no}" if step_no != "" else "STEP", step_name]
+        header = ". ".join([part for part in header_parts if part])
+        if execution_label:
+            header = f"{header} ({execution_label})"
+        lines.append(f"\n{header}")
+
+        if description:
+            lines.append(f"👉 {description}")
+
+        for job in step.get("jobs", []) or []:
+            job_id = str(job.get("job_id", "")).strip()
+            job_desc = str(job.get("description", "")).strip()
+            if job_id and job_desc:
+                lines.append(f"- {job_id}: {job_desc}")
+            elif job_id:
+                lines.append(f"- {job_id}")
+            elif job_desc:
+                lines.append(f"- {job_desc}")
+
+    key_jobs: List[str] = []
+    for step in steps:
+        for job_id in step.get("key_jobs", []) or []:
+            job_id_str = str(job_id).strip()
+            if job_id_str and job_id_str not in key_jobs:
+                key_jobs.append(job_id_str)
+
+    if key_jobs:
+        lines.append("\n⭐ 핵심 배치")
+        for job_id in key_jobs:
+            lines.append(f"- {job_id}")
+
+    return "\n".join(lines).strip()
+
+
+def remove_repeated_step_sections(answer: str) -> str:
+    """LLM이 문장형 단계 설명 뒤에 STEP 상세를 반복 출력한 경우 앞부분을 제거한다.
+
+    하드코딩된 업무/배치명 기준이 아니라 STEP 패턴 반복 여부만 본다.
+    이미 깔끔한 답변이면 원문을 그대로 반환한다.
+    """
+    text = str(answer or "").strip()
+    if not text:
+        return text
+
+    # 'STEP 1.' 형태 상세 구간이 있으면 그 앞의 장황한 '1단계에서는...' 문장형 반복을 제거한다.
+    step_match = re.search(r"(?im)^\s*STEP\s*1\s*[\.).]", text)
+    if not step_match:
+        return text
+
+    prefix = text[: step_match.start()].strip()
+    suffix = text[step_match.start() :].strip()
+
+    # 앞부분에 단계형 문장과 배치명이 이미 있고, 뒤에 STEP 상세가 다시 있으면 중복으로 판단한다.
+    prefix_has_stage_text = bool(re.search(r"[123]\s*단계|Step\s*[123]", prefix, flags=re.IGNORECASE))
+    prefix_has_batch_id = bool(re.search(r"BATCH_\d+_", prefix))
+    suffix_has_batch_id = bool(re.search(r"BATCH_\d+_", suffix))
+
+    if prefix_has_stage_text and prefix_has_batch_id and suffix_has_batch_id:
+        # 제목/핵심 배치/핵심 흐름 같은 짧은 헤더는 유지하고, 긴 문장형 단계 설명만 제거한다.
+        header_lines: List[str] = []
+        for line in prefix.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if re.search(r"[123]\s*단계|Step\s*[123]", stripped, flags=re.IGNORECASE):
+                break
+            header_lines.append(stripped)
+        if header_lines:
+            return "\n".join(header_lines + ["", suffix]).strip()
+        return suffix
+
+    return text
 
 
 @dataclass
@@ -607,12 +912,10 @@ class HandoverAgent:
     ) -> AgentResult:
         chat_history = chat_history or []
         debug_logs: List[str] = []
+        debug_logs.append(f"[LC 1] feature_flags = {get_langchain_feature_flags()}")
 
         normalized_question = apply_dictionary_rewrite(question)
         debug_logs.append(f"[PREP 1] normalized_question = {normalized_question}")
-
-        system_id = detect_system_id_with_history(normalized_question, chat_history)
-        debug_logs.append(f"[PREP 2] resolved_system_id_before_rewrite = {system_id}")
 
         initial_intent = detect_intent(normalized_question)
         if initial_intent == "default" and chat_history:
@@ -620,12 +923,60 @@ class HandoverAgent:
                 previous_intent = detect_previous_user_intent(chat_history)
                 if previous_intent != "default":
                     initial_intent = previous_intent
-                    debug_logs.append(f"[PREP 3-1] followup_intent_inherited = {previous_intent}")
+                    debug_logs.append(f"[PREP 2-1] followup_intent_inherited = {previous_intent}")
                 else:
-                    debug_logs.append("[PREP 3-1] followup_intent_inherited = skipped (previous intent 없음)")
+                    debug_logs.append("[PREP 2-1] followup_intent_inherited = skipped (previous intent 없음)")
             else:
-                debug_logs.append("[PREP 3-1] history_intent_inherited = skipped (followup 아님)")
+                debug_logs.append("[PREP 2-1] history_intent_inherited = skipped (followup 아님)")
+
+        direct_system_id = detect_system_id(normalized_question)
+        if direct_system_id:
+            system_id = direct_system_id
+            debug_logs.append("[PREP 2-2] system_id_source = current_question")
+        elif initial_intent != "default" or is_followup_question(normalized_question):
+            # 업무 intent가 잡혔거나 후속질문이면 이전 시스템 문맥을 상속한다.
+            # 예: "배치 프로세스도 설명해줘" → 직전 KKK은행 문맥 상속
+            system_id = detect_system_id_with_history(normalized_question, chat_history)
+            debug_logs.append("[PREP 2-2] system_id_source = history_context")
+        else:
+            system_id = None
+            debug_logs.append("[PREP 2-2] system_id_source = none")
+
+        debug_logs.append(f"[PREP 2] resolved_system_id_before_rewrite = {system_id}")
         debug_logs.append(f"[PREP 3] resolved_intent_before_rewrite = {initial_intent}")
+
+        if initial_intent == "default" and not system_id:
+            debug_logs.append("[PREP 4] out_of_scope_detected = True")
+            return AgentResult(
+                original_question=question,
+                normalized_question=normalized_question,
+                rewritten_question=normalized_question,
+                system_id=None,
+                intent="out_of_scope",
+                answer=str(CONVERSATION_POLICY.get(
+                    "out_of_scope_message",
+                    "현재 에이전트의 지원 범위를 벗어난 질문입니다."
+                )),
+                render_type="text",
+                debug_logs=debug_logs,
+            )
+
+        system_required_intents = set(CONVERSATION_POLICY.get("system_required_intents", []))
+        if initial_intent in system_required_intents and not system_id:
+            debug_logs.append("[PREP 4] missing_system_id = True")
+            return AgentResult(
+                original_question=question,
+                normalized_question=normalized_question,
+                rewritten_question=normalized_question,
+                system_id=None,
+                intent=initial_intent,
+                answer=str(CONVERSATION_POLICY.get(
+                    "missing_system_message",
+                    "어느 시스템 기준인지 확인할 수 없습니다. 시스템명을 포함해서 다시 질문해주세요."
+                )),
+                render_type="text",
+                debug_logs=debug_logs,
+            )
 
         rewritten_question, rewrite_logs = rewrite_question(
             question=normalized_question,
@@ -636,7 +987,9 @@ class HandoverAgent:
         )
         debug_logs.extend(rewrite_logs)
 
-        intent = detect_intent(rewritten_question)
+        intent = initial_intent
+        if intent == "default":
+            intent = detect_intent(rewritten_question)
         debug_logs.append(f"[STEP 5] detected_system_id = {system_id}")
         debug_logs.append(f"[STEP 6] detected_intent = {intent}")
 
@@ -655,6 +1008,17 @@ class HandoverAgent:
             top_k=top_k,
             where=where,
         )
+
+        search_result = compress_search_result(
+            search_result=search_result,
+            query=search_query,
+            intent=intent,
+            top_k=top_k,
+        )
+        if _env_flag("LANGCHAIN_RETRIEVAL_COMPRESSION_ENABLED", "false"):
+            debug_logs.append("[STEP 9-1] retrieval_compression = enabled")
+        else:
+            debug_logs.append("[STEP 9-1] retrieval_compression = disabled")
 
         documents = search_result.get("documents", [[]])[0]
         metadatas = search_result.get("metadatas", [[]])[0]
@@ -714,8 +1078,15 @@ class HandoverAgent:
                 }
             )
 
-        if intent == "batch_flow" and graph_data:
-            debug_logs.append("[STEP 11] structured_response = batch_flow")
+        route = resolve_response_route(
+            intent=intent,
+            render_type=render_type,
+            has_graph=bool(graph_data),
+            has_query_meta=bool(query_meta),
+        )
+        debug_logs.append(f"[STEP 11] response_route = {route.name}")
+
+        if route.name == "graph" and graph_data:
             return AgentResult(
                 question,
                 normalized_question,
@@ -723,7 +1094,7 @@ class HandoverAgent:
                 system_id,
                 intent,
                 build_graph_answer(graph_data, intent),
-                "graph",
+                route.render_type,
                 graph_data,
                 None,
                 None,
@@ -732,26 +1103,7 @@ class HandoverAgent:
                 debug_logs,
             )
 
-        if intent == "table_lineage" and graph_data:
-            debug_logs.append("[STEP 11] structured_response = table_lineage")
-            return AgentResult(
-                question,
-                normalized_question,
-                rewritten_question,
-                system_id,
-                intent,
-                build_graph_answer(graph_data, intent),
-                "graph",
-                graph_data,
-                None,
-                None,
-                None,
-                source_rows,
-                debug_logs,
-            )
-
-        if intent == "billing_monthly_amount" and query_meta:
-            debug_logs.append("[STEP 11] structured_response = billing_monthly_amount")
+        if route.name == "chart" and query_meta:
             return AgentResult(
                 question,
                 normalized_question,
@@ -759,17 +1111,16 @@ class HandoverAgent:
                 system_id,
                 intent,
                 build_chart_answer(query_meta),
-                "chart",
+                route.render_type,
                 None,
                 query_meta,
-                "chart_only",
+                route.realtime_mode,
                 None,
                 source_rows,
                 debug_logs,
             )
 
-        if intent == "today_incidents" and query_meta:
-            debug_logs.append("[STEP 11] structured_response = today_incidents")
+        if route.name == "table" and query_meta:
             return AgentResult(
                 question,
                 normalized_question,
@@ -777,11 +1128,30 @@ class HandoverAgent:
                 system_id,
                 intent,
                 build_table_answer(query_meta),
-                "table",
+                route.render_type,
                 None,
                 query_meta,
-                "incident_table_with_summary",
+                route.realtime_mode,
                 None,
+                source_rows,
+                debug_logs,
+            )
+
+        if intent == "batch_process" and structured_data:
+            answer = build_batch_process_fallback(structured_data)
+            debug_logs.append("[STEP 11] answer_generation = skipped (structured_batch_renderer)")
+            return AgentResult(
+                question,
+                normalized_question,
+                rewritten_question,
+                system_id,
+                intent,
+                answer,
+                render_type,
+                graph_data,
+                query_meta,
+                None,
+                structured_data,
                 source_rows,
                 debug_logs,
             )
@@ -795,27 +1165,31 @@ class HandoverAgent:
         )
 
         try:
-            debug_logs.append("[STEP 11] answer_generation = started")
+            debug_logs.append(f"[STEP 11] answer_generation_engine = {get_llm_engine_name()}")
+            debug_logs.append("[STEP 12] answer_generation = started")
             answer = ollama_generate(
                 prompt=prompt,
                 system_prompt=system_prompt,
                 config=self.chat_config,
             )
-            debug_logs.append("[STEP 12] answer_generation = success")
+            if intent == "batch_process":
+                answer = remove_repeated_step_sections(answer)
+                debug_logs.append("[STEP 12-1] duplicate_step_cleanup = applied")
+            debug_logs.append("[STEP 13] answer_generation = success")
         except Exception as e:
-            debug_logs.append(f"[STEP 12] answer_generation = failed ({type(e).__name__}: {e})")
+            debug_logs.append(f"[STEP 13] answer_generation = failed ({type(e).__name__}: {e})")
             if intent == "overview" and structured_data:
                 answer = build_overview_fallback(structured_data)
-                debug_logs.append("[STEP 13] fallback = overview_structured_payload")
+                debug_logs.append("[STEP 14] fallback = overview_structured_payload")
             elif intent == "batch_process" and structured_data:
                 answer = build_batch_process_fallback(structured_data)
-                debug_logs.append("[STEP 13] fallback = batch_process_structured_payload")
+                debug_logs.append("[STEP 14] fallback = batch_process_structured_payload")
             elif documents:
                 answer = documents[0]
-                debug_logs.append("[STEP 13] fallback = first_retrieved_document")
+                debug_logs.append("[STEP 14] fallback = first_retrieved_document")
             else:
                 answer = "관련 문서를 찾았지만 답변 생성에 실패했습니다."
-                debug_logs.append("[STEP 13] fallback = generic_error_message")
+                debug_logs.append("[STEP 14] fallback = generic_error_message")
 
         return AgentResult(
             question,
