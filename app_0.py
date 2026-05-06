@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import re
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -235,6 +236,13 @@ def _billing_pattern_text(summary: Dict[str, Any]) -> str:
         return "데이터 패턴은 최근 구간에서 감소하는 흐름입니다."
     return "데이터 패턴은 최근 구간에서 전월과 동일한 흐름입니다."
 
+
+def format_billing_month(value: Any) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d{6}", text):
+        return f"{text[:4]}년 {int(text[4:6])}월"
+    return text
+
 def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Optional[str]:
     """
     청구 월별 금액 요약은 LLM이 숫자 단위를 오해하지 않도록 코드로 생성한다.
@@ -257,17 +265,17 @@ def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Op
         ),
         (
             f"최고 금액 구간: 최고 금액은 {format_krw(summary['max_amount'])}으로, "
-            f"{summary['max_period']}에 발생했습니다."
+            f"{format_billing_month(summary['max_period'])}에 발생했습니다."
         ),
         (
             f"최저 금액 구간: 최저 금액은 {format_krw(summary['min_amount'])}으로, "
-            f"{summary['min_period']}에 발생했습니다."
+            f"{format_billing_month(summary['min_period'])}에 발생했습니다."
         ),
     ]
 
     if summary.get("change_rate_pct") is not None:
         lines.append(
-            f"최근 구간의 증감 포인트: 최근 구간인 {summary['latest_period']}에는 "
+            f"최근 구간의 증감 포인트: 최근 구간인 {format_billing_month(summary['latest_period'])}에는 "
             f"{format_krw(summary['latest_amount'])}으로, 전월 대비 {summary['change_rate_pct']}% 변동했습니다."
         )
 
@@ -419,6 +427,118 @@ def render_overview_block(result: Any) -> None:
         st.markdown("##### ⭐ 핵심 포인트")
         _render_bullets(key_points)
 
+def format_list_inline(values: Any) -> str:
+    """list/string 값을 화면용 한 줄 문자열로 변환한다."""
+    if values is None:
+        return ""
+    if isinstance(values, list):
+        return ", ".join([str(v).strip() for v in values if str(v).strip()])
+    return str(values).strip()
+
+
+def format_duration_sec(value: Any) -> str:
+    """초 단위 평균 수행시간을 보기 좋게 표시한다."""
+    if value is None or str(value).strip() == "":
+        return ""
+    try:
+        seconds = int(float(value))
+    except Exception:
+        return str(value).strip()
+
+    if seconds < 60:
+        return f"{seconds}초"
+
+    minutes = seconds // 60
+    remain = seconds % 60
+    if remain:
+        return f"{minutes}분 {remain}초"
+    return f"{minutes}분"
+
+
+def _html_escape(value: Any) -> str:
+    """Streamlit HTML 카드에 표시할 문자열을 안전하게 이스케이프한다."""
+    text = str(value or "")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#x27;")
+    )
+
+
+def render_batch_job_card(job: Dict[str, Any]) -> None:
+    """배치 1건을 하나의 심플한 네모 카드로 출력한다.
+
+    내부에 항목별 작은 네모 박스를 만들지 않고,
+    하나의 큰 카드 안에 배치명/설명/운영정보를 라벨-값 형태로 간단히 보여준다.
+    """
+    job_id = str(job.get("job_id", "")).strip()
+    job_name = str(job.get("job_name", "")).strip()
+    job_desc = str(job.get("description", "")).strip()
+
+    schedule_type = str(job.get("schedule_type", "")).strip()
+    execution_time = str(job.get("execution_time", "")).strip()
+    avg_duration = format_duration_sec(job.get("avg_duration_sec"))
+    batch_file = str(job.get("batch_file", "")).strip()
+    owner_team = str(job.get("owner_team", "")).strip()
+
+    title = job_id or job_name or "배치명 없음"
+    subtitle = job_name if job_name and job_name != job_id else ""
+
+    info_rows = []
+    if schedule_type:
+        info_rows.append(("배치주기", schedule_type))
+    if execution_time:
+        info_rows.append(("실행시간", execution_time))
+    if avg_duration:
+        info_rows.append(("평균수행시간", avg_duration))
+    if batch_file:
+        info_rows.append(("실행파일", batch_file))
+    if owner_team:
+        info_rows.append(("담당자", owner_team))
+
+    subtitle_html = ""
+    if subtitle:
+        subtitle_html = f'<div style="font-size:14px; color:#374151; font-weight:700; margin-top:4px;">{_html_escape(subtitle)}</div>'
+
+    desc_html = ""
+    if job_desc:
+        desc_html = f'<div style="font-size:14px; color:#4B5563; margin-top:8px; line-height:1.55;">{_html_escape(job_desc)}</div>'
+
+    info_html = ""
+    if info_rows:
+        info_text = " &nbsp; | &nbsp; ".join(
+            [
+                f'<span style="white-space:nowrap;"><b style="color:#6B7280;">{_html_escape(label)}</b> <span style="color:#111827; font-weight:600;">{_html_escape(value)}</span></span>'
+                for label, value in info_rows
+            ]
+        )
+        info_html = f'''
+        <div style="margin-top:8px; font-size:14px; line-height:1.7; color:#374151;">
+            {info_text}
+        </div>
+        '''
+
+    st.markdown(
+        f'''
+        <div style="border:1px solid #D1D5DB; border-radius:14px; padding:14px 18px; margin:10px 0 12px 0; background:#FFFFFF; box-shadow:0 1px 5px rgba(17,24,39,0.06);">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px;">
+                <span style="display:inline-block; padding:3px 8px; border-radius:999px; background:#EEF2FF; color:#3730A3; font-size:12px; font-weight:800;">BATCH</span>
+                <span style="font-size:17px; color:#111827; font-weight:800;">{_html_escape(title)}</span>
+            </div>
+            {subtitle_html}
+            {desc_html}
+            {info_html}
+        </div>
+        ''',
+        unsafe_allow_html=True,
+    )
+
+def render_job_operation_metadata(job: Dict[str, Any]) -> None:
+    """이전 함수명과의 호환을 위해 카드 렌더링 함수로 위임한다."""
+    render_batch_job_card(job)
+
 def render_batch_process_block(result: Any) -> None:
     """배치 프로세스 화면 렌더링.
 
@@ -434,8 +554,6 @@ def render_batch_process_block(result: Any) -> None:
     title = batch_process.get("title", "배치 프로세스")
     steps = batch_process.get("steps", []) or []
 
-    # structured_data가 없거나 비정상인 경우에만 answer를 그대로 보여준다.
-    # 정상 케이스에서는 answer를 함께 출력하면 STEP/배치 목록이 중복된다.
     if not steps:
         if getattr(result, "answer", None):
             st.write(result.answer)
@@ -469,7 +587,27 @@ def render_batch_process_block(result: Any) -> None:
         header = f"STEP {step_no}. {step_name}" if step_no != "" else step_name or "STEP"
         if execution_label:
             header = f"{header} ({execution_label})"
-        st.markdown(f"###### {header}")
+        
+        st.markdown(
+            f"""
+            <div style="
+                margin-top:18px;
+                margin-bottom:10px;
+                padding:10px 14px;
+                border-radius:12px;
+                background:linear-gradient(90deg, #EEF4FF 0%, #F8FAFC 100%);
+                color:#1E3A8A;
+                font-size:20px;
+                font-weight:800;
+                border-left:6px solid #2563EB;
+                box-shadow:0 1px 4px rgba(37,99,235,0.08);
+            ">
+                {header}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 
         description = str(step.get("description") or "").strip()
         if description:
@@ -477,16 +615,10 @@ def render_batch_process_block(result: Any) -> None:
 
         jobs = step.get("jobs", []) or []
         for job in jobs:
-            job_id = str(job.get("job_id", "")).strip()
-            job_desc = str(job.get("description", "")).strip()
-            if job_id and job_desc:
-                st.markdown(f"- `{job_id}`: {job_desc}")
-            elif job_id:
-                st.markdown(f"- `{job_id}`")
-            elif job_desc:
-                st.markdown(f"- {job_desc}")
+            render_batch_job_card(job)
 
         st.markdown("")
+
 
 def render_graph_summary(result: Any) -> None:
     if result.answer:

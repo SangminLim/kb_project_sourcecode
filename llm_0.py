@@ -159,26 +159,10 @@ def load_json(json_path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-# =====================================================
-# [함수 설명] normalize_whitespace
-# -----------------------------------------------------
-# 문자열 내 공백을 정규화하는 전처리 함수
-# ✔ 역할
-# - 여러 개의 공백(스페이스, 탭, 줄바꿈)을 하나의 공백으로 변환
-# - 문자열 앞뒤 공백 제거(strip)
-# ✔ 예시
-# "  kkk   은행 \n 개요  " → "kkk 은행 개요"
-# =====================================================
 def normalize_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
-# =====================================================
-# [함수 설명] 오타처리
-# "흐르도": "흐름도",
-# "흐름도도": "흐름도",
-# "보여줘요": "보여줘"
-# -----------------------------------------------------
 def normalize_input_typos(text: str) -> str:
     normalized = normalize_whitespace(text)
     for src, dst in sorted(TYPO_NORMALIZATION.items(), key=lambda x: len(x[0]), reverse=True):
@@ -186,15 +170,6 @@ def normalize_input_typos(text: str) -> str:
     return normalize_whitespace(normalized)
 
 
-# =====================================================
-# [함수 설명] replace_aliases
-# -----------------------------------------------------
-# 사용자 입력에서 다양한 시스템 alias를 표준명(canonical_name)으로 통일하는 함수
-#
-# ✔ 역할
-# - SYSTEM_SPECS에 정의된 alias 목록 기반 치환
-# - "kkk", "케이케이케이" → "KKK은행" 변환
-# =====================================================
 def replace_aliases(question: str) -> str:
     normalized = normalize_input_typos(question)
     for spec in SYSTEM_SPECS:
@@ -208,22 +183,6 @@ def replace_aliases(question: str) -> str:
     return normalize_whitespace(normalized)
 
 
-# =====================================================
-# [함수 설명] apply_dictionary_rewrite
-# -----------------------------------------------------
-# 질문 문장을 사전 기반으로 표준화하는 함수
-#
-# ✔ 역할
-# - replace_aliases 수행 (시스템명 정규화)
-# - QUESTION_REPLACEMENTS 기반 문자열 치환
-#
-# ✔ 예시
-# "개요좀" → "소득공제 업무 개요를 알려줘"
-#
-# ✔ 목적
-# - intent 매칭 정확도 향상
-# - canonical_question 생성 보조
-# =====================================================
 def apply_dictionary_rewrite(question: str) -> str:
     q = replace_aliases(normalize_whitespace(question))
     for src, dst in QUESTION_REPLACEMENTS.items():
@@ -232,18 +191,6 @@ def apply_dictionary_rewrite(question: str) -> str:
     return normalize_whitespace(q)
 
 
-# =====================================================
-# [함수 설명] detect_system_id
-# -----------------------------------------------------
-# 질문에서 시스템명을 찾아 내부 system_id로 변환하는 함수
-# ✔ 동작
-# - replace_aliases로 canonical_name 변환 후 검색
-# - canonical_name 포함 여부로 system_id 결정
-#
-# ✔ 반환값
-# - system_id (예: "kkk_bank")
-# - 없으면 None
-# =====================================================
 def detect_system_id(question: str) -> Optional[str]:
     normalized = replace_aliases(question)
     for spec in SYSTEM_SPECS:
@@ -263,20 +210,6 @@ def detect_system_id_with_history(question: str, chat_history: List[Dict[str, st
     return None
 
 
-# =====================================================
-# [함수 설명] detect_intent
-# -----------------------------------------------------
-# 사용자 질문의 의도(intent)를 판별하는 함수
-#
-# ✔ 우선순위
-# 1) 구조화 요청 (배치 개발 요청서 등)
-# 2) 키워드 기반 매칭 (INTENT_PATTERNS)
-# 3) default
-#
-# ✔ 예시
-# "개요 알려줘" → overview
-# "배치 프로세스" → batch_process
-# =====================================================
 def detect_intent(question: str) -> str:
     q = normalize_whitespace(question)
 
@@ -326,26 +259,6 @@ def detect_previous_user_intent(chat_history: List[Dict[str, str]]) -> str:
     return "default"
 
 
-# =====================================================
-# [함수 설명] build_canonical_question
-# -----------------------------------------------------
-# 사용자 질문을 표준 질문(canonical question)으로 변환하는 함수
-#
-# ✔ 역할
-# - intent별 템플릿 기반 질문 생성
-# - system_name을 포함해 검색 최적화 문장 구성
-#
-# ✔ 예시
-# "KKK 개요" → "KKK은행 소득공제 업무 개요를 알려줘"
-#
-# ✔ 조건 처리
-# - 시스템 필요 intent인데 system_name 없으면 원본 유지
-# - 일부 intent는 시스템 없이도 동작
-#
-# ✔ 목적
-# - retrieval 정확도 향상
-# - LLM 입력 표준화
-# =====================================================
 def build_canonical_question(question: str, resolved_system_id: Optional[str], intent: str) -> str:
     system_name = SYSTEM_NAME_BY_ID.get(resolved_system_id, "")
     templates = {
@@ -551,22 +464,6 @@ def is_valid_rewritten_question(text: str, resolved_intent: Optional[str] = None
     return any(k in q for k in valid_keywords)
 
 
-# =====================================================
-# [함수 설명] rewrite_question
-# -----------------------------------------------------
-# 질문을 최종 검색용 형태로 재작성하는 함수
-#
-# ✔ 처리 단계
-# 1) dictionary rewrite
-# 2) canonical question 적용
-# 3) 필요 시 LLM 기반 재작성
-#
-# ✔ fallback
-# - LLM 실패 시 canonical question 사용
-#
-# ✔ 결과
-# - 검색 및 LLM 입력에 최적화된 질문 생성
-# =====================================================
 def rewrite_question(
     question: str,
     chat_history: List[Dict[str, str]],
@@ -643,20 +540,6 @@ def _tokenize_for_score(text: str) -> List[str]:
     return [token for token in re.split(r"[^0-9a-zA-Z가-힣_]+", text) if len(token) >= 2]
 
 
-# =====================================================
-# [함수 설명] compress_search_result
-# -----------------------------------------------------
-# 검색 결과를 재정렬하고 상위 결과만 유지하는 함수
-#
-# ✔ 기준
-# - query-token overlap
-# - intent 일치 여부
-# - title 매칭
-#
-# ✔ 목적
-# - LLM 입력 최적화
-# - 노이즈 제거
-# =====================================================
 def compress_search_result(
     search_result: Dict[str, Any],
     query: str,
@@ -737,19 +620,6 @@ class ResponseRoute:
     realtime_mode: Optional[str] = None
 
 
-# =====================================================
-# [함수 설명] resolve_response_route
-# -----------------------------------------------------
-# 응답 형태(text/graph/chart/table)를 결정하는 함수
-#
-# ✔ 기준
-# - intent
-# - render_type
-# - 데이터 존재 여부
-#
-# ✔ 목적
-# - UI 렌더링 방식 결정
-# =====================================================
 def resolve_response_route(intent: str, render_type: str, has_graph: bool, has_query_meta: bool) -> ResponseRoute:
     """응답 라우팅을 intent별 if문 대신 공통 규칙으로 결정한다.
 
@@ -764,21 +634,6 @@ def resolve_response_route(intent: str, render_type: str, has_graph: bool, has_q
         return ResponseRoute(name="table", render_type="table", realtime_mode="incident_table_with_summary")
     return ResponseRoute(name="llm_text", render_type=render_type)
 
-# =====================================================
-# [함수 설명] retrieve_docs
-# -----------------------------------------------------
-# 벡터 DB(Chroma)에서 질문과 관련된 문서를 검색하는 함수
-#
-# ✔ 동작
-# - embedding 기반 유사도 검색
-# - where_filter로 시스템/섹션 제한 가능
-#
-# ✔ 반환
-# - documents, metadatas, distances
-#
-# ✔ 목적
-# - LLM에 전달할 근거 데이터 확보
-# =====================================================
 def retrieve_docs(
     persist_dir: str,
     collection_name: str,
@@ -797,24 +652,6 @@ def retrieve_docs(
     return collection.query(**kwargs)
 
 
-# =====================================================
-# [함수 설명] build_answer_prompt
-# -----------------------------------------------------
-# LLM에 전달할 최종 프롬프트를 생성하는 함수
-#
-# ✔ 구성
-# - 사용자 질문
-# - 검색 결과(context)
-# - 대화 이력
-# - 답변 규칙
-#
-# ✔ 특징
-# - system_id 기반 다른 시스템 정보 차단
-# - intent별 응답 형식 제어
-#
-# ✔ 중요성
-# - LLM 답변 품질을 결정하는 핵심 요소
-# =====================================================
 def build_answer_prompt(
     rewritten_question: str,
     intent: str,
@@ -901,6 +738,34 @@ def _format_execution_label(execution: str) -> str:
     return labels.get(str(execution or "").strip().lower(), str(execution or "").strip())
 
 
+def _format_list_inline(values: Any) -> str:
+    """list/string 값을 화면용 한 줄 문자열로 변환한다."""
+    if values is None:
+        return ""
+    if isinstance(values, list):
+        return ", ".join([str(v).strip() for v in values if str(v).strip()])
+    return str(values).strip()
+
+
+def _format_duration_sec(value: Any) -> str:
+    """초 단위 평균 수행시간을 보기 좋게 표시한다."""
+    if value is None or str(value).strip() == "":
+        return ""
+    try:
+        seconds = int(float(value))
+    except Exception:
+        return str(value).strip()
+
+    if seconds < 60:
+        return f"{seconds}초"
+
+    minutes = seconds // 60
+    remain = seconds % 60
+    if remain:
+        return f"{minutes}분 {remain}초"
+    return f"{minutes}분"
+
+
 def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
     """배치 프로세스를 중복 없이 구조화해서 생성한다.
 
@@ -908,6 +773,7 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
     - 하드코딩된 배치명/단계명 없이 JSON steps/jobs/key_jobs 기반으로 생성한다.
     - 같은 내용을 문장형 설명과 STEP 상세로 두 번 반복하지 않는다.
     - 한 줄 흐름 -> STEP 상세 -> 핵심 배치 순서로만 출력한다.
+    - batch_process.jobs[]에 운영 메타가 있으면 함께 출력한다.
     - LangChain 실패 시 fallback으로 사용해도 그대로 사용자에게 보여줄 수 있는 품질을 유지한다.
     """
     title = batch_process.get("title", "배치 프로세스")
@@ -934,7 +800,7 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
         header = ". ".join([part for part in header_parts if part])
         if execution_label:
             header = f"{header} ({execution_label})"
-        lines.append(f"\n{header}")
+        lines.append(f"{header}")
 
         if description:
             lines.append(f"👉 {description}")
@@ -942,12 +808,53 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
         for job in step.get("jobs", []) or []:
             job_id = str(job.get("job_id", "")).strip()
             job_desc = str(job.get("description", "")).strip()
+            job_name = str(job.get("job_name", "")).strip()
+
+            display_name = job_name if job_name and job_name != job_id else ""
             if job_id and job_desc:
-                lines.append(f"- {job_id}: {job_desc}")
+                if display_name:
+                    lines.append(f"- {job_id} ({display_name}): {job_desc}")
+                else:
+                    lines.append(f"- {job_id}: {job_desc}")
             elif job_id:
-                lines.append(f"- {job_id}")
+                lines.append(f"- {job_id}" + (f" ({display_name})" if display_name else ""))
             elif job_desc:
                 lines.append(f"- {job_desc}")
+
+            operation_lines: List[str] = []
+            schedule_type = str(job.get("schedule_type", "")).strip()
+            execution_time = str(job.get("execution_time", "")).strip()
+            avg_duration = _format_duration_sec(job.get("avg_duration_sec"))
+            batch_file = str(job.get("batch_file", "")).strip()
+            program_name = str(job.get("program_name", "")).strip()
+            owner_team = str(job.get("owner_team", "")).strip()
+            retry_count = str(job.get("retry_count", "")).strip()
+            upstream_jobs = _format_list_inline(job.get("upstream_jobs"))
+            downstream_jobs = _format_list_inline(job.get("downstream_jobs"))
+            failure_action = str(job.get("failure_action", "")).strip()
+
+            if schedule_type:
+                operation_lines.append(f"  - 실행주기: {schedule_type}")
+            if execution_time:
+                operation_lines.append(f"  - 실행시간: {execution_time}")
+            if avg_duration:
+                operation_lines.append(f"  - 평균수행시간: {avg_duration}")
+            if batch_file:
+                operation_lines.append(f"  - 실행배치파일: {batch_file}")
+            if program_name:
+                operation_lines.append(f"  - 프로그램명: {program_name}")
+            if owner_team:
+                operation_lines.append(f"  - 담당팀: {owner_team}")
+            if retry_count:
+                operation_lines.append(f"  - 재시도횟수: {retry_count}")
+            if upstream_jobs:
+                operation_lines.append(f"  - 선행배치: {upstream_jobs}")
+            if downstream_jobs:
+                operation_lines.append(f"  - 후행배치: {downstream_jobs}")
+            if failure_action:
+                operation_lines.append(f"  - 장애조치방법: {failure_action}")
+
+            lines.extend(operation_lines)
 
     key_jobs: List[str] = []
     for step in steps:
@@ -957,11 +864,11 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
                 key_jobs.append(job_id_str)
 
     if key_jobs:
-        lines.append("\n⭐ 핵심 배치")
+        lines.append("⭐ 핵심 배치")
         for job_id in key_jobs:
             lines.append(f"- {job_id}")
 
-    return "\n".join(lines).strip()
+    return "".join(lines).strip()
 
 
 def remove_repeated_step_sections(answer: str) -> str:
@@ -1067,26 +974,7 @@ class HandoverAgent:
 
         return None
 
-    # =====================================================
-# [함수 설명] answer_question
-# -----------------------------------------------------
-# 전체 질문 처리 파이프라인을 수행하는 메인 함수
-#
-# ✔ 처리 흐름
-# 1) 질문 전처리
-# 2) system_id / intent 판별
-# 3) 질문 재작성
-# 4) 벡터 검색
-# 5) 응답 타입 결정
-# 6) LLM 호출 또는 fallback
-#
-# ✔ 출력
-# - AgentResult (최종 응답 + 메타정보)
-#
-# ✔ 특징
-# - 전체 시스템의 핵심 엔트리포인트
-# =====================================================
-def answer_question(
+    def answer_question(
         self,
         question: str,
         chat_history: Optional[List[Dict[str, str]]] = None,

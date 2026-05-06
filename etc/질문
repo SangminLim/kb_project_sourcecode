@@ -2,6 +2,11 @@ python rag/ingest_overview_batchprocess_chunked.py --json_path ./handover_improv
 
 python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-date 20260430
 
+python generated/BATCH_DEDUCTION_MERCHANT_MONTHLY_AGGREGATION/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-ym 202604
+
+
+python generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-date 20260430
+
 python test_eval_practical_structured.py --dataset ./eval_dataset_practical_structured.json --json_path ./handover_improved.json --persist_dir ./chroma --collection handover_agent --output ./eval_result_practical_structured.json
 
 
@@ -31,7 +36,7 @@ KKK은행 소득공제 업무 개요를 알려줘
 => history + 
 
 
-1. KKK은행 소득공제 업무 개요를 알려줘 12 14
+1. KKK은행 소득공제 업무 개요를 알려줘 23 25
 2. KKK은행 소득공제 배치 프로세스를 설명해줘 16 21
 3. KKK은행 소득공제 배치 흐름도를 그려줘 
  - 흐름도는 외부라이브러로 그린다
@@ -55,6 +60,8 @@ KKK은행 소득공제 업무 개요를 알려줘
 - db  조회해서 장애 현황 보여준다
 
 11. 전통시장 가맹점코드 전송파일 배치 개발 해줘
+
+12. 소득공제가맹점 가맹점번호로 파일 생성하는 배치 만들어줘
 
 1. 하드코딩최소화 하고 실무적으로 해줘
 

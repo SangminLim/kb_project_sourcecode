@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import re
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -235,6 +236,13 @@ def _billing_pattern_text(summary: Dict[str, Any]) -> str:
         return "데이터 패턴은 최근 구간에서 감소하는 흐름입니다."
     return "데이터 패턴은 최근 구간에서 전월과 동일한 흐름입니다."
 
+
+def format_billing_month(value: Any) -> str:
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d{6}", text):
+        return f"{text[:4]}년 {int(text[4:6])}월"
+    return text
+
 def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Optional[str]:
     """
     청구 월별 금액 요약은 LLM이 숫자 단위를 오해하지 않도록 코드로 생성한다.
@@ -257,17 +265,17 @@ def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Op
         ),
         (
             f"최고 금액 구간: 최고 금액은 {format_krw(summary['max_amount'])}으로, "
-            f"{summary['max_period']}에 발생했습니다."
+            f"{format_billing_month(summary['max_period'])}에 발생했습니다."
         ),
         (
             f"최저 금액 구간: 최저 금액은 {format_krw(summary['min_amount'])}으로, "
-            f"{summary['min_period']}에 발생했습니다."
+            f"{format_billing_month(summary['min_period'])}에 발생했습니다."
         ),
     ]
 
     if summary.get("change_rate_pct") is not None:
         lines.append(
-            f"최근 구간의 증감 포인트: 최근 구간인 {summary['latest_period']}에는 "
+            f"최근 구간의 증감 포인트: 최근 구간인 {format_billing_month(summary['latest_period'])}에는 "
             f"{format_krw(summary['latest_amount'])}으로, 전월 대비 {summary['change_rate_pct']}% 변동했습니다."
         )
 
@@ -277,6 +285,43 @@ def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Op
 def _render_bullets(items: List[str]) -> None:
     for item in items or []:
         st.markdown(f"- {item}")
+
+
+def unique_preserve_order(items: List[Any]) -> List[str]:
+    """순서를 유지하면서 중복 값을 제거한다.
+
+    화면 렌더링 단계에서 동일한 key_job이 여러 step에 들어오더라도
+    한 번만 보여주기 위한 공통 유틸이다.
+    """
+    result: List[str] = []
+    seen = set()
+    for item in items or []:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def format_execution_label(execution: Any) -> str:
+    """JSON의 execution 값을 화면용 라벨로 변환한다.
+
+    parallel/sequential 외 값이 들어와도 원문을 보존해서 확장 가능하게 처리한다.
+    """
+    value = str(execution or "").strip()
+    labels = {
+        "parallel": "병렬",
+        "sequential": "순차",
+    }
+    return labels.get(value.lower(), value)
+
+
+def build_step_flow_text(steps: List[Dict[str, Any]]) -> str:
+    """steps 메타데이터 기반으로 한 줄 흐름을 만든다."""
+    step_names = [str(step.get("name", "")).strip() for step in steps or []]
+    step_names = [name for name in step_names if name]
+    return " → ".join(step_names)
 
 def dataframe_to_payload(df: pd.DataFrame) -> Dict[str, Any]:
     safe_df = df.where(pd.notnull(df), None)
@@ -383,43 +428,71 @@ def render_overview_block(result: Any) -> None:
         _render_bullets(key_points)
 
 def render_batch_process_block(result: Any) -> None:
+    """배치 프로세스 화면 렌더링.
+
+    핵심 원칙:
+    - 구조화 JSON(steps/jobs/key_jobs)을 단일 source of truth로 사용한다.
+    - result.answer는 fallback 문장일 수 있으므로 structured_data가 있으면 반복 출력하지 않는다.
+    - 제목/핵심 배치/STEP 상세를 화면에서 한 번만 그린다.
+    - 배치명이나 단계명을 코드에 박지 않고 JSON 메타데이터 기반으로 확장 가능하게 처리한다.
+    """
     data = getattr(result, "structured_data", None) or {}
     batch_process = data.get("batch_process", {}) if "batch_process" in data else data
+
     title = batch_process.get("title", "배치 프로세스")
+    steps = batch_process.get("steps", []) or []
+
+    # structured_data가 없거나 비정상인 경우에만 answer를 그대로 보여준다.
+    # 정상 케이스에서는 answer를 함께 출력하면 STEP/배치 목록이 중복된다.
+    if not steps:
+        if getattr(result, "answer", None):
+            st.write(result.answer)
+        else:
+            st.info("배치 프로세스 정보가 없습니다.")
+        return
+
     st.markdown(f"#### 📌 {title}")
 
-    steps = batch_process.get("steps", [])
     key_jobs: List[str] = []
     for step in steps:
-        key_jobs.extend(step.get("key_jobs", []))
+        key_jobs.extend(step.get("key_jobs", []) or [])
+    key_jobs = unique_preserve_order(key_jobs)
 
     if key_jobs:
         st.markdown("##### ⭐ 핵심 배치")
         _render_bullets([f"`{job}`" for job in key_jobs])
 
-    if result.answer:
-        st.markdown("##### 🔹 핵심 흐름")
-        answer_text = result.answer.replace("핵심 흐름은 ", "").replace(" 순입니다.", "").strip()
-        flow_items = [item.strip() for item in answer_text.split("→") if item.strip()]
-        if flow_items:
-            _render_bullets(flow_items)
-        else:
-            st.markdown(f"- {result.answer}")
+    flow_text = build_step_flow_text(steps)
+    if flow_text:
+        st.markdown("##### 🔹 한 줄 흐름")
+        st.markdown(f"`{flow_text}`")
 
-    st.markdown("---")
+    st.markdown("##### 🔹 단계별 배치 프로세스")
 
     for step in steps:
-        execution = step.get("execution", "")
-        execution_kr = "병렬" if execution == "parallel" else "순차" if execution == "sequential" else execution
+        step_no = step.get("step", "")
+        step_name = str(step.get("name", "")).strip()
+        execution_label = format_execution_label(step.get("execution", ""))
 
-        st.markdown(f"##### STEP {step.get('step')}. {step.get('name')} ({execution_kr})")
+        header = f"STEP {step_no}. {step_name}" if step_no != "" else step_name or "STEP"
+        if execution_label:
+            header = f"{header} ({execution_label})"
+        st.markdown(f"###### {header}")
 
-        description = (step.get("description") or "").strip()
+        description = str(step.get("description") or "").strip()
         if description:
             st.markdown(f"👉 {description}")
 
-        for job in step.get("jobs", []):
-            st.markdown(f"- `{job.get('job_id', '')}`: {job.get('description', '')}")
+        jobs = step.get("jobs", []) or []
+        for job in jobs:
+            job_id = str(job.get("job_id", "")).strip()
+            job_desc = str(job.get("description", "")).strip()
+            if job_id and job_desc:
+                st.markdown(f"- `{job_id}`: {job_desc}")
+            elif job_id:
+                st.markdown(f"- `{job_id}`")
+            elif job_desc:
+                st.markdown(f"- {job_desc}")
 
         st.markdown("")
 

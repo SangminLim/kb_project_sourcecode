@@ -423,24 +423,24 @@ def build_rewrite_prompt(
     history_text = history_to_text(chat_history)
     canonical_hint = build_canonical_question(question, detect_system_id(question), resolved_intent)
     prompt = f"""
-다음 규칙을 지켜라.
-1) 이미 결정된 시스템명은 {resolved_system_name or '(없음)'} 이다. 이 값은 절대 변경하지 않는다.
-2) 이미 결정된 의도는 {resolved_intent} 이다. 이 의도는 절대 변경하지 않는다.
-3) 시스템명이 결정된 경우, 다른 시스템명(KKK은행/BBB증권)을 새로 추정하거나 바꾸지 않는다.
-4) 가능한 경우 아래 형태처럼 검색용 질문 1문장으로 정리한다.
-- {canonical_hint}
-5) 문맥상 이전 대화가 있으면 반영하되, 시스템명과 의도는 유지한다.
-6) 반드시 한국어 질문 한 줄만 출력한다.
+            다음 규칙을 지켜라.
+            1) 이미 결정된 시스템명은 {resolved_system_name or '(없음)'} 이다. 이 값은 절대 변경하지 않는다.
+            2) 이미 결정된 의도는 {resolved_intent} 이다. 이 의도는 절대 변경하지 않는다.
+            3) 시스템명이 결정된 경우, 다른 시스템명(KKK은행/BBB증권)을 새로 추정하거나 바꾸지 않는다.
+            4) 가능한 경우 아래 형태처럼 검색용 질문 1문장으로 정리한다.
+            - {canonical_hint}
+            5) 문맥상 이전 대화가 있으면 반영하되, 시스템명과 의도는 유지한다.
+            6) 반드시 한국어 질문 한 줄만 출력한다.
 
-예시:
-{examples}
+            예시:
+            {examples}
 
-이전 대화:
-{history_text if history_text else '(없음)'}
+            이전 대화:
+            {history_text if history_text else '(없음)'}
 
-현재 질문:
-{question}
-""".strip()
+            현재 질문:
+            {question}
+            """.strip()
     return system_prompt, prompt
 
 
@@ -679,25 +679,25 @@ def build_answer_prompt(
 
     history_text = history_to_text(chat_history)
     prompt = f"""
-이전 대화:
-{history_text if history_text else '(없음)'}
+        이전 대화:
+        {history_text if history_text else '(없음)'}
 
-사용자 질문:
-{rewritten_question}
+        사용자 질문:
+        {rewritten_question}
 
-검색 문맥:
-{chr(10).join(context_lines) if context_lines else '(없음)'}
+        검색 문맥:
+        {chr(10).join(context_lines) if context_lines else '(없음)'}
 
-답변 규칙:
-- 반드시 한국어로만 답변한다.
-- 검색 문맥에 있는 내용만 사용한다.
-- system_id가 주어진 경우 해당 시스템 정보만 사용하고, 다른 시스템 이름/내용은 절대 포함하지 않는다.
-- overview 질문이면 핵심 요약 2~4문장으로 정리한다.
-- batch_process 질문이면 한 줄 흐름, STEP별 배치, 핵심 배치 순서로만 답변한다.
-- batch_process 답변에서 같은 STEP/배치 목록을 문장형 설명과 STEP 상세로 두 번 반복하지 않는다.
-- batch_process 답변에서 배치명은 검색 문맥에 있는 job_id만 사용한다.
-- 문맥이 부족하면 부족하다고 말한다.
-""".strip()
+        답변 규칙:
+        - 반드시 한국어로만 답변한다.
+        - 검색 문맥에 있는 내용만 사용한다.
+        - system_id가 주어진 경우 해당 시스템 정보만 사용하고, 다른 시스템 이름/내용은 절대 포함하지 않는다.
+        - overview 질문이면 핵심 요약 2~4문장으로 정리한다.
+        - batch_process 질문이면 한 줄 흐름, STEP별 배치, 핵심 배치 순서로만 답변한다.
+        - batch_process 답변에서 같은 STEP/배치 목록을 문장형 설명과 STEP 상세로 두 번 반복하지 않는다.
+        - batch_process 답변에서 배치명은 검색 문맥에 있는 job_id만 사용한다.
+        - 문맥이 부족하면 부족하다고 말한다.
+        """.strip()
     return system_prompt, prompt
 
 
@@ -719,11 +719,13 @@ def build_table_answer(query_meta: Dict[str, Any]) -> str:
 
 
 def build_overview_fallback(overview: Dict[str, Any]) -> str:
-    summary = overview.get("summary") or overview.get("content") or "업무 개요 정보가 없습니다."
-    outputs = overview.get("outputs", [])
-    if outputs:
-        return f"{summary} 최종 산출물은 {', '.join(outputs)}입니다."
-    return summary
+    """overview는 화면에서 구조화 렌더링하므로 answer에는 짧은 대표 문장만 담는다."""
+    return str(
+        overview.get("summary")
+        or overview.get("content")
+        or overview.get("title")
+        or "업무 개요 정보가 없습니다."
+    ).strip()
 
 
 def _format_execution_label(execution: str) -> str:
@@ -738,6 +740,34 @@ def _format_execution_label(execution: str) -> str:
     return labels.get(str(execution or "").strip().lower(), str(execution or "").strip())
 
 
+def _format_list_inline(values: Any) -> str:
+    """list/string 값을 화면용 한 줄 문자열로 변환한다."""
+    if values is None:
+        return ""
+    if isinstance(values, list):
+        return ", ".join([str(v).strip() for v in values if str(v).strip()])
+    return str(values).strip()
+
+
+def _format_duration_sec(value: Any) -> str:
+    """초 단위 평균 수행시간을 보기 좋게 표시한다."""
+    if value is None or str(value).strip() == "":
+        return ""
+    try:
+        seconds = int(float(value))
+    except Exception:
+        return str(value).strip()
+
+    if seconds < 60:
+        return f"{seconds}초"
+
+    minutes = seconds // 60
+    remain = seconds % 60
+    if remain:
+        return f"{minutes}분 {remain}초"
+    return f"{minutes}분"
+
+
 def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
     """배치 프로세스를 중복 없이 구조화해서 생성한다.
 
@@ -745,6 +775,7 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
     - 하드코딩된 배치명/단계명 없이 JSON steps/jobs/key_jobs 기반으로 생성한다.
     - 같은 내용을 문장형 설명과 STEP 상세로 두 번 반복하지 않는다.
     - 한 줄 흐름 -> STEP 상세 -> 핵심 배치 순서로만 출력한다.
+    - batch_process.jobs[]에 운영 메타가 있으면 함께 출력한다.
     - LangChain 실패 시 fallback으로 사용해도 그대로 사용자에게 보여줄 수 있는 품질을 유지한다.
     """
     title = batch_process.get("title", "배치 프로세스")
@@ -771,7 +802,7 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
         header = ". ".join([part for part in header_parts if part])
         if execution_label:
             header = f"{header} ({execution_label})"
-        lines.append(f"\n{header}")
+        lines.append(f"{header}")
 
         if description:
             lines.append(f"👉 {description}")
@@ -779,12 +810,53 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
         for job in step.get("jobs", []) or []:
             job_id = str(job.get("job_id", "")).strip()
             job_desc = str(job.get("description", "")).strip()
+            job_name = str(job.get("job_name", "")).strip()
+
+            display_name = job_name if job_name and job_name != job_id else ""
             if job_id and job_desc:
-                lines.append(f"- {job_id}: {job_desc}")
+                if display_name:
+                    lines.append(f"- {job_id} ({display_name}): {job_desc}")
+                else:
+                    lines.append(f"- {job_id}: {job_desc}")
             elif job_id:
-                lines.append(f"- {job_id}")
+                lines.append(f"- {job_id}" + (f" ({display_name})" if display_name else ""))
             elif job_desc:
                 lines.append(f"- {job_desc}")
+
+            operation_lines: List[str] = []
+            schedule_type = str(job.get("schedule_type", "")).strip()
+            execution_time = str(job.get("execution_time", "")).strip()
+            avg_duration = _format_duration_sec(job.get("avg_duration_sec"))
+            batch_file = str(job.get("batch_file", "")).strip()
+            program_name = str(job.get("program_name", "")).strip()
+            owner_team = str(job.get("owner_team", "")).strip()
+            retry_count = str(job.get("retry_count", "")).strip()
+            upstream_jobs = _format_list_inline(job.get("upstream_jobs"))
+            downstream_jobs = _format_list_inline(job.get("downstream_jobs"))
+            failure_action = str(job.get("failure_action", "")).strip()
+
+            if schedule_type:
+                operation_lines.append(f"  - 실행주기: {schedule_type}")
+            if execution_time:
+                operation_lines.append(f"  - 실행시간: {execution_time}")
+            if avg_duration:
+                operation_lines.append(f"  - 평균수행시간: {avg_duration}")
+            if batch_file:
+                operation_lines.append(f"  - 실행배치파일: {batch_file}")
+            if program_name:
+                operation_lines.append(f"  - 프로그램명: {program_name}")
+            if owner_team:
+                operation_lines.append(f"  - 담당팀: {owner_team}")
+            if retry_count:
+                operation_lines.append(f"  - 재시도횟수: {retry_count}")
+            if upstream_jobs:
+                operation_lines.append(f"  - 선행배치: {upstream_jobs}")
+            if downstream_jobs:
+                operation_lines.append(f"  - 후행배치: {downstream_jobs}")
+            if failure_action:
+                operation_lines.append(f"  - 장애조치방법: {failure_action}")
+
+            lines.extend(operation_lines)
 
     key_jobs: List[str] = []
     for step in steps:
@@ -794,11 +866,11 @@ def build_batch_process_fallback(batch_process: Dict[str, Any]) -> str:
                 key_jobs.append(job_id_str)
 
     if key_jobs:
-        lines.append("\n⭐ 핵심 배치")
+        lines.append("⭐ 핵심 배치")
         for job_id in key_jobs:
             lines.append(f"- {job_id}")
 
-    return "\n".join(lines).strip()
+    return "".join(lines).strip()
 
 
 def remove_repeated_step_sections(answer: str) -> str:
@@ -997,6 +1069,26 @@ class HandoverAgent:
         where = self._build_where_filter(system_id, intent)
         debug_logs.append(f"[STEP 7] render_type = {render_type}")
         debug_logs.append(f"[STEP 8] where_filter = {where}")
+
+        if intent == "overview" and system_id and structured_data:
+            debug_logs.append("[STEP 9] overview_direct_render = true")
+            debug_logs.append("[STEP 10] retrieval = skipped")
+            debug_logs.append("[STEP 11] answer_generation = skipped (structured_overview_renderer)")
+            return AgentResult(
+                original_question=question,
+                normalized_question=normalized_question,
+                rewritten_question=rewritten_question,
+                system_id=system_id,
+                intent=intent,
+                answer=build_overview_fallback(structured_data),
+                render_type=render_type,
+                graph_data=graph_data,
+                query_meta=query_meta,
+                realtime_mode=None,
+                structured_data=structured_data,
+                sources=[],
+                debug_logs=debug_logs,
+            )
 
         search_query = rewritten_question
         debug_logs.append(f"[STEP 9] search_query = {search_query}")
