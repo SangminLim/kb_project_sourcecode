@@ -4,7 +4,7 @@
   "batch_name": "전통시장가맹점테이블 파일 생성",
   "batch_type": "db_to_file",
   "description": "전통시장 가맹점코드 전송파일 배치 개발 해줘",
-  "schedule_type": "daily",
+  "schedule_type": "manual",
   "parameters": [
     {
       "name": "base_date",
@@ -13,19 +13,10 @@
     }
   ],
   "source": {
-    "table": "TB_TRAD_MARKET_MERCHANT",
-    "columns": [
-      "MERCHANT_ID",
-      "MERCHANT_NM",
-      "MARKET_NM",
-      "BIZ_NO",
-      "APPLY_START_DT",
-      "APPLY_END_DT",
-      "USE_YN",
-      "REG_DTM",
-      "UPD_DTM"
-    ],
-    "base_date_column": "APPLY_START_DT"
+    "table_role": "classification_master",
+    "column_roles": [],
+    "base_date_column_role": "transaction_date",
+    "dynamic_inference": true
   },
   "target": {
     "output_format": "csv",
@@ -34,7 +25,7 @@
     "output_dir": "./output",
     "encoding": "utf-8-sig"
   },
-  "sql": "SELECT\n    MERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE :base_date BETWEEN APPLY_START_DT AND IFNULL(APPLY_END_DT, '99991231')\n  AND USE_YN = 'Y'",
+  "sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE :base_date >= APPLY_START_DT\n  AND (APPLY_END_DT IS NULL OR :base_date <= APPLY_END_DT)\n  AND USE_YN = 'Y'",
   "validation_rules": {
     "min_rows": 0,
     "not_null_columns": [
@@ -45,13 +36,17 @@
   "meta_source": {
     "type": "erwin_meta",
     "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
-    "tables": [
-      "TB_TRAD_MARKET_MERCHANT"
-    ]
+    "resolved_tables": {
+      "base": "TB_TRAD_MARKET_MERCHANT"
+    },
+    "resolved_columns": {
+      "base_date": "APPLY_START_DT"
+    }
   },
   "rule_source": {
-    "rule_id": "active_period_export",
-    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\active_period_export.json",
-    "sql_template": "active_period_export.sql.j2"
+    "rule_id": "generic_export_dynamic",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\rule_catalog.json",
+    "sql_template": "generic_export.sql.j2",
+    "template_type": null
   }
 }

@@ -1,92 +1,26 @@
 {
-  "version": "1.0",
-  "description": "배치 요청서 기반 Rule 선택 설정. 코드 수정 없이 rule 항목을 추가해서 확장한다.",
+  "version": "2.1",
+  "description": "테이블명 고정 없이 ERWin 메타의 역할/관계로 배치 패턴을 선택한다.",
   "rules": [
     {
-      "rule_id": "deduction_merchant_monthly_aggregation",
+      "rule_id": "monthly_aggregation_dynamic",
+      "rule_type": "monthly_aggregation",
       "batch_type": "aggregation_to_table",
       "priority": 100,
-      "description": "매출원장과 소득공제 가맹점 3종을 유효기간 기준으로 조인하여 고객별/월별/가맹점유형별 금액을 집계한다.",
+      "description": "거래 원장 역할 테이블을 기준으로 월별 집계 SQL을 생성한다. 조인 대상은 ERWin relations와 classification_master 역할로 추론한다.",
       "match": {
         "required_any": [
           "집계",
           "월별",
           "통합"
         ],
-        "required_all": [
-          "가맹점"
-        ],
-        "table_any": [
-          "TB_CARD_SALES_LEDGER"
-        ],
-        "output_any": [
-          "고객ID",
-          "총금액",
-          "건수",
-          "가맹점유형"
+        "required_columns": [
+          "CUSTOMER_ID",
+          "MERCHANT_ID"
         ]
       },
-      "source": {
-        "base_table": "TB_CARD_SALES_LEDGER",
-        "base_alias": "A",
-        "base_period_param": "base_ym",
-        "base_period_column": "BASE_YM"
-      },
-      "classification": {
-        "output_column": "MERCHANT_TYPE",
-        "join_table_roles": {
-          "TB_BOOK_PERF_MERCHANT": "BOOK_PERF",
-          "TB_TRAD_MARKET_MERCHANT": "TRAD_MARKET",
-          "TB_GENERAL_DEDUCT_MERCHANT": "GENERAL"
-        }
-      },
-      "filters": [
-        {
-          "scope": "base",
-          "condition": "A.BASE_YM = :base_ym"
-        },
-        {
-          "scope": "base",
-          "condition": "A.CANCEL_YN = 'N'"
-        },
-        {
-          "scope": "joined_tables",
-          "column": "USE_YN",
-          "operator": "=",
-          "value": "Y"
-        }
-      ],
-      "select": [
-        {
-          "expr": "A.CUSTOMER_ID",
-          "alias": "CUSTOMER_ID"
-        },
-        {
-          "expr": "A.BASE_YM",
-          "alias": "BASE_YM"
-        },
-        {
-          "expr": "__CLASSIFICATION_CASE__",
-          "alias": "MERCHANT_TYPE"
-        },
-        {
-          "expr": "SUM(A.SALES_AMT)",
-          "alias": "TOTAL_AMT"
-        },
-        {
-          "expr": "COUNT(*)",
-          "alias": "TXN_COUNT"
-        }
-      ],
-      "group_by": [
-        "A.CUSTOMER_ID",
-        "A.BASE_YM",
-        "__CLASSIFICATION_CASE__"
-      ],
       "target": {
         "table": "TB_DEDUCTION_MONTHLY_SUMMARY",
-        "load_strategy": "delete_insert",
-        "delete_condition": "BASE_YM = :base_ym",
         "columns": [
           "CUSTOMER_ID",
           "BASE_YM",
@@ -95,14 +29,36 @@
           "TXN_COUNT",
           "REG_DTM"
         ]
-      },
-      "sql_template": "deduction_merchant_monthly_aggregation.sql.j2"
+      }
     },
     {
-      "rule_id": "generic_export",
+      "rule_id": "ledger_extract_with_classification",
+      "rule_type": "ledger_extract",
+      "batch_type": "db_to_file",
+      "priority": 80,
+      "description": "거래 원장과 분류 마스터를 ERWIN relation 기반으로 조인하여 대상 거래를 추출한다.",
+      "match": {
+        "required_any": [
+          "대상 거래",
+          "거래 추출",
+          "가맹점 유형",
+          "MERCHANT_TYPE",
+          "참조 테이블"
+        ],
+        "required_table_roles": [
+          "transaction_ledger",
+          "classification_master"
+        ]
+      },
+      "template_type": "ledger_extract_with_classification",
+      "sql_template": "ledger_extract_with_classification.sql.j2"
+    },
+    {
+      "rule_id": "generic_export_dynamic",
+      "rule_type": "generic_export",
       "batch_type": "db_to_file",
       "priority": 10,
-      "description": "단일 테이블 조건 조회 후 CSV 파일로 생성한다.",
+      "description": "단일 테이블 조건 조회 후 파일로 생성한다.",
       "match": {
         "required_any": [
           "파일",
@@ -111,10 +67,27 @@
           "추출",
           "생성"
         ],
-        "required_all": [],
-        "table_any": []
+        "exclude_any": [
+          "JOIN",
+          "참조 테이블",
+          "가맹점 유형",
+          "MERCHANT_TYPE",
+          "대상 거래",
+          "거래 추출"
+        ]
       },
-      "sql_template": "generic_export.sql.j2"
+      "sql_template": "generic_export.sql.j2",
+      "conditions": [
+        {
+          "template": ":base_date >= APPLY_START_DT"
+        },
+        {
+          "template": "(APPLY_END_DT IS NULL OR :base_date <= APPLY_END_DT)"
+        },
+        {
+          "template": "USE_YN = 'Y'"
+        }
+      ]
     }
   ]
 }

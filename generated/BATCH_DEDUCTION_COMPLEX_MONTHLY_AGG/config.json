@@ -1,9 +1,0 @@
-{
-  "batch_id": "BATCH_DEDUCTION_COMPLEX_MONTHLY_AGG",
-  "meta_path": "conf/erwin_meta_complex.json",
-  "output_dir": "output",
-  "export_file_prefix": "deduction_monthly_summary",
-  "fail_on_missing_columns": true,
-  "truncate_target_month_before_insert": true,
-  "write_csv": true
-}

@@ -1,0 +1,52 @@
+{
+  "version": "1.0",
+  "batch_id": "BATCH_BOOK_PERF_MERCHANT_EXPORT",
+  "batch_name": "도서공연가맹점테이블 파일 생성",
+  "batch_type": "db_to_file",
+  "description": "도서공연 가맹점 파일 생성 배치 만들어줘",
+  "schedule_type": "manual",
+  "parameters": [
+    {
+      "name": "base_date",
+      "required": true,
+      "description": "기준일자(YYYYMMDD)"
+    }
+  ],
+  "source": {
+    "table_role": "classification_master",
+    "column_roles": [],
+    "base_date_column_role": "transaction_date",
+    "dynamic_inference": true
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "book_perf_merchant",
+    "output_file_pattern": "book_perf_merchant_{base_date}.csv",
+    "output_dir": "./output",
+    "encoding": "utf-8-sig"
+  },
+  "sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_BOOK_PERF_MERCHANT\nWHERE :base_date >= APPLY_START_DT\n  AND (APPLY_END_DT IS NULL OR :base_date <= APPLY_END_DT)\n  AND USE_YN = 'Y'",
+  "validation_rules": {
+    "min_rows": 0,
+    "not_null_columns": [
+      "MERCHANT_ID",
+      "APPLY_START_DT"
+    ]
+  },
+  "meta_source": {
+    "type": "erwin_meta",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
+    "resolved_tables": {
+      "base": "TB_BOOK_PERF_MERCHANT"
+    },
+    "resolved_columns": {
+      "base_date": "APPLY_START_DT"
+    }
+  },
+  "rule_source": {
+    "rule_id": "generic_export_dynamic",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\rule_catalog.json",
+    "sql_template": "generic_export.sql.j2",
+    "template_type": null
+  }
+}

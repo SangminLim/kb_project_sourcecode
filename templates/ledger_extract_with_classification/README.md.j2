@@ -1,0 +1,32 @@
+# {{ batch_name }}
+
+## Batch ID
+`{{ batch_id }}`
+
+## Batch Type
+`{{ batch_type }}`
+
+## 설명
+{{ description }}
+
+## 처리 방식
+- 거래 원장 테이블 기준으로 대상 거래를 조회한다.
+- ERWIN relation 정보를 기준으로 classification_master 테이블과 JOIN한다.
+- 거래일자와 마스터 적용기간을 비교한다.
+- 취소 거래를 제외한다.
+- 매칭된 classification_value를 MERCHANT_TYPE으로 출력한다.
+
+## 실행 예시
+
+```bash
+python job.py --database-url "$DATABASE_URL" --base-ym 202604 --output-dir ./output
+```
+
+## 출력 파일
+`{{ output_file_prefix }}_{base_ym}.{{ output_format }}`
+
+## 검토 필요사항
+- ERWIN relation 기준 JOIN 조건 검토
+- 기간 조건 검토
+- 중복 매칭 여부 검토
+- 파일 인코딩 및 구분자 검토

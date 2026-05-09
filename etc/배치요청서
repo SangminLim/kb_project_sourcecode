@@ -1,0 +1,158 @@
+ERWIN 메타가 담당해야 하는 것:
+
+테이블명
+컬럼명
+PK/FK
+JOIN 관계
+유효기간 컬럼
+금액 컬럼
+거래일자 컬럼
+
+배치 요청서가 담당해야 하는 것:
+
+집계 기준
+제외 조건
+출력 컬럼
+파일 형식
+업무 목적
+배치 유형
+
+소득집계 
+python generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-ym 202604
+
+전통시장
+python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
+도서공연
+
+python generated/BATCH_BOOK_PERF_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
+일반소득공제
+
+python generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
+
+python generated\BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-ym 202604
+그리고 중요한 건 지금 이미:
+
+배치 요청서
+→ ERWin 메타 기반 추론
+→ batch_spec 생성
+→ SQL 생성
+→ 실행 가능한 job.py 생성
+→ 실제 DB 적재 실행
+
+컬럼이 들어있을 거야.
+
+이번에 중요한 건 단순 성공이 아니라 구조가 실무형으로 바뀐 거야:
+
+업무명 하드코딩 X
+테이블명 하드코딩 X
+JOIN 하드코딩 최소화
+ERWIN relation 기반 추론
+table_role 기반 선택
+template_type 분리
+
+여기까지 오면 이제:
+
+카드 승인 대상 거래 추출
+포인트 적립 대상 추출
+청구 대상 거래 생성
+마케팅 대상 고객 추출
+
+같은 패턴도 확장 가능해진 상태야.
+
+금 구조는 이렇게 보면 돼.
+
+요청서
+→ spec_builder가 요청/ERWIN meta 분석
+→ rule_engine이 배치 패턴 선택
+→ spec_builder가 SQL/파라미터/대상 생성
+→ agent.py가 template_type 선택
+→ code_generator가 파일 생성
+
+현재 배치 패턴은 크게 3개야.
+
+1. generic_export_dynamic
+   - 단일 테이블 조회 후 CSV 생성
+   - 예: 전통시장 가맹점 파일 생성, 도서공연 가맹점 파일 생성
+   - 템플릿: db_to_file
+
+2. ledger_extract_with_classification
+   - 거래원장 + 분류마스터 JOIN
+   - 예: 소득공제 대상 거래 추출 배치
+   - 기준: transaction_ledger + classification_master + ERWIN relations
+   - 템플릿: ledger_extract_with_classification
+
+3. monthly_aggregation_dynamic
+   - 거래원장 기준 월별 집계
+   - 예: 소득공제 월별 통합 집계 배치
+   - Delete Insert 방식
+   - 템플릿: aggregation_to_table
+
+실무적으로는 지금 꽤 좋아졌어.
+
+batch_type = 실행 유형
+template_type = 실제 템플릿 폴더
+rule_type = 처리 패턴
+
+예를 들면 거래 추출은:
+
+batch_type: db_to_file
+rule_type: ledger_extract
+template_type: ledger_extract_with_classification
+
+
+
+
+그러면 배치 생성기가:
+
+transaction_ledger 역할의 테이블 탐색
+→ TB_CARD_SALES_LEDGER 선택
+
+하는 거야.
+
+즉 네가 계속 말한:
+
+"왜 테이블명을 Rule에 박아?"
+
+그 문제를 아직 완전히 제거한 건 아니고,
+
+INSERT INTO testDB.TB_BATCH_INCIDENT (
+    batch_name,
+    status,
+    error_code,
+    error_message,
+    start_time,
+    end_time
+) VALUES
+('BATCH_01_CARD_APPROVAL_LOAD', 'FAIL', 'ERR101', '카드 승인 데이터 적재 실패', NOW(), NOW()),
+('BATCH_02_CARD_PURCHASE_LOAD', 'FAIL', 'ERR102', '매입 데이터 처리 오류', NOW(), NOW()),
+('BATCH_06_DEDUCTION_TARGET_FILTER', 'FAIL', 'ERR201', '소득공제 대상 판별 오류', NOW(), NOW()),
+('BATCH_07_DEDUCTION_AGGREGATION', 'FAIL', 'ERR202', '집계 처리 중 오류', NOW(), NOW()),
+('BATCH_08_DEDUCTION_FILE_GENERATION', 'FAIL', 'ERR301', '파일 생성 실패', NOW(), NOW());
+
+
+
+네 방향이 실제 실무 방향에 더 가까워.
+
+실제 금융권/대기업 배치 프레임워크도 보통 이렇게 구성돼:
+
+메타 저장소
++ 업무 설정
++ 공통 실행 엔진
+
+예를 들면 실무에서는:
+
+ERWIN / Data Catalog
+→ 테이블/컬럼/관계 관리
+
+배치 설정 테이블
+→ 실행주기/파라미터/대상업무 관리
+
+공통 ETL 프레임워크
+→ 조회/집계/파일생성/검증 공통 처리
+
+이런 구조를 많이 써.
+
+반대로 실무에서 싫어하는 건:

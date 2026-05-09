@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "batch_id": "BATCH_CARD_SALES_LEDGER_AGG",
+  "batch_name": "매출원장테이블 월별 집계",
+  "batch_type": "aggregation_to_table",
+  "description": "소득공제 월별 통합 집계 배치 만들어줘",
+  "schedule_type": "manual",
+  "parameters": [
+    {
+      "name": "base_ym",
+      "required": true,
+      "description": "기준년월(YYYYMM)"
+    }
+  ],
+  "source": {
+    "table_role": "transaction_ledger",
+    "column_roles": [
+      "customer_id",
+      "base_month",
+      "amount"
+    ],
+    "join_table_role": "classification_master",
+    "dynamic_inference": true
+  },
+  "target": {
+    "table": "TB_DEDUCTION_MONTHLY_SUMMARY",
+    "load_strategy": "delete_insert",
+    "delete_sql": "DELETE FROM TB_DEDUCTION_MONTHLY_SUMMARY WHERE BASE_YM = :base_ym",
+    "columns": [
+      "CUSTOMER_ID",
+      "BASE_YM",
+      "MERCHANT_TYPE",
+      "TOTAL_AMT",
+      "TXN_COUNT",
+      "REG_DTM"
+    ]
+  },
+  "sql": "INSERT INTO TB_DEDUCTION_MONTHLY_SUMMARY (\n    CUSTOMER_ID,\n    BASE_YM,\n    MERCHANT_TYPE,\n    TOTAL_AMT,\n    TXN_COUNT,\n    REG_DTM\n)\nSELECT\n    S.CUSTOMER_ID,\n    S.BASE_YM,\n    S.MERCHANT_TYPE,\n    S.TOTAL_AMT,\n    S.TXN_COUNT,\n    NOW() AS REG_DTM\nFROM (\nSELECT\n    A.CUSTOMER_ID AS CUSTOMER_ID,\n    A.BASE_YM AS BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND AS MERCHANT_TYPE,\n    SUM(A.SALES_AMT) AS TOTAL_AMT,\n    COUNT(*) AS TXN_COUNT\nFROM TB_CARD_SALES_LEDGER A\nLEFT JOIN TB_BOOK_PERF_MERCHANT J1\n  ON A.MERCHANT_ID = J1.MERCHANT_ID AND A.SALES_DT BETWEEN J1.APPLY_START_DT AND IFNULL(J1.APPLY_END_DT, '99991231')\n AND J1.USE_YN = 'Y'\nLEFT JOIN TB_TRAD_MARKET_MERCHANT J2\n  ON A.MERCHANT_ID = J2.MERCHANT_ID AND A.SALES_DT BETWEEN J2.APPLY_START_DT AND IFNULL(J2.APPLY_END_DT, '99991231')\n AND J2.USE_YN = 'Y'\nLEFT JOIN TB_GENERAL_DEDUCT_MERCHANT J3\n  ON A.MERCHANT_ID = J3.MERCHANT_ID AND A.SALES_DT BETWEEN J3.APPLY_START_DT AND IFNULL(J3.APPLY_END_DT, '99991231')\n AND J3.USE_YN = 'Y'\nWHERE A.BASE_YM = :base_ym\n  AND A.CANCEL_YN = 'N'\n  AND (J1.MERCHANT_ID IS NOT NULL OR J2.MERCHANT_ID IS NOT NULL OR J3.MERCHANT_ID IS NOT NULL)\nGROUP BY\n    A.CUSTOMER_ID,\n    A.BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND\n) S",
+  "validation_rules": {
+    "min_rows": 0,
+    "not_null_columns": [
+      "CUSTOMER_ID",
+      "BASE_YM"
+    ]
+  },
+  "meta_source": {
+    "type": "erwin_meta",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\metadata\\erwin_meta.json",
+    "resolved_tables": {
+      "base": "TB_CARD_SALES_LEDGER",
+      "joins": [
+        "TB_BOOK_PERF_MERCHANT",
+        "TB_TRAD_MARKET_MERCHANT",
+        "TB_GENERAL_DEDUCT_MERCHANT"
+      ]
+    },
+    "resolved_columns": {
+      "customer_id": "CUSTOMER_ID",
+      "base_month": "BASE_YM",
+      "amount": "SALES_AMT",
+      "cancel_flag": "CANCEL_YN"
+    }
+  },
+  "rule_source": {
+    "rule_id": "monthly_aggregation_dynamic",
+    "path": "C:\\Users\\KBCARD\\kb_project\\batch_dev\\business_rules\\rule_catalog.json",
+    "mode": "dynamic_meta_inference",
+    "template_type": null
+  }
+}

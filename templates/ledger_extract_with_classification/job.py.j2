@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any, Dict, List
+
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+
+BATCH_ID = "{{ batch_id }}"
+BATCH_NAME = "{{ batch_name }}"
+OUTPUT_FILE_PREFIX = "{{ output_file_prefix }}"
+OUTPUT_FORMAT = "{{ output_format }}"
+OUTPUT_ENCODING = "{{ encoding }}"
+
+
+def read_sql() -> str:
+    return (Path(__file__).resolve().parent / "query.sql").read_text(encoding="utf-8").strip()
+
+
+def read_batch_spec() -> Dict[str, Any]:
+    spec_path = Path(__file__).resolve().parent / "batch_spec.json"
+    if not spec_path.exists():
+        return {}
+    return json.loads(spec_path.read_text(encoding="utf-8"))
+
+
+def build_output_path(output_dir: str, base_ym: str) -> Path:
+    path = Path(output_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path / f"{OUTPUT_FILE_PREFIX}_{base_ym}.{OUTPUT_FORMAT}"
+
+
+def validate_dataframe(df: pd.DataFrame) -> None:
+    if df is None:
+        raise ValueError("조회 결과 DataFrame이 없습니다.")
+
+    spec = read_batch_spec()
+    validation_rules = spec.get("validation_rules") or {}
+
+    required_columns: List[str] = validation_rules.get("not_null_columns") or []
+
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        raise ValueError(f"필수 출력 컬럼이 없습니다: {missing}")
+
+    null_columns = [
+        col
+        for col in required_columns
+        if col in df.columns and df[col].isna().any()
+    ]
+    if null_columns:
+        raise ValueError(f"NULL 값이 존재하는 필수 컬럼이 있습니다: {null_columns}")
+
+
+def write_output(df: pd.DataFrame, output_path: Path) -> None:
+    if OUTPUT_FORMAT == "csv":
+        df.to_csv(output_path, index=False, encoding=OUTPUT_ENCODING)
+        return
+
+    if OUTPUT_FORMAT == "txt":
+        df.to_csv(output_path, index=False, sep="|", encoding=OUTPUT_ENCODING)
+        return
+
+    if OUTPUT_FORMAT == "xlsx":
+        df.to_excel(output_path, index=False)
+        return
+
+    raise ValueError(f"지원하지 않는 출력 형식입니다: {OUTPUT_FORMAT}")
+
+
+def run(database_url: str, base_ym: str, output_dir: str = "./output") -> Dict[str, Any]:
+    if not database_url:
+        raise ValueError("database_url이 비어 있습니다.")
+    if not base_ym:
+        raise ValueError("base_ym이 비어 있습니다.")
+
+    print(f"[START] {BATCH_ID} {BATCH_NAME} base_ym={base_ym}")
+
+    engine = create_engine(database_url)
+    sql = read_sql()
+
+    df = pd.read_sql(text(sql), engine, params={"base_ym": base_ym})
+
+    validate_dataframe(df)
+    output_path = build_output_path(output_dir, base_ym)
+    write_output(df, output_path)
+
+    result = {
+        "batch_id": BATCH_ID,
+        "batch_name": BATCH_NAME,
+        "base_ym": base_ym,
+        "row_count": int(len(df)),
+        "output_file": str(output_path),
+    }
+
+    print(f"[END] {BATCH_ID} rows={result['row_count']} file={result['output_file']}")
+    return result
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=BATCH_NAME)
+    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--base-ym", required=True)
+    parser.add_argument("--output-dir", default="./output")
+
+    args = parser.parse_args()
+    run(args.database_url, args.base_ym, args.output_dir)

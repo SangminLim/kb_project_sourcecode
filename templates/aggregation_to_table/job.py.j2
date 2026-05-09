@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+from typing import Any, Dict
+
+from sqlalchemy import create_engine, text
+
+
+BATCH_ID = "{{ batch_id }}"
+BATCH_NAME = "{{ batch_name }}"
+
+
+def read_sql() -> str:
+    return (Path(__file__).resolve().parent / "query.sql").read_text(encoding="utf-8").strip()
+
+
+def run(database_url: str, base_ym: str) -> Dict[str, Any]:
+    if not database_url:
+        raise ValueError("database_url이 비어 있습니다.")
+    if not base_ym:
+        raise ValueError("base_ym이 비어 있습니다.")
+
+    print(f"[START] {BATCH_ID} {BATCH_NAME} base_ym={base_ym}")
+
+    engine = create_engine(database_url)
+    sql = read_sql()
+    delete_sql = """{{ delete_sql }}""".strip()
+
+    with engine.begin() as conn:
+        deleted_rows = 0
+        inserted_rows = 0
+
+        if delete_sql:
+            result = conn.execute(text(delete_sql), {"base_ym": base_ym})
+            deleted_rows = result.rowcount
+            print(f"[DELETE] rows={deleted_rows}")
+
+        result = conn.execute(text(sql), {"base_ym": base_ym})
+        inserted_rows = result.rowcount
+        print(f"[INSERT] rows={inserted_rows}")
+
+    print(f"[END] {BATCH_ID} deleted={deleted_rows} inserted={inserted_rows}")
+
+    return {
+        "batch_id": BATCH_ID,
+        "batch_name": BATCH_NAME,
+        "base_ym": base_ym,
+        "deleted_rows": deleted_rows,
+        "inserted_rows": inserted_rows,
+    }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=BATCH_NAME)
+    parser.add_argument("--database-url", required=True)
+    parser.add_argument("--base-ym", required=True)
+    args = parser.parse_args()
+    run(args.database_url, args.base_ym)
