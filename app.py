@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 import re
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -19,15 +20,40 @@ from llm import ChatConfig, HandoverAgent, ollama_generate, apply_dictionary_rew
 from realtime_query_service import RealtimeQueryService
 from batch_dev import BatchDevAgent
 
+try:
+    from batch_dev.llm_batch_validator import validate_batch_generation
+except Exception:
+    validate_batch_generation = None
+
+try:
+    from batch_dev.sql_improvement_advisor import analyze_sql_improvement
+except Exception:
+    analyze_sql_improvement = None
+
 PAGE_TITLE = "업무 인수인계 에이전트"
 PAGE_ICON = "🤖"
 
 JSON_PATH = os.getenv("JSON_PATH", "ingest/handover_improved.json")
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma")
 CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "handover_agent")
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DB_USER = os.getenv("DB_USER", "").strip()
+DB_PASSWORD = os.getenv("DB_PASSWORD", "").strip()
+DB_HOST = os.getenv("DB_HOST", "").strip()
+DB_PORT = os.getenv("DB_PORT", "3306").strip()
+DB_SERVICE = os.getenv("DB_SERVICE", "").strip()
+
+DATABASE_URL = ""
+if all([DB_USER, DB_PASSWORD, DB_HOST, DB_SERVICE]):
+    DATABASE_URL = (
+        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
+        f"@{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
+    )
+
 BILLING_QUERY_ID = "billing_monthly_amount"
 TODAY_INCIDENTS_QUERY_ID = "today_incidents"
+BATCH_VALIDATION_USE_LLM = os.getenv("BATCH_VALIDATION_USE_LLM", "true").strip().lower() in {"1", "true", "yes", "y"}
+BATCH_VALIDATION_LLM_MODEL = os.getenv("BATCH_VALIDATION_LLM_MODEL", os.getenv("OLLAMA_CHAT_MODEL", "llama3:8b")).strip()
+BATCH_VALIDATION_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
 
 @st.cache_resource
 def get_agent() -> HandoverAgent:
@@ -111,7 +137,7 @@ def get_realtime_service() -> RealtimeQueryService | None:
 def fetch_realtime_dataframe(query_meta: Dict[str, Any]) -> pd.DataFrame:
     service = get_realtime_service()
     if service is None:
-        raise RuntimeError("DATABASE_URL이 설정되지 않았습니다. .env에 DATABASE_URL을 설정하세요.")
+        raise RuntimeError("DB 접속 정보가 설정되지 않았습니다. .env에 DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SERVICE를 설정하세요.")
     return service.fetch_dataframe(query_meta)
 
 def summarize_billing_dataframe(df: pd.DataFrame, x_field: str, y_field: str) -> Dict[str, Any]:
@@ -687,7 +713,7 @@ def render_chart(query_meta: Dict[str, Any], realtime_payload: Optional[Dict[str
     payload = realtime_payload or {}
     if payload.get("error"):
         st.warning(f"DB 조회 실패: {payload['error']}")
-        st.info("DATABASE_URL과 실제 테이블/컬럼 구성을 확인하세요.")
+        st.info(".env DB 설정과 실제 테이블/컬럼 구성을 확인하세요.")
         return
 
     empty_message = payload.get("empty_message")
@@ -736,7 +762,7 @@ def render_table(query_meta: Dict[str, Any], realtime_mode: str | None = None, r
     payload = realtime_payload or {}
     if payload.get("error"):
         st.warning(f"DB 조회 실패: {payload['error']}")
-        st.info("DATABASE_URL과 실제 테이블/컬럼 구성을 확인하세요.")
+        st.info(".env DB 설정과 실제 테이블/컬럼 구성을 확인하세요.")
         return
 
     empty_message = payload.get("empty_message")
@@ -915,7 +941,7 @@ def render_batch_development_evaluation_panel(result: Any) -> None:
     payload = getattr(result, "batch_dev_result", None) or {}
     batch_spec = payload.get("batch_spec", {}) or {}
 
-    with st.expander("📊 배치개발 평가용 근거 확인", expanded=True):
+    with st.expander("📊 배치개발 평가용 근거 확인", expanded=False):
         st.markdown("##### 1) 요청 해석 결과")
         st.json({
             "original_question": getattr(result, "original_question", ""),
@@ -948,11 +974,35 @@ def render_batch_development_evaluation_panel(result: Any) -> None:
         for file_path in payload.get("created_files", []):
             st.code(file_path, language="text")
 
-        st.markdown("##### 7) 검증 결과")
+        st.markdown("##### 7) 기본 검증 결과")
         st.json({
             "warnings": payload.get("warnings", []),
             "errors": payload.get("errors", []),
         })
+
+        validation_report = payload.get("validation_report")
+        if validation_report:
+            st.markdown("##### 8) LLM 해석/검증 요약")
+            st.json({
+                "valid": validation_report.get("valid"),
+                "score": validation_report.get("score"),
+                "summary": validation_report.get("summary"),
+                "interpretation": validation_report.get("interpretation"),
+                "warnings": validation_report.get("warnings", []),
+                "recommendations": validation_report.get("recommendations", []),
+            })
+
+        sql_improvement = payload.get("sql_improvement")
+        if sql_improvement:
+            st.markdown("##### 9) SQL 자동 개선 제안")
+            st.json({
+                "enabled": sql_improvement.get("enabled"),
+                "risk_level": sql_improvement.get("risk_level"),
+                "generated_by": sql_improvement.get("generated_by"),
+                "summary": sql_improvement.get("summary"),
+                "suggestions": sql_improvement.get("suggestions", []),
+                "warnings": sql_improvement.get("warnings", []),
+            })
 
 def render_evaluation_panel(result: Any) -> None:
     if not st.session_state.evaluation_mode:
@@ -966,7 +1016,7 @@ def render_evaluation_panel(result: Any) -> None:
     sources = getattr(result, "sources", []) or []
     debug_logs = getattr(result, "debug_logs", []) or []
 
-    with st.expander("📊 평가용 근거 확인", expanded=True):
+    with st.expander("📊 평가용 근거 확인", expanded=False):
         st.markdown("##### 1) 질문 해석 결과")
         st.json({
             "original_question": getattr(result, "original_question", ""),
@@ -999,12 +1049,226 @@ def render_evaluation_panel(result: Any) -> None:
         for check in build_evaluation_checks(result):
             st.markdown(f"- {check}")
 
+
+def _read_generated_file(file_path: Any) -> tuple[str, str] | None:
+    """생성된 파일 경로를 읽어서 validator 입력 형식으로 변환한다.
+
+    BatchDevAgent가 created_files에 파일 경로만 넘기므로,
+    app.py에서는 실제 파일 내용을 읽어 validator에 전달한다.
+    파일이 없거나 읽을 수 없으면 해당 파일은 건너뛰어 화면 장애를 막는다.
+    """
+    try:
+        path = Path(str(file_path))
+        if not path.exists() or not path.is_file():
+            return None
+        return path.name, path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+
+def _build_generated_files_for_validation(batch_spec: Dict[str, Any], created_files: List[Any]) -> Dict[str, str]:
+    """LLM 검증 모듈에 넘길 생성 파일 묶음을 만든다.
+
+    특정 파일명을 하드코딩해서 판단하지 않고, BatchDevAgent가 돌려준
+    created_files 목록을 기준으로 실제 파일 내용을 수집한다.
+    단, query.sql이 created_files에 없더라도 batch_spec.sql이 있으면
+    검증 정확도를 위해 query.sql 항목으로 보강한다.
+    """
+    generated_files: Dict[str, str] = {}
+
+    for file_path in created_files or []:
+        item = _read_generated_file(file_path)
+        if item is None:
+            continue
+        file_name, content = item
+        generated_files[file_name] = content
+
+    if "query.sql" not in generated_files and batch_spec.get("sql"):
+        generated_files["query.sql"] = str(batch_spec.get("sql") or "")
+
+    generated_files.setdefault(
+        "batch_spec.json",
+        json.dumps(batch_spec or {}, ensure_ascii=False, indent=2),
+    )
+    return generated_files
+
+
+def _resolve_validation_output_dir(created_files: List[Any]) -> Path | None:
+    """validation_report.json/md를 저장할 폴더를 찾는다."""
+    for file_path in created_files or []:
+        try:
+            path = Path(str(file_path))
+            if path.exists():
+                return path.parent if path.is_file() else path
+        except Exception:
+            continue
+    return None
+
+
+
+def run_batch_sql_improvement(dev_result: Any) -> Dict[str, Any] | None:
+    """생성된 배치 SQL에 대해 자동 개선 제안을 생성한다.
+
+    실무 적용 원칙:
+    - query.sql 생성 이후에만 실행한다.
+    - SQL을 직접 수정하지 않고 개선 후보만 제안한다.
+    - LLM 모듈이 없거나 실패해도 룰 기반 분석 결과를 반환한다.
+    - 테이블/컬럼은 batch_spec.sql, meta_source, created_files에서 읽어 하드코딩을 줄인다.
+    """
+    if analyze_sql_improvement is None:
+        return {
+            "enabled": False,
+            "risk_level": "UNKNOWN",
+            "summary": "sql_improvement_advisor 모듈을 찾지 못했습니다.",
+            "suggestions": [],
+            "warnings": ["batch_dev/sql_improvement_advisor.py 파일 위치를 확인하세요."],
+            "generated_by": "none",
+        }
+
+    batch_spec = getattr(dev_result, "batch_spec", {}) or {}
+    created_files = getattr(dev_result, "created_files", []) or []
+    generated_files = _build_generated_files_for_validation(batch_spec, created_files)
+    output_dir = _resolve_validation_output_dir(created_files)
+
+    try:
+        return analyze_sql_improvement(
+            batch_spec=batch_spec,
+            generated_files=generated_files,
+            llm_generate_fn=ollama_generate,
+            model=BATCH_VALIDATION_LLM_MODEL,
+            use_llm=BATCH_VALIDATION_USE_LLM,
+            output_dir=output_dir,
+        )
+    except Exception as exc:
+        return {
+            "enabled": False,
+            "risk_level": "UNKNOWN",
+            "summary": "SQL 자동 개선 제안 생성에 실패했습니다.",
+            "suggestions": [],
+            "warnings": [str(exc)],
+            "generated_by": "error",
+        }
+
+
+def render_sql_improvement_report(sql_improvement: Dict[str, Any] | None, *, max_items: int | None = None) -> None:
+    """SQL 자동 개선 제안을 Streamlit 화면에 표시한다.
+
+    출력 결과 화면이 길어지지 않도록 기본은 접힘 상태로 보여준다.
+    """
+    if not sql_improvement:
+        return
+
+    with st.expander("🚀 SQL 자동 개선 제안", expanded=False):
+        generated_by = sql_improvement.get("generated_by", "-")
+        risk_level = sql_improvement.get("risk_level", "-")
+        summary = sql_improvement.get("summary", "")
+
+        if risk_level == "HIGH":
+            st.error(f"위험도: {risk_level} / 생성방식: {generated_by}")
+        elif risk_level in {"MEDIUM", "UNKNOWN"}:
+            st.warning(f"위험도: {risk_level} / 생성방식: {generated_by}")
+        else:
+            st.success(f"위험도: {risk_level} / 생성방식: {generated_by}")
+
+        if summary:
+            st.write(summary)
+
+        warnings = sql_improvement.get("warnings") or []
+        for warning in warnings:
+            st.caption(f"⚠️ {warning}")
+
+        suggestions = sql_improvement.get("suggestions") or []
+        if max_items is not None:
+            suggestions = suggestions[:max_items]
+
+        for idx, item in enumerate(suggestions, start=1):
+            title = str(item.get("type") or "RECOMMENDATION").strip()
+            target = str(item.get("target") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            recommendation = str(item.get("recommendation") or "").strip()
+            sql = str(item.get("sql") or "").strip()
+
+            with st.container(border=True):
+                st.markdown(f"**{idx}. {title}**")
+                if target:
+                    st.markdown(f"**대상:** `{target}`")
+                if reason:
+                    st.markdown(f"**이유:** {reason}")
+                if recommendation:
+                    st.markdown(f"**개선안:** {recommendation}")
+                if sql:
+                    language = "sql" if any(token in sql.upper() for token in ["SELECT", "CREATE", "INDEX", "WHERE", "JOIN"]) else "text"
+                    st.code(sql, language=language)
+
+def run_batch_llm_validation(user_question: str, dev_result: Any) -> Dict[str, Any] | None:
+    """배치 생성 결과에 대해 룰 검증 + 선택적 LLM 검증을 수행한다.
+
+    - validator 모듈이 없으면 앱 전체가 죽지 않도록 경고 payload만 반환한다.
+    - Ollama/LLM 호출이 실패해도 룰 기반 검증으로 한 번 더 검증한다.
+    - 결과는 dict로 저장해서 Streamlit session_state/history에 그대로 보관한다.
+    """
+    if validate_batch_generation is None:
+        return {
+            "valid": False,
+            "score": 0.0,
+            "summary": "llm_batch_validator 모듈을 찾지 못했습니다.",
+            "interpretation": "batch_dev 폴더에 llm_batch_validator.py가 있는지 확인하세요.",
+            "checks": [],
+            "issues": ["검증 모듈 import 실패"],
+            "warnings": [],
+            "recommendations": ["from batch_dev.llm_batch_validator import validate_batch_generation 경로를 확인하세요."],
+        }
+
+    batch_spec = getattr(dev_result, "batch_spec", {}) or {}
+    created_files = getattr(dev_result, "created_files", []) or []
+    generated_files = _build_generated_files_for_validation(batch_spec, created_files)
+    output_dir = _resolve_validation_output_dir(created_files)
+
+    # llm_batch_validator.py 내부에서 프로젝트 공통 llm.py의 ollama_generate를 재사용한다.
+    # app.py에서는 별도 Ollama client를 만들지 않는다.
+    try:
+        report = validate_batch_generation(
+            request_text=user_question,
+            batch_spec=batch_spec,
+            generated_files=generated_files,
+            llm_client=None,
+            output_dir=output_dir,
+        )
+        return report.to_dict()
+    except Exception as llm_error:
+        # LLM 호출/응답 파싱 오류가 나도 검증 화면 자체는 유지한다.
+        try:
+            report = validate_batch_generation(
+                request_text=user_question,
+                batch_spec=batch_spec,
+                generated_files=generated_files,
+                llm_client=None,
+                output_dir=output_dir,
+            )
+            payload = report.to_dict()
+            payload.setdefault("warnings", [])
+            payload["warnings"].append(f"LLM 검증 실패로 룰 기반 검증만 수행했습니다: {llm_error}")
+            return payload
+        except Exception as rule_error:
+            return {
+                "valid": False,
+                "score": 0.0,
+                "summary": "배치 검증 리포트 생성에 실패했습니다.",
+                "interpretation": "생성 파일 경로, batch_spec 구조, validator 모듈을 확인하세요.",
+                "checks": [],
+                "issues": [str(rule_error)],
+                "warnings": [f"LLM 검증 오류: {llm_error}"],
+                "recommendations": ["created_files 경로가 실제 파일로 존재하는지 확인하세요."],
+            }
+
 def run_batch_development(user_question: str) -> Any:
     """
     배치 개발 요청은 기존 RAG 흐름과 분리해서 처리한다.
     기존 HandoverAgent/Chroma 검색 품질에 영향을 주지 않기 위한 별도 진입점이다.
     """
     dev_result = BatchDevAgent().run(user_question)
+    sql_improvement = run_batch_sql_improvement(dev_result) if dev_result.success else None
+    validation_report = run_batch_llm_validation(user_question, dev_result) if dev_result.success else None
     answer = dev_result.message
     if dev_result.errors:
         answer = "배치 개발 요청을 처리하지 못했습니다. 오류를 확인하세요."
@@ -1033,6 +1297,8 @@ def run_batch_development(user_question: str) -> Any:
             "errors": dev_result.errors,
             "message": dev_result.message,
             "success": dev_result.success,
+            "validation_report": validation_report,
+            "sql_improvement": sql_improvement,
         },
     )
 
@@ -1060,14 +1326,37 @@ def render_batch_development_result(result: Any) -> None:
         for item in warnings:
             st.markdown(f"- {item}")
 
-    st.markdown("##### 생성된 batch_spec")
-    st.json(payload.get("batch_spec", {}))
+    sql_improvement = payload.get("sql_improvement")
+    if sql_improvement:
+        render_sql_improvement_report(sql_improvement, max_items=5)
 
-    created_files = payload.get("created_files") or []
-    if created_files:
-        st.markdown("##### 생성 파일")
-        for file_path in created_files:
-            st.code(file_path, language="text")
+    # 상세 batch_spec / 생성 파일 목록은 화면에서 숨긴다.
+    # 필요 시 generated 폴더의 batch_spec.json, validation_report.json 파일로 확인한다.
+    validation_report = payload.get("validation_report")
+    if validation_report:
+        with st.expander("🔍 LLM 해석/검증 결과", expanded=False):
+            is_valid = bool(validation_report.get("valid"))
+            score = validation_report.get("score", 0)
+            summary = validation_report.get("summary", "")
+            interpretation = validation_report.get("interpretation", "")
+
+            if is_valid:
+                st.success(f"검증 통과 - score={score}")
+            else:
+                st.warning(f"확인 필요 - score={score}")
+
+            if summary:
+                st.markdown("**요약**")
+                st.write(summary)
+            if interpretation:
+                st.markdown("**배치 해석**")
+                st.write(interpretation)
+
+            recommendations = validation_report.get("recommendations") or []
+            if recommendations:
+                st.markdown("**권장사항**")
+                for item in recommendations[:5]:
+                    st.markdown(f"- {item}")
 
     st.info("운영 반영 전 query.sql, 컬럼, 인덱스, 검증조건, 파일 포맷을 개발자가 반드시 검토하세요.")
 

@@ -1,3 +1,43 @@
+
+소득집계 
+python generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-ym 202604
+
+전통시장
+python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
+도서공연
+
+python generated/BATCH_BOOK_PERF_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
+일반소득공제
+
+python generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+
+
+python generated\BATCH_CARD_SALES_LEDGER_EXTRACT\job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-ym 202604
+
+
+지금 네 구조는 이미 생성기는 꽤 안정적이라서, LLM은 생성보다 검증/해석 쪽에 붙이는 게 실무적입니다.
+
+현재 수정 없이 가능한 것:
+
+1. 단일 테이블 파일 생성
+   예: 전통시장, 도서공연, 일반소득공제 마스터 export
+
+2. 원장 + classification_master 조인 추출
+   예: 소득공제 대상 거래 추출
+
+3. 월별 집계
+   예: 소득공제 월별 집계
+
+
+1. batch_id 하드코딩 제거
+2. spec_builder.py의 패턴별 SQL 생성 로직을 pattern_builder로 분리
+3. rule_engine이 table_role / relation 기반으로 rule 매칭
+4. validation_rules / output_columns는 요청서 또는 meta에서 생성
+
+
+
 ERWIN 메타가 담당해야 하는 것:
 
 테이블명

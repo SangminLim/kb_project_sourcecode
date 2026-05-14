@@ -10,6 +10,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import chromadb
 import requests
 
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency
+    load_dotenv = None
+
 # LangChain은 운영 환경에 설치되어 있으면 우선 사용하고,
 # 없거나 오류가 발생하면 기존 requests 기반 Ollama 호출로 자동 fallback한다.
 # 현재 requirements 조합(langchain==0.3.x, langchain-community==0.3.x)에 맞춘 import다.
@@ -33,6 +38,9 @@ try:
     from batch_dev.request_classifier import detect_structured_request_type
 except Exception:
     detect_structured_request_type = None
+
+if load_dotenv is not None:
+    load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 CONF_DIR = Path(os.getenv("CONF_DIR", str(BASE_DIR / "conf")))
@@ -68,6 +76,13 @@ def load_question_replacements() -> Dict[str, str]:
 
 
 def load_typo_normalization() -> Dict[str, str]:
+    """Deprecated: typo_normalization.json은 더 이상 필수 설정이 아니다.
+
+    실무 기준으로 오타/띄어쓰기/구어체 보정은 LLM rewrite가 담당한다.
+    이 함수는 기존 환경 호환을 위해 파일이 있으면 읽되, 없으면 빈 dict를 반환한다.
+    """
+    if not TYPO_NORMALIZATION_PATH.exists():
+        return {}
     data = _load_required_json_file(TYPO_NORMALIZATION_PATH, "typo_normalization")
     if not isinstance(data, dict):
         raise ValueError("typo_normalization.json 형식이 올바르지 않습니다. dict여야 합니다.")
@@ -164,14 +179,17 @@ def normalize_whitespace(text: str) -> str:
 
 
 def normalize_input_typos(text: str) -> str:
-    normalized = normalize_whitespace(text)
-    for src, dst in sorted(TYPO_NORMALIZATION.items(), key=lambda x: len(x[0]), reverse=True):
-        normalized = re.sub(re.escape(src), dst, normalized)
-    return normalize_whitespace(normalized)
+    """Deprecated compatibility wrapper.
+
+    오타 치환을 코드/JSON으로 관리하지 않는다.
+    여기서는 최소 정리인 공백 정리만 수행하고, 실제 오타/구어체 보정은 LLM rewrite에서 처리한다.
+    """
+    return normalize_whitespace(text)
 
 
 def replace_aliases(question: str) -> str:
-    normalized = normalize_input_typos(question)
+    # dictionary 단계는 오타 보정이 아니라 시스템명/업무 용어 alias 표준화만 담당한다.
+    normalized = normalize_whitespace(question)
     for spec in SYSTEM_SPECS:
         canonical_name = spec["canonical_name"]
         aliases = sorted(set(spec["aliases"]), key=len, reverse=True)
@@ -210,6 +228,42 @@ def detect_system_id_with_history(question: str, chat_history: List[Dict[str, st
     return None
 
 
+def get_intent_match_scores(question: str) -> List[Tuple[str, int, int, int, int]]:
+    """intent_registry.json 기준으로 intent 후보 점수를 계산한다.
+
+    기존 방식처럼 먼저 발견된 패턴으로 바로 결정하지 않는다.
+    예를 들어 "배치 흐름도"에는 "배치"와 "흐름도"가 함께 들어갈 수 있으므로,
+    더 구체적인 패턴이 포함된 intent가 우선되도록 점수화한다.
+
+    점수 구성:
+    - matched_count: 매칭된 패턴 수
+    - max_pattern_len: 가장 긴 매칭 패턴 길이
+    - total_pattern_len: 매칭 패턴 길이 합계
+    - registry_order: intent_registry.json 선언 순서 보존용
+
+    새 intent나 패턴을 추가해도 코드 수정 없이 intent_registry.json만 확장하면 된다.
+    """
+    q = normalize_whitespace(question)
+    candidates: List[Tuple[str, int, int, int, int]] = []
+
+    for order, (intent, patterns) in enumerate(INTENT_PATTERNS.items()):
+        matched_patterns = [
+            str(pattern).strip()
+            for pattern in patterns
+            if str(pattern).strip() and str(pattern).strip() in q
+        ]
+        if not matched_patterns:
+            continue
+
+        matched_count = len(matched_patterns)
+        max_pattern_len = max(len(pattern) for pattern in matched_patterns)
+        total_pattern_len = sum(len(pattern) for pattern in matched_patterns)
+        candidates.append((intent, matched_count, max_pattern_len, total_pattern_len, order))
+
+    candidates.sort(key=lambda item: (item[2], item[1], item[3], -item[4]), reverse=True)
+    return candidates
+
+
 def detect_intent(question: str) -> str:
     q = normalize_whitespace(question)
 
@@ -219,10 +273,38 @@ def detect_intent(question: str) -> str:
         if structured_type:
             return structured_type
 
-    for intent, patterns in INTENT_PATTERNS.items():
-        if any(p in q for p in patterns):
-            return intent
+    candidates = get_intent_match_scores(q)
+    if candidates:
+        return candidates[0][0]
     return "default"
+
+
+def is_confident_intent_hint(question: str, intent: str) -> bool:
+    """rewrite 전에 intent를 고정해도 되는지 판단한다.
+
+    rewrite 전 intent는 어디까지나 힌트다. 너무 짧거나 넓은 패턴으로 잡힌 intent를
+    LLM rewrite에 고정하면 "배치 흐르도"가 batch_process로 굳어지는 문제가 생긴다.
+
+    기준값은 conversation_policy.json에서 조정 가능하다.
+    - intent_hint_min_pattern_length: 기본 3
+    - confident_intent_hints: 강제로 신뢰할 intent 목록
+    """
+    if not intent or intent == "default":
+        return False
+
+    confident_intents = set(str(v) for v in CONVERSATION_POLICY.get("confident_intent_hints", []))
+    if intent in confident_intents:
+        return True
+
+    try:
+        min_pattern_len = int(CONVERSATION_POLICY.get("intent_hint_min_pattern_length", 3))
+    except Exception:
+        min_pattern_len = 3
+
+    for candidate_intent, _count, max_pattern_len, _total_len, _order in get_intent_match_scores(question):
+        if candidate_intent == intent:
+            return max_pattern_len >= min_pattern_len
+    return False
 
 
 def history_to_text(chat_history: List[Dict[str, str]], max_turns: int = 4) -> str:
@@ -233,14 +315,31 @@ def history_to_text(chat_history: List[Dict[str, str]], max_turns: int = 4) -> s
 def is_followup_question(question: str) -> bool:
     """이전 답변/질문을 이어서 말하는 짧은 후속 질문인지 판단한다.
 
-    followup 신호는 코드에 박지 않고 conf/conversation_policy.json에서 관리한다.
+    실무 기준:
+    - followup 판단 로직은 코드 하드코딩이 아니라 conversation_policy.json 기반으로 동작한다.
+    - followup_signals: 일반 후속 표현
+    - followup_reference_terms: 이전 시스템/업무를 참조하는 표현
     """
     q = normalize_whitespace(question)
     if not q:
         return False
 
     followup_signals = CONVERSATION_POLICY.get("followup_signals", [])
-    return any(str(signal) in q for signal in followup_signals if str(signal).strip())
+    followup_reference_terms = CONVERSATION_POLICY.get(
+        "followup_reference_terms",
+        [],
+    )
+
+    followup_terms = [
+        str(term).strip()
+        for term in (
+            list(followup_signals)
+            + list(followup_reference_terms)
+        )
+        if str(term).strip()
+    ]
+
+    return any(term in q for term in followup_terms)
 
 
 def detect_previous_user_intent(chat_history: List[Dict[str, str]]) -> str:
@@ -289,46 +388,78 @@ def build_canonical_question(question: str, resolved_system_id: Optional[str], i
 
 @dataclass
 class ChatConfig:
-    base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    model: str = os.getenv("OLLAMA_CHAT_MODEL", "llama3:8b")
-    timeout: int = int(os.getenv("OLLAMA_CHAT_TIMEOUT", "120"))
+    """Upstage Chat 설정.
+
+    기존 app.py 영향 최소화를 위해 ChatConfig 이름은 유지한다.
+    .env에서 UPSTAGE_API_KEY, UPSTAGE_BASE_URL, UPSTAGE_CHAT_MODEL을 읽는다.
+    """
+    api_key: str = os.getenv("UPSTAGE_API_KEY", "")
+    base_url: str = os.getenv("UPSTAGE_BASE_URL", "https://api.upstage.ai/v1")
+    model: str = os.getenv("UPSTAGE_CHAT_MODEL", "solar-pro3")
+    timeout: int = int(os.getenv("UPSTAGE_CHAT_TIMEOUT", "120"))
+    temperature: float = float(os.getenv("UPSTAGE_TEMPERATURE", "0.1"))
+    max_tokens: int = int(os.getenv("UPSTAGE_MAX_TOKENS", "2048"))
 
 
 @dataclass
 class EmbedConfig:
-    base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    model: str = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-    timeout: int = int(os.getenv("OLLAMA_EMBED_TIMEOUT", "60"))
+    """Upstage Embedding 설정.
+
+    ChromaDB는 그대로 사용하고, query_texts 임베딩만 Upstage로 생성한다.
+    기존 Ollama 임베딩으로 만든 컬렉션은 차원/모델이 다를 수 있으므로
+    반드시 Upstage 임베딩으로 reset 후 재적재해야 한다.
+    """
+    api_key: str = os.getenv("UPSTAGE_API_KEY", "")
+    base_url: str = os.getenv("UPSTAGE_BASE_URL", "https://api.upstage.ai/v1")
+    model: str = os.getenv("UPSTAGE_EMBED_MODEL", "solar-embedding-1-large-query")
+    timeout: int = int(os.getenv("UPSTAGE_EMBED_TIMEOUT", "60"))
 
 
-class OllamaEmbeddingFunction:
+class UpstageEmbeddingFunction:
+    """ChromaDB에서 사용할 Upstage Embedding Function."""
+
     def __init__(self, config: EmbedConfig) -> None:
         self.config = config
 
     def __call__(self, input: List[str]) -> List[List[float]]:
-        vectors: List[List[float]] = []
-        for text in input:
-            resp = requests.post(
-                f"{self.config.base_url}/api/embeddings",
-                json={"model": self.config.model, "prompt": text},
-                timeout=self.config.timeout,
-            )
-            resp.raise_for_status()
-            embedding = resp.json().get("embedding")
-            if not embedding:
-                raise ValueError("Embedding 응답에 embedding 값이 없습니다.")
-            vectors.append(embedding)
+        if not self.config.api_key:
+            raise ValueError("UPSTAGE_API_KEY가 비어 있습니다. .env에 UPSTAGE_API_KEY를 설정하세요.")
+
+        resp = requests.post(
+            f"{self.config.base_url.rstrip('/')}/embeddings",
+            headers={
+                "Authorization": f"Bearer {self.config.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.config.model,
+                "input": input,
+            },
+            timeout=self.config.timeout,
+        )
+        resp.raise_for_status()
+
+        data = resp.json().get("data", [])
+        vectors = [item.get("embedding") for item in data]
+
+        if not vectors or any(not vector for vector in vectors):
+            raise ValueError("Upstage Embedding 응답에 embedding 값이 없습니다.")
+
         return vectors
 
 
-def _use_langchain() -> bool:
-    """LangChain 사용 여부를 환경변수로 제어한다.
+# 기존 ingest 코드가 OllamaEmbeddingFunction 이름을 import하고 있을 가능성을 고려한 호환 alias.
+# 새 코드에서는 UpstageEmbeddingFunction 사용을 권장한다.
+OllamaEmbeddingFunction = UpstageEmbeddingFunction
 
-    - 기본값은 true다.
-    - LangChain 패키지가 없으면 자동으로 기존 requests 방식으로 fallback된다.
-    - 운영 중 문제가 생기면 LANGCHAIN_ENABLED=false 로 즉시 우회할 수 있다.
+
+def _use_langchain() -> bool:
+    """기존 설정 호환용 함수.
+
+    Upstage는 OpenAI 호환 REST API를 직접 호출하므로 LangChain이 없어도 동작한다.
+    기존 debug flag 구조를 깨지 않기 위해 함수명은 유지한다.
     """
-    return os.getenv("LANGCHAIN_ENABLED", "true").lower() not in {"0", "false", "no", "n"}
+    return os.getenv("LANGCHAIN_ENABLED", "false").lower() not in {"0", "false", "no", "n"}
 
 
 def _env_flag(name: str, default: str = "false") -> bool:
@@ -336,12 +467,9 @@ def _env_flag(name: str, default: str = "false") -> bool:
 
 
 def get_langchain_feature_flags() -> Dict[str, bool]:
-    """운영 중 기능을 켜고 끌 수 있는 LangChain 확장 옵션.
-
-    기본값은 보수적으로 둔다. 기존에 잘 나오던 답변 품질을 깨지 않기 위해
-    router/prompt chain은 켜고, rerank/compression은 명시적으로 켤 때만 동작한다.
-    """
+    """운영 중 기능을 켜고 끌 수 있는 확장 옵션."""
     return {
+        "llm_provider": os.getenv("LLM_PROVIDER", "upstage"),
         "langchain_enabled": _use_langchain(),
         "router_enabled": _env_flag("LANGCHAIN_ROUTER_ENABLED", "true"),
         "structured_parser_enabled": _env_flag("LANGCHAIN_STRUCTURED_PARSER_ENABLED", "true"),
@@ -349,64 +477,54 @@ def get_langchain_feature_flags() -> Dict[str, bool]:
     }
 
 
-def _ollama_generate_requests(prompt: str, system_prompt: str, config: ChatConfig) -> str:
+def _upstage_generate_requests(prompt: str, system_prompt: str, config: ChatConfig) -> str:
+    if not config.api_key:
+        raise ValueError("UPSTAGE_API_KEY가 비어 있습니다. .env에 UPSTAGE_API_KEY를 설정하세요.")
+
     resp = requests.post(
-        f"{config.base_url}/api/generate",
+        f"{config.base_url.rstrip('/')}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+        },
         json={
             "model": config.model,
-            "system": system_prompt,
-            "prompt": prompt,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
             "stream": False,
-            "options": {"temperature": 0.1},
         },
         timeout=config.timeout,
     )
     resp.raise_for_status()
-    return resp.json().get("response", "").strip()
 
+    payload = resp.json()
+    choices = payload.get("choices", [])
+    if not choices:
+        raise ValueError("Upstage Chat 응답에 choices 값이 없습니다.")
 
-def _ollama_generate_langchain(prompt: str, system_prompt: str, config: ChatConfig) -> str:
-    if PromptTemplate is None or LangChainOllama is None:
-        raise RuntimeError("LangChain 또는 langchain-community Ollama 패키지가 설치되어 있지 않습니다.")
-
-    template = PromptTemplate.from_template(
-        "{system_prompt}\n\n[사용자/검색 프롬프트]\n{prompt}"
-    )
-    llm = LangChainOllama(
-        model=config.model,
-        base_url=config.base_url,
-        temperature=0.1,
-    )
-
-    if StrOutputParser is not None:
-        chain = template | llm | StrOutputParser()
-    else:
-        chain = template | llm
-
-    result = chain.invoke({"system_prompt": system_prompt, "prompt": prompt})
-    return str(result or "").strip()
+    message = choices[0].get("message", {})
+    return str(message.get("content", "")).strip()
 
 
 def ollama_generate(prompt: str, system_prompt: str, config: ChatConfig) -> str:
     """답변 생성 진입점.
 
-    외부 호출부는 기존 함수명을 그대로 사용한다.
-    내부만 LangChain 우선 방식으로 바꿔서 app.py와 기존 AgentResult 구조를 깨지 않는다.
+    기존 호출부가 ollama_generate를 사용하고 있어서 함수명은 유지하되,
+    내부 구현은 Upstage Chat API 호출로 변경한다.
     """
-    if _use_langchain():
-        try:
-            return _ollama_generate_langchain(prompt=prompt, system_prompt=system_prompt, config=config)
-        except Exception:
-            # LangChain 설정/패키지 문제는 서비스 장애로 번지지 않도록 기존 방식으로 자동 fallback한다.
-            return _ollama_generate_requests(prompt=prompt, system_prompt=system_prompt, config=config)
+    return _upstage_generate_requests(prompt=prompt, system_prompt=system_prompt, config=config)
 
-    return _ollama_generate_requests(prompt=prompt, system_prompt=system_prompt, config=config)
+
+# 새 이름도 함께 제공한다.
+upstage_generate = ollama_generate
 
 
 def get_llm_engine_name() -> str:
-    if _use_langchain() and PromptTemplate is not None and LangChainOllama is not None:
-        return "langchain_community_ollama"
-    return "requests_ollama"
+    return f"requests_upstage:{os.getenv('UPSTAGE_CHAT_MODEL', 'solar-pro3')}"
 
 
 def build_rewrite_prompt(
@@ -415,25 +533,45 @@ def build_rewrite_prompt(
     resolved_system_name: Optional[str],
     resolved_intent: str,
 ) -> Tuple[str, str]:
+    """LLM rewrite 전용 프롬프트를 만든다.
+
+    실무 원칙:
+    - LLM은 답변하지 않고 검색 가능한 질문 1문장만 만든다.
+    - dictionary는 업무 용어/시스템 alias 표준화까지만 담당한다.
+    - 오타, 띄어쓰기, 구어체, 축약 표현은 LLM이 추론한다.
+    - 의도가 이미 확정된 경우에는 의도를 바꾸지 않는다.
+    - 의도가 default인 경우에는 LLM이 문맥상 가장 자연스러운 검색 질문으로 정리한다.
+    """
+    fixed_intent = resolved_intent if resolved_intent and resolved_intent != "default" else "(아직 확정되지 않음)"
+    canonical_hint = ""
+    if resolved_intent and resolved_intent != "default":
+        canonical_hint = build_canonical_question(question, detect_system_id(question), resolved_intent)
+
     system_prompt = (
-        "너는 질문 재작성기다. 절대로 설명하지 말고, 답변하지 말고, 검색용 질문 1문장만 출력한다. "
-        "출력은 반드시 한국어 한 줄이어야 한다. 이미 결정된 시스템명과 의도는 변경하지 말고 표현만 정리한다."
+        "너는 사내 업무 질의 재작성기다. "
+        "사용자의 오타, 띄어쓰기 오류, 축약어, 구어체를 검색 가능한 한국어 질문 1문장으로 바꾼다. "
+        "절대로 답변하지 말고, 설명하지 말고, JSON을 출력하지 말고, 질문 1문장만 출력한다. "
+        "시스템명, 업무명, 조회 대상, 사용자가 요청한 산출물의 의미를 임의로 바꾸지 않는다."
     )
     examples = "\n\n".join([f"[사용자]\n{ex['user']}\n[재작성]\n{ex['assistant']}" for ex in FEW_SHOT_EXAMPLES])
     history_text = history_to_text(chat_history)
-    canonical_hint = build_canonical_question(question, detect_system_id(question), resolved_intent)
+    intent_names = ", ".join(INTENT_PATTERNS.keys())
+    canonical_rule = f"- 가능한 경우 다음 표준 질문에 가깝게 정리한다: {canonical_hint}" if canonical_hint else "- 의도가 확정되지 않았으면 질문 의미를 보존한 채 검색 가능한 표현으로만 정리한다."
+
     prompt = f"""
             다음 규칙을 지켜라.
-            1) 이미 결정된 시스템명은 {resolved_system_name or '(없음)'} 이다. 이 값은 절대 변경하지 않는다.
-            2) 이미 결정된 의도는 {resolved_intent} 이다. 이 의도는 절대 변경하지 않는다.
-            3) 시스템명이 결정된 경우, 다른 시스템명(KKK은행/BBB증권)을 새로 추정하거나 바꾸지 않는다.
-            4) 가능한 경우 아래 형태처럼 검색용 질문 1문장으로 정리한다.
-            - {canonical_hint}
-            5) 문맥상 이전 대화가 있으면 반영하되, 시스템명과 의도는 유지한다.
-            6) 반드시 한국어 질문 한 줄만 출력한다.
+            1) 이미 결정된 시스템명: {resolved_system_name or '(없음)'}
+            2) 이미 결정된 의도: {fixed_intent}
+            3) 의도가 확정된 경우에는 그 의도를 바꾸지 않는다.
+            4) 의도가 확정되지 않은 경우에는 가능한 의도 후보({intent_names}) 중 하나로 검색될 수 있게 표현만 정리한다.
+            5) 시스템명이 결정된 경우에는 다른 시스템명을 새로 추정하거나 바꾸지 않는다.
+            6) dictionary에서 표준화된 업무 용어는 유지한다.
+            7) 오타, 띄어쓰기, 구어체, 축약 표현은 자연스럽게 보정한다.
+            {canonical_rule}
+            8) 반드시 한국어 질문 한 줄만 출력한다.
 
             예시:
-            {examples}
+            {examples if examples else '(없음)'}
 
             이전 대화:
             {history_text if history_text else '(없음)'}
@@ -449,19 +587,23 @@ def is_valid_rewritten_question(text: str, resolved_intent: Optional[str] = None
     if not q or "\n" in q:
         return False
 
-    # rewrite 결과가 이미 결정된 intent와 충돌하면 버린다.
-    # 충돌 키워드는 conf/conversation_policy.json에서 관리한다.
+    # LLM이 답변/설명/JSON을 출력하면 rewrite 결과로 쓰지 않는다.
+    blocked_prefixes = ("{", "[", "답변", "설명", "요약:", "재작성:")
+    if q.startswith(blocked_prefixes):
+        return False
+
     intent_conflict_keywords = CONVERSATION_POLICY.get("intent_conflict_keywords", {})
     conflict_keywords = intent_conflict_keywords.get(resolved_intent, []) if resolved_intent else []
     if any(str(keyword) in q for keyword in conflict_keywords if str(keyword).strip()):
         return False
 
-    # valid keyword도 코드 하드코딩 대신 intent_registry.json의 patterns를 사용한다.
-    valid_keywords: List[str] = []
-    for patterns in INTENT_PATTERNS.values():
-        valid_keywords.extend([str(item) for item in patterns if str(item).strip()])
+    # 의도가 이미 정해진 경우에는 intent_registry 패턴 중 하나가 남아 있는지 확인한다.
+    # 의도가 default이면 LLM rewrite 결과를 너무 강하게 버리지 않는다.
+    if resolved_intent and resolved_intent != "default":
+        patterns = INTENT_PATTERNS.get(resolved_intent, [])
+        return any(str(pattern) in q for pattern in patterns if str(pattern).strip())
 
-    return any(k in q for k in valid_keywords)
+    return True
 
 
 def rewrite_question(
@@ -471,52 +613,49 @@ def rewrite_question(
     resolved_system_id: Optional[str] = None,
     resolved_intent: Optional[str] = None,
 ) -> Tuple[str, List[str]]:
+    """사용자 질문을 검색 가능한 표준 질문으로 재작성한다.
+
+    처리 순서:
+    1. 최소 정리: 공백만 정리
+    2. dictionary: 업무 용어/시스템 alias 표준화
+    3. LLM rewrite: 오타/구어체/의도 표현 보정
+    4. 실패 시 dictionary 결과로 fallback
+
+    typo_normalization.json 같은 오타 사전은 더 이상 주 처리 경로에 사용하지 않는다.
+    """
     debug_logs: List[str] = []
-    dict_rewritten = apply_dictionary_rewrite(question)
-    effective_intent = resolved_intent or detect_intent(dict_rewritten)
+    raw_question = normalize_whitespace(question)
+    dictionary_question = apply_dictionary_rewrite(raw_question)
+    effective_intent = resolved_intent or "default"
     resolved_system_name = SYSTEM_NAME_BY_ID.get(resolved_system_id, "")
 
-    debug_logs.append(f"[STEP 1] original_question = {question}")
-    debug_logs.append(f"[STEP 2] dictionary_rewritten = {dict_rewritten}")
-
-    if effective_intent != "default":
-        canonical_question = build_canonical_question(
-            question=dict_rewritten,
-            resolved_system_id=resolved_system_id,
-            intent=effective_intent,
-        )
-        if canonical_question != dict_rewritten:
-            debug_logs.append("[STEP 3] canonical_rewrite = applied")
-            debug_logs.append(f"[STEP 4] final_rewritten_question = {canonical_question}")
-            return canonical_question, debug_logs
-
-    if detect_system_id(dict_rewritten) and effective_intent != "default":
-        debug_logs.append("[STEP 3] few_shot_rewrite = skipped (dictionary 결과가 이미 충분히 명확함)")
-        debug_logs.append(f"[STEP 4] final_rewritten_question = {dict_rewritten}")
-        return dict_rewritten, debug_logs
+    debug_logs.append(f"[REWRITE 1] original_question = {question}")
+    debug_logs.append(f"[REWRITE 2] whitespace_normalized = {raw_question}")
+    debug_logs.append(f"[REWRITE 3] dictionary_standardized = {dictionary_question}")
+    debug_logs.append(f"[REWRITE 4] resolved_intent_hint = {effective_intent}")
 
     system_prompt, prompt = build_rewrite_prompt(
-        dict_rewritten,
+        dictionary_question,
         chat_history,
         resolved_system_name,
         effective_intent,
     )
-    debug_logs.append("[STEP 3] few_shot_rewrite = started")
+    debug_logs.append("[REWRITE 5] llm_rewrite = started")
+
     try:
         rewritten = ollama_generate(prompt=prompt, system_prompt=system_prompt, config=config)
-        final_rewritten = normalize_whitespace(rewritten or dict_rewritten)
+        final_rewritten = normalize_whitespace(rewritten or dictionary_question)
         if not is_valid_rewritten_question(final_rewritten, effective_intent):
-            fallback_question = build_canonical_question(dict_rewritten, resolved_system_id, effective_intent)
-            debug_logs.append(f"[STEP 4] few_shot_rewrite = invalid_output ({final_rewritten})")
-            debug_logs.append(f"[STEP 5] fallback_rewritten_question = {fallback_question}")
-            return fallback_question, debug_logs
-        debug_logs.append(f"[STEP 4] final_rewritten_question = {final_rewritten}")
+            debug_logs.append(f"[REWRITE 6] llm_rewrite = invalid_output ({final_rewritten})")
+            debug_logs.append(f"[REWRITE 7] fallback_rewritten_question = {dictionary_question}")
+            return dictionary_question, debug_logs
+
+        debug_logs.append(f"[REWRITE 6] final_rewritten_question = {final_rewritten}")
         return final_rewritten, debug_logs
     except Exception as e:
-        fallback_question = build_canonical_question(dict_rewritten, resolved_system_id, effective_intent)
-        debug_logs.append(f"[STEP 4] few_shot_rewrite = failed ({type(e).__name__}: {e})")
-        debug_logs.append(f"[STEP 5] fallback_rewritten_question = {fallback_question}")
-        return fallback_question, debug_logs
+        debug_logs.append(f"[REWRITE 6] llm_rewrite = failed ({type(e).__name__}: {e})")
+        debug_logs.append(f"[REWRITE 7] fallback_rewritten_question = {dictionary_question}")
+        return dictionary_question, debug_logs
 
 
 def get_system_by_id(payload: Dict[str, Any], system_id: str) -> Optional[Dict[str, Any]]:
@@ -644,7 +783,7 @@ def retrieve_docs(
     client = chromadb.PersistentClient(path=persist_dir)
     collection = client.get_collection(
         name=collection_name,
-        embedding_function=OllamaEmbeddingFunction(EmbedConfig()),
+        embedding_function=UpstageEmbeddingFunction(EmbedConfig()),
     )
     kwargs: Dict[str, Any] = {"query_texts": [query], "n_results": top_k}
     if where:
@@ -986,43 +1125,90 @@ class HandoverAgent:
         debug_logs: List[str] = []
         debug_logs.append(f"[LC 1] feature_flags = {get_langchain_feature_flags()}")
 
-        normalized_question = apply_dictionary_rewrite(question)
-        debug_logs.append(f"[PREP 1] normalized_question = {normalized_question}")
+        # 실무 질의 처리 순서:
+        # 1) 최소 정리: 공백만 정리
+        # 2) dictionary: 업무 용어/시스템 alias 표준화
+        # 3) LLM rewrite: 오타/구어체/의도 표현 보정
+        # 4) rewrite 결과 기준 intent/system 재판별
+        # 5) 검색
+        raw_question = normalize_whitespace(question)
+        normalized_question = apply_dictionary_rewrite(raw_question)
+        debug_logs.append(f"[PREP 1] whitespace_normalized = {raw_question}")
+        debug_logs.append(f"[PREP 2] dictionary_standardized = {normalized_question}")
 
-        initial_intent = detect_intent(normalized_question)
-        if initial_intent == "default" and chat_history:
-            if is_followup_question(normalized_question):
-                previous_intent = detect_previous_user_intent(chat_history)
-                if previous_intent != "default":
-                    initial_intent = previous_intent
-                    debug_logs.append(f"[PREP 2-1] followup_intent_inherited = {previous_intent}")
-                else:
-                    debug_logs.append("[PREP 2-1] followup_intent_inherited = skipped (previous intent 없음)")
-            else:
-                debug_logs.append("[PREP 2-1] history_intent_inherited = skipped (followup 아님)")
+        # rewrite 전 intent는 잠정 후보로만 기록한다.
+        # 오타가 포함된 현재 질문에서 잡힌 약한 intent를 LLM rewrite에 고정하지 않는다.
+        # 실제 라우팅 intent는 rewrite 이후 질문으로 다시 판별한다.
+        intent_hint_before_rewrite = detect_intent(normalized_question)
+        intent_hint_is_confident = is_confident_intent_hint(normalized_question, intent_hint_before_rewrite)
+        intent_fallback_allowed = intent_hint_is_confident
+        rewrite_intent_hint = "default"
+        debug_logs.append(f"[PREP 3] raw_intent_hint_before_rewrite = {intent_hint_before_rewrite}")
+        debug_logs.append(f"[PREP 3-0] intent_hint_is_confident = {intent_hint_is_confident}")
+        debug_logs.append("[PREP 3-1] rewrite_intent_hint = default (intent is decided after rewrite)")
 
         direct_system_id = detect_system_id(normalized_question)
         if direct_system_id:
-            system_id = direct_system_id
-            debug_logs.append("[PREP 2-2] system_id_source = current_question")
-        elif initial_intent != "default" or is_followup_question(normalized_question):
-            # 업무 intent가 잡혔거나 후속질문이면 이전 시스템 문맥을 상속한다.
-            # 예: "배치 프로세스도 설명해줘" → 직전 KKK은행 문맥 상속
-            system_id = detect_system_id_with_history(normalized_question, chat_history)
-            debug_logs.append("[PREP 2-2] system_id_source = history_context")
+            system_id_hint = direct_system_id
+            debug_logs.append("[PREP 3-2] system_id_hint_source = current_question")
         else:
-            system_id = None
-            debug_logs.append("[PREP 2-2] system_id_source = none")
+            # rewrite 전에는 history system_id를 주입하지 않는다.
+            # BB증권 같은 현재 질문의 시스템 오타가 이전 KKK 문맥으로 덮이는 것을 막기 위한 정책이다.
+            # history system_id는 rewrite 이후에도 system_id가 없고, 질문이 후속질문일 때만 사용한다.
+            system_id_hint = None
+            debug_logs.append("[PREP 3-2] system_id_hint_source = none_before_rewrite")
 
-        debug_logs.append(f"[PREP 2] resolved_system_id_before_rewrite = {system_id}")
-        debug_logs.append(f"[PREP 3] resolved_intent_before_rewrite = {initial_intent}")
+        rewrite_history = chat_history if is_followup_question(normalized_question) else []
+        if rewrite_history:
+            debug_logs.append("[PREP 3-3] rewrite_history = enabled_for_followup")
+        else:
+            debug_logs.append("[PREP 3-3] rewrite_history = disabled_for_current_question")
 
-        if initial_intent == "default" and not system_id:
-            debug_logs.append("[PREP 4] out_of_scope_detected = True")
+        debug_logs.append(f"[PREP 4] resolved_system_id_hint_before_rewrite = {system_id_hint}")
+        debug_logs.append(f"[PREP 5] resolved_intent_hint_before_rewrite = {rewrite_intent_hint}")
+
+        rewritten_question, rewrite_logs = rewrite_question(
+            question=normalized_question,
+            chat_history=rewrite_history,
+            config=self.chat_config,
+            resolved_system_id=system_id_hint,
+            resolved_intent=rewrite_intent_hint,
+        )
+        debug_logs.extend(rewrite_logs)
+
+        rewritten_standardized = apply_dictionary_rewrite(rewritten_question)
+        if rewritten_standardized != rewritten_question:
+            debug_logs.append(f"[REWRITE 8] post_dictionary_standardized = {rewritten_standardized}")
+            rewritten_question = rewritten_standardized
+
+        intent = detect_intent(rewritten_question)
+
+        if intent == "default" and chat_history and is_followup_question(rewritten_question):
+            previous_intent = detect_previous_user_intent(chat_history)
+            if previous_intent != "default":
+                intent = previous_intent
+                debug_logs.append(f"[STEP 5-1] intent_fallback_to_history_followup = {previous_intent}")
+
+        if intent == "default" and intent_fallback_allowed and intent_hint_before_rewrite != "default":
+            intent = intent_hint_before_rewrite
+            debug_logs.append(f"[STEP 5-2] intent_fallback_to_confident_current_hint = {intent_hint_before_rewrite}")
+
+        system_id = detect_system_id(rewritten_question) or system_id_hint
+        if not system_id and chat_history and is_followup_question(rewritten_question):
+            system_id = detect_system_id_with_history(rewritten_question, chat_history)
+            debug_logs.append("[STEP 5-3] system_id_fallback_to_history_followup = applied")
+        elif not system_id:
+            debug_logs.append("[STEP 5-3] system_id_fallback_to_history = skipped_not_followup")
+
+        debug_logs.append(f"[STEP 5] detected_system_id = {system_id}")
+        debug_logs.append(f"[STEP 6] detected_intent = {intent}")
+
+        if intent == "default" and not system_id:
+            debug_logs.append("[STEP 6-1] out_of_scope_detected = True")
             return AgentResult(
                 original_question=question,
                 normalized_question=normalized_question,
-                rewritten_question=normalized_question,
+                rewritten_question=rewritten_question,
                 system_id=None,
                 intent="out_of_scope",
                 answer=str(CONVERSATION_POLICY.get(
@@ -1034,36 +1220,24 @@ class HandoverAgent:
             )
 
         system_required_intents = set(CONVERSATION_POLICY.get("system_required_intents", []))
-        if initial_intent in system_required_intents and not system_id:
-            debug_logs.append("[PREP 4] missing_system_id = True")
+        if intent in system_required_intents and not system_id:
+            debug_logs.append("[STEP 6-2] missing_system_id = True")
             return AgentResult(
                 original_question=question,
                 normalized_question=normalized_question,
-                rewritten_question=normalized_question,
+                rewritten_question=rewritten_question,
                 system_id=None,
-                intent=initial_intent,
+                intent=intent,
                 answer=str(CONVERSATION_POLICY.get(
-                    "missing_system_message",
-                    "어느 시스템 기준인지 확인할 수 없습니다. 시스템명을 포함해서 다시 질문해주세요."
+                    "unknown_system_message",
+                    CONVERSATION_POLICY.get(
+                        "missing_system_message",
+                        "등록되지 않은 시스템입니다. 시스템명을 확인해주세요."
+                    )
                 )),
                 render_type="text",
                 debug_logs=debug_logs,
             )
-
-        rewritten_question, rewrite_logs = rewrite_question(
-            question=normalized_question,
-            chat_history=chat_history,
-            config=self.chat_config,
-            resolved_system_id=system_id,
-            resolved_intent=initial_intent,
-        )
-        debug_logs.extend(rewrite_logs)
-
-        intent = initial_intent
-        if intent == "default":
-            intent = detect_intent(rewritten_question)
-        debug_logs.append(f"[STEP 5] detected_system_id = {system_id}")
-        debug_logs.append(f"[STEP 6] detected_intent = {intent}")
 
         render_type, graph_data, query_meta, structured_data = self._build_structured_payload(system_id, intent)
         where = self._build_where_filter(system_id, intent)

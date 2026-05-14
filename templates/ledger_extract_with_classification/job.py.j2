@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+
+load_dotenv()
 
 
 BATCH_ID = "{{ batch_id }}"
@@ -16,20 +21,46 @@ OUTPUT_FORMAT = "{{ output_format }}"
 OUTPUT_ENCODING = "{{ encoding }}"
 
 
+def build_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+
+    if database_url:
+        return database_url
+
+    db_user = os.getenv("DB_USER", "").strip()
+    db_password = os.getenv("DB_PASSWORD", "").strip()
+    db_host = os.getenv("DB_HOST", "").strip()
+    db_port = os.getenv("DB_PORT", "3306").strip()
+    db_service = os.getenv("DB_SERVICE", "").strip()
+
+    if all([db_user, db_password, db_host, db_service]):
+        return (
+            f"mysql+pymysql://"
+            f"{db_user}:{db_password}@{db_host}:{db_port}/{db_service}"
+        )
+
+    return ""
+
+
 def read_sql() -> str:
-    return (Path(__file__).resolve().parent / "query.sql").read_text(encoding="utf-8").strip()
+    return (
+        Path(__file__).resolve().parent / "query.sql"
+    ).read_text(encoding="utf-8").strip()
 
 
 def read_batch_spec() -> Dict[str, Any]:
     spec_path = Path(__file__).resolve().parent / "batch_spec.json"
+
     if not spec_path.exists():
         return {}
+
     return json.loads(spec_path.read_text(encoding="utf-8"))
 
 
 def build_output_path(output_dir: str, base_ym: str) -> Path:
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
+
     return path / f"{OUTPUT_FILE_PREFIX}_{base_ym}.{OUTPUT_FORMAT}"
 
 
@@ -40,9 +71,15 @@ def validate_dataframe(df: pd.DataFrame) -> None:
     spec = read_batch_spec()
     validation_rules = spec.get("validation_rules") or {}
 
-    required_columns: List[str] = validation_rules.get("not_null_columns") or []
+    required_columns: List[str] = (
+        validation_rules.get("not_null_columns") or []
+    )
 
-    missing = [col for col in required_columns if col not in df.columns]
+    missing = [
+        col for col in required_columns
+        if col not in df.columns
+    ]
+
     if missing:
         raise ValueError(f"필수 출력 컬럼이 없습니다: {missing}")
 
@@ -51,41 +88,72 @@ def validate_dataframe(df: pd.DataFrame) -> None:
         for col in required_columns
         if col in df.columns and df[col].isna().any()
     ]
+
     if null_columns:
-        raise ValueError(f"NULL 값이 존재하는 필수 컬럼이 있습니다: {null_columns}")
+        raise ValueError(
+            f"NULL 값이 존재하는 필수 컬럼이 있습니다: {null_columns}"
+        )
 
 
 def write_output(df: pd.DataFrame, output_path: Path) -> None:
     if OUTPUT_FORMAT == "csv":
-        df.to_csv(output_path, index=False, encoding=OUTPUT_ENCODING)
+        df.to_csv(
+            output_path,
+            index=False,
+            encoding=OUTPUT_ENCODING,
+        )
         return
 
     if OUTPUT_FORMAT == "txt":
-        df.to_csv(output_path, index=False, sep="|", encoding=OUTPUT_ENCODING)
+        df.to_csv(
+            output_path,
+            index=False,
+            sep="|",
+            encoding=OUTPUT_ENCODING,
+        )
         return
 
     if OUTPUT_FORMAT == "xlsx":
         df.to_excel(output_path, index=False)
         return
 
-    raise ValueError(f"지원하지 않는 출력 형식입니다: {OUTPUT_FORMAT}")
+    raise ValueError(
+        f"지원하지 않는 출력 형식입니다: {OUTPUT_FORMAT}"
+    )
 
 
-def run(database_url: str, base_ym: str, output_dir: str = "./output") -> Dict[str, Any]:
+def run(
+    database_url: str,
+    base_ym: str,
+    output_dir: str = "./output",
+) -> Dict[str, Any]:
+
     if not database_url:
-        raise ValueError("database_url이 비어 있습니다.")
+        raise ValueError(
+            "database_url이 비어 있습니다. "
+            ".env에 DATABASE_URL 또는 "
+            "DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_SERVICE를 설정하세요."
+        )
+
     if not base_ym:
         raise ValueError("base_ym이 비어 있습니다.")
 
     print(f"[START] {BATCH_ID} {BATCH_NAME} base_ym={base_ym}")
 
     engine = create_engine(database_url)
+
     sql = read_sql()
 
-    df = pd.read_sql(text(sql), engine, params={"base_ym": base_ym})
+    df = pd.read_sql(
+        text(sql),
+        engine,
+        params={"base_ym": base_ym},
+    )
 
     validate_dataframe(df)
+
     output_path = build_output_path(output_dir, base_ym)
+
     write_output(df, output_path)
 
     result = {
@@ -96,15 +164,36 @@ def run(database_url: str, base_ym: str, output_dir: str = "./output") -> Dict[s
         "output_file": str(output_path),
     }
 
-    print(f"[END] {BATCH_ID} rows={result['row_count']} file={result['output_file']}")
+    print(
+        f"[END] {BATCH_ID} "
+        f"rows={result['row_count']} "
+        f"file={result['output_file']}"
+    )
+
     return result
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=BATCH_NAME)
-    parser.add_argument("--database-url", required=True)
+
+    parser.add_argument("--database-url", required=False)
+
     parser.add_argument("--base-ym", required=True)
-    parser.add_argument("--output-dir", default="./output")
+
+    parser.add_argument(
+        "--output-dir",
+        default="./output",
+    )
 
     args = parser.parse_args()
-    run(args.database_url, args.base_ym, args.output_dir)
+
+    database_url = (
+        args.database_url
+        or build_database_url()
+    )
+
+    run(
+        database_url,
+        args.base_ym,
+        args.output_dir,
+    )

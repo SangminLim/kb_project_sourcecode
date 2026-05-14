@@ -1,4 +1,4 @@
-# 도서공연가맹점테이블 파일 생성
+# 도서공연 가맹점 파일 생성
 
 ## Batch ID
 `BATCH_BOOK_PERF_MERCHANT_EXPORT`
@@ -7,7 +7,7 @@
 `db_to_file`
 
 ## 설명
-도서공연 가맹점 파일 생성 배치 만들어줘
+[배치 개발 요청서] 배치명: 도서공연 가맹점 파일 생성 기준 테이블: - TB_BOOK_PERF_MERCHANT 출력 목적: - 소득공제 대상 도서공연 가맹점 정보 추출 출력 형식: - CSV 파일명: - book_perf_merchant_YYYYMMDD.csv 기준일자: - APPLY_START_DT 처리 내용: - 도서공연 소득공제 대상 가맹점 정보를 조회한다. - 기준일자가 적용시작일자와 종료일자 사이인 데이터만 조회한다. - 사용여부가 'Y'인 데이터만 추출한다. 출력 컬럼: - MERCHANT_ID - MERCHANT_NM - BIZ_NO - MCC_CD - APPLY_START_DT - APPLY_END_DT - USE_YN 조건: - USE_YN = 'Y' - 기준일자 BETWEEN APPLY_START_DT AND APPLY_END_DT 배치 유형: - 파일 생성 배치 - 일 배치
 
 ## 실행 예시
 

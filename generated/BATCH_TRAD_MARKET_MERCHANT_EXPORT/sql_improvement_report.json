@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "risk_level": "LOW",
+  "summary": "기준 테이블 TB_TRAD_MARKET_MERCHANT와 참조 테이블 0개를 분석했습니다. 운영 반영 전 인덱스, 조인 방식, 파티션, 데이터 검증 SQL을 확인하세요.",
+  "suggestions": [
+    {
+      "type": "INDEX",
+      "target": "TB_TRAD_MARKET_MERCHANT",
+      "reason": "APPLY_START_DT와 USE_YN 컬럼에 대한 조건 필터링이 빈번히 발생하므로 인덱스 추가 시 성능 향상 기대",
+      "recommendation": "APPLY_START_DT 컬럼에 단일 인덱스 생성 (USE_YN 포함 복합 인덱스 고려)",
+      "sql": "CREATE INDEX idx_trad_market_merchant_apply_start_yn ON TB_TRAD_MARKET_MERCHANT (APPLY_START_DT, USE_YN);"
+    },
+    {
+      "type": "INDEX",
+      "target": "TB_TRAD_MARKET_MERCHANT",
+      "reason": "APPLY_END_DT가 NULL인 경우와 :base_date <= APPLY_END_DT 조건을 효율적으로 처리하기 위해 인덱스 필요",
+      "recommendation": "APPLY_END_DT 컬럼에 단일 인덱스 생성 (NULL 포함)",
+      "sql": "CREATE INDEX idx_trad_market_merchant_apply_end ON TB_TRAD_MARKET_MERCHANT (APPLY_END_DT);"
+    },
+    {
+      "type": "VALIDATION",
+      "target": "TB_TRAD_MARKET_MERCHANT",
+      "reason": "운영 반영 전 월별 대상 건수, 가맹점 수, 금액 합계를 비교해야 재처리/누락/중복 위험을 줄일 수 있습니다.",
+      "recommendation": "배치 실행 전후 검증 SQL을 test_job.py 또는 별도 검증 스크립트에 추가하세요.",
+      "sql": "SELECT\n    COUNT(*) AS ROW_COUNT,\n    COUNT(DISTINCT MERCHANT_ID) AS MERCHANT_COUNT,\n    SUM(SALES_AMT) AS SALES_AMT_SUM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE BASE_YM = :base_ym\n  AND CANCEL_YN = 'N';"
+    }
+  ],
+  "generated_by": "llm",
+  "warnings": [],
+  "raw_llm_response": "{\"risk_level\":\"LOW\",\"summary\":\"기준 테이블 TB_TRAD_MARKET_MERCHANT와 참조 테이블 0개를 분석했습니다. 운영 반영 전 인덱스, 조인 방식, 파티션, 데이터 검증 SQL을 확인하세요.\",\"suggestions\":[{\"type\":\"INDEX\",\"target\":\"TB_TRAD_MARKET_MERCHANT\",\"reason\":\"APPLY_START_DT와 USE_YN 컬럼에 대한 조건 필터링이 빈번히 발생하므로 인덱스 추가 시 성능 향상 기대\",\"recommendation\":\"APPLY_START_DT 컬럼에 단일 인덱스 생성 (USE_YN 포함 복합 인덱스 고려)\",\"sql\":\"CREATE INDEX idx_trad_market_merchant_apply_start_yn ON TB_TRAD_MARKET_MERCHANT (APPLY_START_DT, USE_YN);\"},{\"type\":\"INDEX\",\"target\":\"TB_TRAD_MARKET_MERCHANT\",\"reason\":\"APPLY_END_DT가 NULL인 경우와 :base_date <= APPLY_END_DT 조건을 효율적으로 처리하기 위해 인덱스 필요\",\"recommendation\":\"APPLY_END_DT 컬럼에 단일 인덱스 생성 (NULL 포함)\",\"sql\":\"CREATE INDEX idx_trad_market_merchant_apply_end ON TB_TRAD_MARKET_MERCHANT (APPLY_END_DT);\"},{\"type\":\"VALIDATION\",\"target\":\"TB_TRAD_MARKET_MERCHANT\",\"reason\":\"운영 반영 전 월별 대상 건수, 가맹점 수, 금액 합계를 비교해야 재처리/누락/중복 위험을 줄일 수 있습니다.\",\"recommendation\":\"배치 실행 전후 검증 SQL을 test_job.py 또는 별도 검증 스크립트에 추가하세요.\",\"sql\":\"SELECT\\n    COUNT(*) AS ROW_COUNT,\\n    COUNT(DISTINCT MERCHANT_ID) AS MERCHANT_COUNT,\\n    SUM(SALES_AMT) AS SALES_AMT_SUM\\nFROM TB_TRAD_MARKET_MERCHANT\\nWHERE BASE_YM = :base_ym\\n  AND CANCEL_YN = 'N';\"}]}"
+}

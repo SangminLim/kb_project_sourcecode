@@ -1,0 +1,206 @@
+[
+  {
+    "case_id": "TC001",
+    "category": "normal_overview",
+    "question": "KKK은행 소득공제 업무 개요를 알려줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["소득공제"]
+  },
+  {
+    "case_id": "TC002",
+    "category": "typo_overview",
+    "question": "KKK은해 소득공제 업무 개여를 알려줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["소득공제"]
+  },
+  {
+    "case_id": "TC003",
+    "category": "normal_overview",
+    "question": "BBB증권 소득공제 업무 개요 알려줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["소득공제"]
+  },
+  {
+    "case_id": "TC004",
+    "category": "system_name_typo",
+    "question": "BB증권 소득공제 업무 개요를 알려줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "overview",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["소득공제"]
+  },
+  {
+    "case_id": "TC005",
+    "category": "normal_batch_process",
+    "question": "KKK은행 소득공제 배치 프로세스를 설명해줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["BATCH"]
+  },
+  {
+    "case_id": "TC006",
+    "category": "followup_typo_batch_process",
+    "question": "소드공제 배치 프러세스를 설명",
+    "chat_history": [
+      {"role": "user", "content": "KKK은행 소득공제 업무 개요 알려줘"},
+      {"role": "assistant", "content": "KKK은행 소득공제 업무 개요입니다."}
+    ],
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["BATCH"]
+  },
+  {
+    "case_id": "TC007",
+    "category": "typo_batch_flow",
+    "question": "KKK은해 소덕공제 배치 흐르도를 그려줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_flow",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["흐름"]
+  },
+  {
+    "case_id": "TC008",
+    "category": "followup_batch_flow",
+    "question": "배치 흐르도 보여줘",
+    "chat_history": [
+      {"role": "user", "content": "KKK은행 소득공제 업무 개요 알려줘"},
+      {"role": "assistant", "content": "KKK은행 소득공제 업무 개요입니다."}
+    ],
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_flow",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["흐름"]
+  },
+  {
+    "case_id": "TC009",
+    "category": "normal_batch_flow",
+    "question": "BBB증권 소득공제 배치 흐름도를 보여줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "batch_flow",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["흐름"]
+  },
+  {
+    "case_id": "TC010",
+    "category": "typo_table_lineage",
+    "question": "KKK은해 소득공재 테이브 리니지를 보여줘",
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "table_lineage",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["테이블"]
+  },
+  {
+    "case_id": "TC011",
+    "category": "followup_table_lineage",
+    "question": "테이브 리니지 보여줘",
+    "chat_history": [
+      {"role": "user", "content": "BBB증권 소득공제 업무 개요 알려줘"},
+      {"role": "assistant", "content": "BBB증권 소득공제 업무 개요입니다."}
+    ],
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "table_lineage",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["테이블"]
+  },
+  {
+    "case_id": "TC012",
+    "category": "realtime_chart",
+    "question": "청구 이용내역서 월별 금액 추이 보여줘",
+    "expected_system_id": null,
+    "expected_intent": "billing_monthly_amount",
+    "expected_render_type": "chart",
+    "expected_answer_contains": ["월별"]
+  },
+  {
+    "case_id": "TC013",
+    "category": "realtime_table",
+    "question": "오늘 에러난거 보여줘",
+    "expected_system_id": null,
+    "expected_intent": "today_incidents",
+    "expected_render_type": "table",
+    "expected_answer_contains": ["장애"]
+  },
+  {
+    "case_id": "TC014",
+    "category": "unknown_system",
+    "question": "AAA은행 소득공제 업무 개요 알려줘",
+    "expected_system_id": null,
+    "expected_intent": ["unknown_system", "overview"],
+    "expected_render_type": "text",
+    "expected_answer_contains": ["등록되지", "시스템"]
+  },
+  {
+    "case_id": "TC015",
+    "category": "out_of_scope",
+    "question": "점심 메뉴 추천해줘",
+    "expected_system_id": null,
+    "expected_intent": ["out_of_scope", "default"],
+    "expected_render_type": "text",
+    "expected_answer_contains": ["지원", "범위"]
+  },
+  {
+    "case_id": "TC016",
+    "category": "typo_bbb_batch_process",
+    "question": "비비비증권 소덕공제 배치 프로세스 설명해줘",
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["BATCH"]
+  },
+  {
+    "case_id": "TC017",
+    "category": "followup_batch_process",
+    "question": "이 시스템 배치 프로세스는?",
+    "chat_history": [
+      {"role": "user", "content": "BBB증권 소득공제 업무 개요 알려줘"},
+      {"role": "assistant", "content": "BBB증권 소득공제 업무 개요입니다."}
+    ],
+    "expected_system_id": "bbb_securities",
+    "expected_intent": "batch_process",
+    "expected_render_type": "text",
+    "expected_answer_contains": ["BATCH"]
+  },
+  {
+    "case_id": "TC018",
+    "category": "followup_batch_flow",
+    "question": "그럼 흐름도는?",
+    "chat_history": [
+      {"role": "user", "content": "KKK은행 소득공제 배치 프로세스 알려줘"},
+      {"role": "assistant", "content": "KKK은행 소득공제 배치 프로세스입니다."}
+    ],
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "batch_flow",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["흐름"]
+  },
+  {
+    "case_id": "TC019",
+    "category": "followup_table_lineage",
+    "question": "테이블 리니지도 보여줘",
+    "chat_history": [
+      {"role": "user", "content": "KKK은행 소득공제 배치 흐름도 보여줘"},
+      {"role": "assistant", "content": "KKK은행 소득공제 배치 흐름도입니다."}
+    ],
+    "expected_system_id": "kkk_bank",
+    "expected_intent": "table_lineage",
+    "expected_render_type": "graph",
+    "expected_answer_contains": ["테이블"]
+  },
+  {
+    "case_id": "TC020",
+    "category": "realtime_chart_typo",
+    "question": "청구쪽 월금액 이상한거 봐줘",
+    "expected_system_id": null,
+    "expected_intent": "billing_monthly_amount",
+    "expected_render_type": "chart",
+    "expected_answer_contains": ["월별"]
+  }
+]

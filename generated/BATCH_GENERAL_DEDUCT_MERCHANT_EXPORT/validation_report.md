@@ -1,0 +1,93 @@
+# 🔍 배치 생성 검증 리포트
+
+- 최종 상태: **✅ PASS WITH WARNINGS**
+- 점수: **0.88**
+- 배치 유형: **db_to_file**
+- 검증정책: **practical-scoring-v3-nonblocking-warn**
+
+## 요약
+일반 소득공제 가맹점 정보를 기준일자에 따라 필터링하여 CSV 파일로 출력하는 배치가 생성되었으며, SQL 구조와 job.py 실행 단서가 배치 목적에 부합한다. 운영 반영 전 검토사항이 있습니다.
+
+## 배치 해석
+배치는 TB_GENERAL_DEDUCT_MERCHANT 테이블에서 MERCHANT_ID, MERCHANT_NM, BIZ_NO, MCC_CD, APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼을 조회하고, USE_YN='Y'이며 기준일자(:base_date)가 APPLY_START_DT와 APPLY_END_DT 사이에 있는 데이터만 추출한다. APPLY_END_DT가 NULL인 경우를 고려하여 OR 조건을 추가했으며, 결과는 CSV 형식으로 general_deduct_merchant_{base_date}.csv 파일에 UTF-8-sig 인코딩으로 저장된다. job.py는 DB 접속, SQL 실행, 파라미터 처리, 파일 출력 로직을 포함하고 있으며, test_job.py는 배치 산출물 존재 여부만 검증한다.
+
+## 검증 항목
+| 항목 | 결과 | 상세 |
+|---|---|---|
+| batch_spec.json | PASS | 생성 파일이 존재합니다. |
+| query.sql | PASS | 생성 파일이 존재합니다. |
+| job.py | PASS | 생성 파일이 존재합니다. |
+| SQL 위험 패턴 | PASS | 명백한 위험 SQL 패턴은 발견되지 않았습니다. |
+| SQL 파라미터와 batch_spec 일치성 | PASS | SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_date |
+| 출력 형식 | PASS | 출력 형식이 정의되어 있습니다: csv |
+| 출력 파일명 패턴 | PASS | 파일명 패턴이 정의되어 있습니다: general_deduct_merchant_{base_date}.csv |
+| spec 테이블과 SQL 일치성 | PASS | batch_spec의 테이블 후보가 SQL에서 확인됩니다. |
+| 요청 목적 적합성 | PASS | 원본 요청서의 '일반 소득공제 대상 가맹점 정보 추출' 목적과 배치 유형 '파일 생성 배치'가 일치하며, 출력 컬럼과 조건도 정확히 반영되었다. |
+| SQL 의미 일치성 | PASS | batch_spec의 resolved_tables와 resolved_columns에 따라 TB_GENERAL_DEDUCT_MERCHANT 테이블을 FROM으로 사용하고, APPLY_START_DT를 기준일자 컬럼으로 매핑했다. WHERE 절의 :base_date >= APPLY_START_DT, :base_date <= APPLY_END_DT, USE_YN='Y' 조건이 배치 목적과 정확히 일치한다. |
+| 파라미터 일치성 | PASS | batch_spec의 parameters에 base_date가 필수 파라미터로 정의되어 있으며, SQL에서 :base_date로 사용되었다. README의 실행 예시에서도 --base-date 20260428로 동일한 파라미터를 사용한다. |
+| 파일 출력 설정 | PASS | output_format이 'csv', output_file_pattern이 'general_deduct_merchant_{base_date}.csv', output_dir이 './output', encoding이 'utf-8-sig'로 운영 관점에서 적절한 설정을 갖췄다. |
+| 운영 재처리 위험 | WARN | test_job.py는 배치 산출물 존재 여부만 검증하며, SQL/파일포맷/파라미터 검증 로직이 포함되어 있지 않다. 재처리 시 파일 덮어쓰기, 중복 적재, 멱등성 여부를 운영에서 추가로 검토해야 한다. |
+| 성능 위험 | WARN | TB_GENERAL_DEDUCT_MERCHANT 테이블에 APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 대한 인덱스가 있는지 확인되지 않았다. 대량 데이터 조회 시 Full Scan 가능성이 있으며, 인덱스 확인이 필요하다. |
+| 데이터 품질 검증 | WARN | NOT NULL 컬럼으로 MERCHANT_ID와 APPLY_START_DT만 지정되어 있으나, MERCHANT_NM, BIZ_NO, MCC_CD, USE_YN, APPLY_END_DT의 NULL 허용 여부는 검증되지 않았다. 또한 중복 데이터나 기준일자 경계 조건에 대한 데이터 품질 검증이 필요하다. |
+
+## 경고
+- test_job.py가 SQL/파일포맷/파라미터 검증 로직을 포함하지 않아 테스트 충분성이 부족하다.
+- TB_GENERAL_DEDUCT_MERCHANT 테이블에 APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 대한 인덱스 확인이 필요하다.
+- 파일 덮어쓰기, 중복 적재, 멱등성 여부를 운영에서 재처리 검토 항목으로 추가해야 한다.
+
+## 점수 산정 근거
+```json
+{
+  "policy_version": "practical-scoring-v3-nonblocking-warn",
+  "final_score": 0.88,
+  "rule_score": 1.0,
+  "llm_score": 0.85,
+  "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
+  "blocking_fail_checks": [],
+  "downgraded_fail_checks": [],
+  "score_policy": {
+    "policy_version": "practical-scoring-v3-nonblocking-warn",
+    "effective_rule_score": 1.0,
+    "effective_llm_score": 0.85,
+    "base_score_before_penalty": 0.917,
+    "warn_penalty": 0.012,
+    "risk_penalty": 0.025,
+    "pass_count": 12,
+    "warn_count": 3,
+    "fail_count_after_normalization": 0,
+    "has_blocking_fail": false,
+    "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
+  },
+  "risk_penalty": {
+    "total_penalty": 0.025,
+    "penalties": {
+      "condition_complexity": 0.006,
+      "performance_review": 0.008,
+      "test_coverage_gap": 0.008,
+      "reprocess_or_duplication_review": 0.008,
+      "data_quality_review": 0.008,
+      "warning_volume": 0.0045000000000000005
+    },
+    "signals": {
+      "join_count": 0,
+      "aggregate_count": 0,
+      "warning_count": 3,
+      "has_group_by": false,
+      "has_case": false,
+      "has_insert": false,
+      "has_delete_or_delete_insert": false,
+      "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
+    }
+  }
+}
+```
+
+## 권장사항
+- 운영 반영 전 실제 DB 컬럼 존재 여부와 컬럼 타입을 확인하세요.
+- 기준일자/기간 조건 컬럼에 적절한 인덱스가 있는지 확인하세요.
+- 파일 생성 배치라면 output_dir 권한과 파일명 중복/덮어쓰기 정책을 확인하세요.
+- 대량 데이터 기준 row count, not null, 중복 건수 검증을 추가하세요.
+- LLM 검증은 보조 검증이므로 최종 승인 기준은 룰 검증과 테스트 결과를 함께 보세요.
+- test_job.py에 SQL 구문 검증, 파일 포맷 검증, 파라미터 유효성 검증 로직을 추가하여 테스트 충분성을 높일 것.
+- TB_GENERAL_DEDUCT_MERCHANT 테이블에 APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 대한 인덱스 적용 여부를 확인하고, 필요 시 인덱스 추가를 검토할 것.
+- 재처리 시 파일 중복 적재 방지를 위한 파일명 충돌 방지 로직 또는 적재 이력 관리 방안을 마련할 것.

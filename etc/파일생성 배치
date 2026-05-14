@@ -26,3 +26,6 @@ WHERE :base_date >= APPLY_START_DT
 
 같은 자연어 배치 개발 요청을 입력하면,
 ERWIN 메타와 Rule 기반으로 서로 다른 가맹점 마스터 배치를 자동 생성한다.
+
+
+Metadata-driven Batch Generation Agent

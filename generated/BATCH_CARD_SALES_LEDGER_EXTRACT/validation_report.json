@@ -1,0 +1,153 @@
+{
+  "valid": true,
+  "score": 0.846,
+  "summary": "소득공제 대상 거래 추출 배치가 월 배치로 생성되었으며, 배치 목적과 SQL/파일 출력 설정이 일치하고 실행 가능한 구조를 갖추고 있으나, 성능 및 데이터 품질 검증 측면에서 운영 확인 필요 항목이 존재합니다. 운영 반영 전 검토사항이 있습니다.",
+  "interpretation": "이 배치는 TB_CARD_SALES_LEDGER 기준 테이블에서 BASE_YM 파라미터를 사용해 거래 데이터를 조회하고, TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT 참조 테이블과 LEFT JOIN하여 MERCHANT_TYPE을 분류하는 SQL을 실행합니다. CANCEL_YN='N', USE_YN='Y', SALES_DT가 적용기간 내에 있는 유효한 거래만 필터링하며, 결과는 CSV 파일로 card_sales_ledger_{base_ym}.csv 형태로 ./output 디렉터리에 UTF-8-SIG 인코딩으로 저장됩니다. job.py는 DB 접속, SQL 실행, CSV 출력 로직을 포함하고 있으며, test_job.py는 파일 및 SQL 존재 여부를 검증합니다.",
+  "detected_batch_type": "db_to_file",
+  "checks": [
+    {
+      "item": "batch_spec.json",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "query.sql",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "job.py",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "SQL 위험 패턴",
+      "result": "PASS",
+      "detail": "명백한 위험 SQL 패턴은 발견되지 않았습니다."
+    },
+    {
+      "item": "SQL 파라미터와 batch_spec 일치성",
+      "result": "PASS",
+      "detail": "SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_ym"
+    },
+    {
+      "item": "출력 형식",
+      "result": "PASS",
+      "detail": "출력 형식이 정의되어 있습니다: csv"
+    },
+    {
+      "item": "출력 파일명 패턴",
+      "result": "PASS",
+      "detail": "파일명 패턴이 정의되어 있습니다: card_sales_ledger_{base_ym}.csv"
+    },
+    {
+      "item": "spec 테이블과 SQL 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
+    },
+    {
+      "item": "요청 목적 적합성",
+      "result": "PASS",
+      "detail": "배치명 '소득공제 대상 거래 추출 배치'와 업무 목적 '소득공제 대상 거래 추출 및 가맹점 유형별 생성'이 일치하며, BASE_YM 기준 월 배치로 설계되었습니다."
+    },
+    {
+      "item": "SQL 의미 일치성",
+      "result": "PASS",
+      "detail": "FROM TB_CARD_SALES_LEDGER, LEFT JOIN 3개 참조 테이블, WHERE 조건으로 CANCEL_YN='N', USE_YN='Y', BASE_YM=:base_ym, SALES_DT 기간 매칭, MERCHANT_TYPE CASE 분류가 배치 목적과 정확히 일치합니다."
+    },
+    {
+      "item": "파라미터 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 parameters에 base_ym(required)이 정의되어 있고, SQL에서 :base_ym으로 사용되며, job.py에서 파라미터 처리 로직이 존재합니다."
+    },
+    {
+      "item": "파일 출력 설정",
+      "result": "PASS",
+      "detail": "output_format='csv', output_file_pattern='card_sales_ledger_{base_ym}.csv', output_dir='./output', encoding='utf-8-sig'가 운영 관점에서 적절합니다."
+    },
+    {
+      "item": "운영 재처리 위험",
+      "result": "WARN",
+      "detail": "파일 덮어쓰기 방식으로 멱등성이 보장되나, 삭제 후 적재 로직이 없어 재처리 시 중복 적재 가능성이 존재합니다. 파일명 패턴으로 인해 동일 월 데이터 재처리 시 덮어쓰기됩니다."
+    },
+    {
+      "item": "성능 위험",
+      "result": "WARN",
+      "detail": "TB_CARD_SALES_LEDGER 전체 테이블 조회 시 Full Scan 가능성이 있으며, SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스가 필요합니다. 대량 데이터 조회 시 성능 저하 위험이 있습니다."
+    },
+    {
+      "item": "데이터 품질 검증",
+      "result": "WARN",
+      "detail": "NOT NULL 컬럼 검증은 있으나, MERCHANT_TYPE이 'UNKNOWN'인 거래 처리 로직이 포함되어 있어 데이터 품질 검증(행 수, 금액 합계, 기준일자 검증)이 필요합니다."
+    },
+    {
+      "item": "테스트 충분성",
+      "result": "WARN",
+      "detail": "test_job.py는 파일 및 SQL 존재 여부만 검증하며, SQL 구문, JOIN 조건, 파라미터 바인딩, 출력 파일 포맷 검증은 누락되어 있습니다."
+    }
+  ],
+  "issues": [],
+  "warnings": [
+    "성능 위험: TB_CARD_SALES_LEDGER 테이블 Full Scan 가능성 및 인덱스 필요 컬럼(SALES_DT, MERCHANT_ID, BASE_YM) 확인 필요",
+    "데이터 품질 위험: MERCHANT_TYPE='UNKNOWN' 거래 처리 로직 및 데이터 품질 검증(행 수, 금액 합계, 기준일자) 필요",
+    "운영 재처리 위험: 파일 덮어쓰기 방식으로 멱등성은 있으나, 삭제 후 적재 로직이 없어 재처리 시 중복 적재 가능성 존재",
+    "테스트 충분성: SQL 구문, JOIN 조건, 파라미터 바인딩, 출력 파일 포맷 검증 테스트 미포함"
+  ],
+  "recommendations": [
+    "운영 반영 전 실제 DB 컬럼 존재 여부와 컬럼 타입을 확인하세요.",
+    "기준일자/기간 조건 컬럼에 적절한 인덱스가 있는지 확인하세요.",
+    "파일 생성 배치라면 output_dir 권한과 파일명 중복/덮어쓰기 정책을 확인하세요.",
+    "대량 데이터 기준 row count, not null, 중복 건수 검증을 추가하세요.",
+    "LLM 검증은 보조 검증이므로 최종 승인 기준은 룰 검증과 테스트 결과를 함께 보세요.",
+    "TB_CARD_SALES_LEDGER 테이블에 SALES_DT, MERCHANT_ID, BASE_YM 인덱스 추가 검토",
+    "MERCHANT_TYPE='UNKNOWN' 거래 처리 로직 명확화 및 데이터 품질 검증 쿼리 추가",
+    "재처리 시 중복 방지를 위한 파일 삭제 로직 또는 적재 전 중복 체크 로직 구현",
+    "test_job.py에 SQL 구문, JOIN 조건, 파라미터 바인딩, CSV 파일 포맷 검증 테스트 케이스 추가"
+  ],
+  "raw_llm_response": "{\"valid\": true, \"score\": 0.85, \"summary\": \"소득공제 대상 거래 추출 배치가 월 배치로 생성되었으며, 배치 목적과 SQL/파일 출력 설정이 일치하고 실행 가능한 구조를 갖추고 있으나, 성능 및 데이터 품질 검증 측면에서 운영 확인 필요 항목이 존재합니다.\", \"interpretation\": \"이 배치는 TB_CARD_SALES_LEDGER 기준 테이블에서 BASE_YM 파라미터를 사용해 거래 데이터를 조회하고, TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT 참조 테이블과 LEFT JOIN하여 MERCHANT_TYPE을 분류하는 SQL을 실행합니다. CANCEL_YN='N', USE_YN='Y', SALES_DT가 적용기간 내에 있는 유효한 거래만 필터링하며, 결과는 CSV 파일로 card_sales_ledger_{base_ym}.csv 형태로 ./output 디렉터리에 UTF-8-SIG 인코딩으로 저장됩니다. job.py는 DB 접속, SQL 실행, CSV 출력 로직을 포함하고 있으며, test_job.py는 파일 및 SQL 존재 여부를 검증합니다.\", \"detected_batch_type\": \"db_to_file\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명 '소득공제 대상 거래 추출 배치'와 업무 목적 '소득공제 대상 거래 추출 및 가맹점 유형별 생성'이 일치하며, BASE_YM 기준 월 배치로 설계되었습니다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"FROM TB_CARD_SALES_LEDGER, LEFT JOIN 3개 참조 테이블, WHERE 조건으로 CANCEL_YN='N', USE_YN='Y', BASE_YM=:base_ym, SALES_DT 기간 매칭, MERCHANT_TYPE CASE 분류가 배치 목적과 정확히 일치합니다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 parameters에 base_ym(required)이 정의되어 있고, SQL에서 :base_ym으로 사용되며, job.py에서 파라미터 처리 로직이 존재합니다.\"}, {\"item\": \"파일 출력 설정\", \"result\": \"PASS\", \"detail\": \"output_format='csv', output_file_pattern='card_sales_ledger_{base_ym}.csv', output_dir='./output', encoding='utf-8-sig'가 운영 관점에서 적절합니다.\"}, {\"item\": \"운영 재처리 위험\", \"result\": \"WARN\", \"detail\": \"파일 덮어쓰기 방식으로 멱등성이 보장되나, 삭제 후 적재 로직이 없어 재처리 시 중복 적재 가능성이 존재합니다. 파일명 패턴으로 인해 동일 월 데이터 재처리 시 덮어쓰기됩니다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER 전체 테이블 조회 시 Full Scan 가능성이 있으며, SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스가 필요합니다. 대량 데이터 조회 시 성능 저하 위험이 있습니다.\"}, {\"item\": \"데이터 품질 검증\", \"result\": \"WARN\", \"detail\": \"NOT NULL 컬럼 검증은 있으나, MERCHANT_TYPE이 'UNKNOWN'인 거래 처리 로직이 포함되어 있어 데이터 품질 검증(행 수, 금액 합계, 기준일자 검증)이 필요합니다.\"}, {\"item\": \"테스트 충분성\", \"result\": \"WARN\", \"detail\": \"test_job.py는 파일 및 SQL 존재 여부만 검증하며, SQL 구문, JOIN 조건, 파라미터 바인딩, 출력 파일 포맷 검증은 누락되어 있습니다.\"}], \"issues\": [], \"warnings\": [\"성능 위험: TB_CARD_SALES_LEDGER 테이블 Full Scan 가능성 및 인덱스 필요 컬럼(SALES_DT, MERCHANT_ID, BASE_YM) 확인 필요\", \"데이터 품질 위험: MERCHANT_TYPE='UNKNOWN' 거래 처리 로직 및 데이터 품질 검증(행 수, 금액 합계, 기준일자) 필요\", \"운영 재처리 위험: 파일 덮어쓰기 방식으로 멱등성은 있으나, 삭제 후 적재 로직이 없어 재처리 시 중복 적재 가능성 존재\", \"테스트 충분성: SQL 구문, JOIN 조건, 파라미터 바인딩, 출력 파일 포맷 검증 테스트 미포함\"], \"recommendations\": [\"TB_CARD_SALES_LEDGER 테이블에 SALES_DT, MERCHANT_ID, BASE_YM 인덱스 추가 검토\", \"MERCHANT_TYPE='UNKNOWN' 거래 처리 로직 명확화 및 데이터 품질 검증 쿼리 추가\", \"재처리 시 중복 방지를 위한 파일 삭제 로직 또는 적재 전 중복 체크 로직 구현\", \"test_job.py에 SQL 구문, JOIN 조건, 파라미터 바인딩, CSV 파일 포맷 검증 테스트 케이스 추가\"]}",
+  "score_breakdown": {
+    "policy_version": "practical-scoring-v3-nonblocking-warn",
+    "final_score": 0.846,
+    "rule_score": 1.0,
+    "llm_score": 0.85,
+    "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
+    "blocking_fail_checks": [],
+    "downgraded_fail_checks": [],
+    "score_policy": {
+      "policy_version": "practical-scoring-v3-nonblocking-warn",
+      "effective_rule_score": 1.0,
+      "effective_llm_score": 0.85,
+      "base_score_before_penalty": 0.917,
+      "warn_penalty": 0.016,
+      "risk_penalty": 0.055,
+      "pass_count": 12,
+      "warn_count": 4,
+      "fail_count_after_normalization": 0,
+      "has_blocking_fail": false,
+      "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
+    },
+    "risk_penalty": {
+      "total_penalty": 0.055,
+      "penalties": {
+        "join_complexity": 0.018000000000000002,
+        "case_classification": 0.006,
+        "condition_complexity": 0.006,
+        "performance_review": 0.008,
+        "test_coverage_gap": 0.008,
+        "reprocess_or_duplication_review": 0.008,
+        "data_quality_review": 0.008,
+        "warning_volume": 0.006
+      },
+      "signals": {
+        "join_count": 3,
+        "aggregate_count": 0,
+        "warning_count": 4,
+        "has_group_by": false,
+        "has_case": true,
+        "has_insert": false,
+        "has_delete_or_delete_insert": false,
+        "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
+      }
+    }
+  }
+}

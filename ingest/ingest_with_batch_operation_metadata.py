@@ -10,38 +10,61 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import chromadb
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 @dataclass
 class EmbedConfig:
-    base_url: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    model: str = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-    timeout: int = 60
+    api_key: str = os.getenv("UPSTAGE_API_KEY", "")
+    base_url: str = os.getenv("UPSTAGE_BASE_URL", "https://api.upstage.ai/v1")
+    model: str = os.getenv("UPSTAGE_EMBED_MODEL", "solar-embedding-1-large-query")
+    timeout: int = int(os.getenv("UPSTAGE_EMBED_TIMEOUT", "60"))
 
 
-class OllamaEmbeddingFunction:
+class UpstageEmbeddingFunction:
     """
     ChromaDB embedding function wrapper
-    - Ollama /api/embeddings 사용
+    - Upstage Embeddings API 사용
+    - Chroma 저장소는 그대로 사용하고, 임베딩 생성만 Upstage로 변경한다.
     """
 
     def __init__(self, config: EmbedConfig) -> None:
         self.config = config
+        if not self.config.api_key:
+            raise ValueError(
+                "UPSTAGE_API_KEY가 비어 있습니다. .env 또는 OS 환경변수에 UPSTAGE_API_KEY를 설정하세요."
+            )
 
     def __call__(self, input: List[str]) -> List[List[float]]:
         vectors: List[List[float]] = []
+
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
+
         for text in input:
-            resp = requests.post(
-                f"{self.config.base_url}/api/embeddings",
-                json={"model": self.config.model, "prompt": text},
+            response = requests.post(
+                f"{self.config.base_url.rstrip('/')}/embeddings",
+                headers=headers,
+                json={
+                    "model": self.config.model,
+                    "input": text,
+                },
                 timeout=self.config.timeout,
             )
-            resp.raise_for_status()
-            data = resp.json()
-            embedding = data.get("embedding")
+            response.raise_for_status()
+
+            data = response.json()
+            embedding = (data.get("data") or [{}])[0].get("embedding")
+
             if not embedding:
-                raise ValueError("Embedding 응답에 embedding 값이 없습니다.")
+                raise ValueError("Upstage Embedding 응답에 embedding 값이 없습니다.")
+
             vectors.append(embedding)
+
         return vectors
 
 
@@ -588,7 +611,7 @@ def upsert_documents(
 
     collection = client.get_or_create_collection(
         name=collection_name,
-        embedding_function=OllamaEmbeddingFunction(embed_config),
+        embedding_function=UpstageEmbeddingFunction(embed_config),
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -620,6 +643,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    load_dotenv()
     args = parse_args()
     payload = read_json(args.json_path)
     docs = flatten_payload(payload)
