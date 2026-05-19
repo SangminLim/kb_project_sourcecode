@@ -10,37 +10,17 @@ from typing import Any, Dict, List, Optional, Tuple
 import chromadb
 import requests
 
-try:
-    from dotenv import load_dotenv
-except Exception:  # pragma: no cover - optional dependency
-    load_dotenv = None
+from dotenv import load_dotenv
 
-# LangChain은 운영 환경에 설치되어 있으면 우선 사용하고,
-# 없거나 오류가 발생하면 기존 requests 기반 Ollama 호출로 자동 fallback한다.
-# 현재 requirements 조합(langchain==0.3.x, langchain-community==0.3.x)에 맞춘 import다.
-try:
-    from langchain_core.prompts import PromptTemplate
-    from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-    from langchain_core.runnables import RunnableLambda, RunnableBranch
-except Exception:  # pragma: no cover - optional dependency
-    PromptTemplate = None
-    StrOutputParser = None
-    JsonOutputParser = None
-    RunnableLambda = None
-    RunnableBranch = None
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.embeddings import Embeddings
+from langchain_chroma import Chroma as LangChainChroma
 
-try:
-    from langchain_community.llms import Ollama as LangChainOllama
-except Exception:  # pragma: no cover - optional dependency
-    LangChainOllama = None
+from batch_dev.request_classifier import detect_structured_request_type
 
-try:
-    from batch_dev.request_classifier import detect_structured_request_type
-except Exception:
-    detect_structured_request_type = None
-
-if load_dotenv is not None:
-    load_dotenv()
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 CONF_DIR = Path(os.getenv("CONF_DIR", str(BASE_DIR / "conf")))
@@ -453,6 +433,27 @@ class UpstageEmbeddingFunction:
 OllamaEmbeddingFunction = UpstageEmbeddingFunction
 
 
+class UpstageLangChainEmbeddings(Embeddings if Embeddings is not None else object):
+    """LangChain VectorStore에서 사용할 Upstage Embeddings adapter.
+
+    기존 Chroma ingest/query에 쓰던 UpstageEmbeddingFunction을 그대로 재사용한다.
+    모델명, base_url, timeout은 EmbedConfig/.env에서 읽기 때문에 코드에 업무별 값을 박지 않는다.
+    """
+
+    def __init__(self, config: Optional[EmbedConfig] = None) -> None:
+        self.config = config or EmbedConfig()
+        self.embedding_function = UpstageEmbeddingFunction(self.config)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        return self.embedding_function([str(text) for text in texts])
+
+    def embed_query(self, text: str) -> List[float]:
+        vectors = self.embedding_function([str(text)])
+        if not vectors:
+            raise ValueError("Upstage embedding 결과가 비어 있습니다.")
+        return vectors[0]
+
+
 def _use_langchain() -> bool:
     """기존 설정 호환용 함수.
 
@@ -471,10 +472,51 @@ def get_langchain_feature_flags() -> Dict[str, bool]:
     return {
         "llm_provider": os.getenv("LLM_PROVIDER", "upstage"),
         "langchain_enabled": _use_langchain(),
+        "rewrite_chain_enabled": _env_flag("LANGCHAIN_REWRITE_CHAIN_ENABLED", "true"),
+        "retriever_enabled": _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true"),
         "router_enabled": _env_flag("LANGCHAIN_ROUTER_ENABLED", "true"),
         "structured_parser_enabled": _env_flag("LANGCHAIN_STRUCTURED_PARSER_ENABLED", "true"),
         "retrieval_compression_enabled": _env_flag("LANGCHAIN_RETRIEVAL_COMPRESSION_ENABLED", "false"),
     }
+
+
+
+def _langchain_generate_text(prompt: str, system_prompt: str, config: ChatConfig) -> str:
+    """LangChain 기반 텍스트 생성 공통 함수.
+
+    현재는 rewrite_question에서만 사용한다.
+    실패 시 기존 requests 기반 호출로 fallback할 수 있도록 예외를 그대로 전달한다.
+    """
+    if not _use_langchain() or not _env_flag("LANGCHAIN_REWRITE_CHAIN_ENABLED", "true"):
+        raise RuntimeError("LangChain rewrite chain is disabled.")
+
+    if ChatOpenAI is None or ChatPromptTemplate is None or StrOutputParser is None:
+        raise RuntimeError(
+            "LangChain 패키지가 설치되어 있지 않습니다. "
+            "pip install langchain langchain-core langchain-openai 를 확인하세요."
+        )
+
+    if not config.api_key:
+        raise ValueError("UPSTAGE_API_KEY가 비어 있습니다. .env에 UPSTAGE_API_KEY를 설정하세요.")
+
+    llm = ChatOpenAI(
+        api_key=config.api_key,
+        base_url=config.base_url.rstrip("/"),
+        model=config.model,
+        temperature=config.temperature,
+        timeout=config.timeout,
+        max_tokens=config.max_tokens,
+    )
+
+    chain_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            ("human", "{user_prompt}"),
+        ]
+    )
+
+    chain = chain_prompt | llm | StrOutputParser()
+    return str(chain.invoke({"user_prompt": prompt})).strip()
 
 
 def _upstage_generate_requests(prompt: str, system_prompt: str, config: ChatConfig) -> str:
@@ -524,7 +566,10 @@ upstage_generate = ollama_generate
 
 
 def get_llm_engine_name() -> str:
-    return f"requests_upstage:{os.getenv('UPSTAGE_CHAT_MODEL', 'solar-pro3')}"
+    model = os.getenv("UPSTAGE_CHAT_MODEL", "solar-pro3")
+    if _use_langchain() and _env_flag("LANGCHAIN_REWRITE_CHAIN_ENABLED", "true"):
+        return f"langchain_upstage:{model}"
+    return f"requests_upstage:{model}"
 
 
 def build_rewrite_prompt(
@@ -643,13 +688,33 @@ def rewrite_question(
     debug_logs.append("[REWRITE 5] llm_rewrite = started")
 
     try:
-        rewritten = ollama_generate(prompt=prompt, system_prompt=system_prompt, config=config)
+        rewrite_engine = "requests"
+        try:
+            rewritten = _langchain_generate_text(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                config=config,
+            )
+            rewrite_engine = "langchain"
+        except Exception as chain_exc:
+            debug_logs.append(
+                f"[REWRITE 5-1] langchain_rewrite = fallback_to_requests "
+                f"({type(chain_exc).__name__}: {chain_exc})"
+            )
+            rewritten = ollama_generate(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                config=config,
+            )
+
         final_rewritten = normalize_whitespace(rewritten or dictionary_question)
         if not is_valid_rewritten_question(final_rewritten, effective_intent):
+            debug_logs.append(f"[REWRITE 6] llm_rewrite_engine = {rewrite_engine}")
             debug_logs.append(f"[REWRITE 6] llm_rewrite = invalid_output ({final_rewritten})")
             debug_logs.append(f"[REWRITE 7] fallback_rewritten_question = {dictionary_question}")
             return dictionary_question, debug_logs
 
+        debug_logs.append(f"[REWRITE 6] llm_rewrite_engine = {rewrite_engine}")
         debug_logs.append(f"[REWRITE 6] final_rewritten_question = {final_rewritten}")
         return final_rewritten, debug_logs
     except Exception as e:
@@ -773,13 +838,17 @@ def resolve_response_route(intent: str, render_type: str, has_graph: bool, has_q
         return ResponseRoute(name="table", render_type="table", realtime_mode="incident_table_with_summary")
     return ResponseRoute(name="llm_text", render_type=render_type)
 
-def retrieve_docs(
+def _retrieve_docs_chromadb_direct(
     persist_dir: str,
     collection_name: str,
     query: str,
     top_k: int = 4,
     where: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    """기존 ChromaDB 직접 조회 경로.
+
+    LangChain retriever가 비활성화되었거나 실패할 때 안정적인 fallback으로 사용한다.
+    """
     client = chromadb.PersistentClient(path=persist_dir)
     collection = client.get_collection(
         name=collection_name,
@@ -789,6 +858,117 @@ def retrieve_docs(
     if where:
         kwargs["where"] = where
     return collection.query(**kwargs)
+
+
+def _retrieve_docs_langchain(
+    persist_dir: str,
+    collection_name: str,
+    query: str,
+    top_k: int = 4,
+    where: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """LangChain Retriever 기반 문서 조회.
+
+    확장 포인트:
+    - LANGCHAIN_RETRIEVER_SEARCH_TYPE: similarity, mmr 등 LangChain retriever search_type
+    - LANGCHAIN_RETRIEVER_FETCH_K: MMR 등에서 후보 문서 수
+    - where 필터는 기존 Chroma metadata filter를 그대로 전달한다.
+    """
+    if not _use_langchain() or not _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true"):
+        raise RuntimeError("LangChain retriever is disabled.")
+
+    if LangChainChroma is None or Embeddings is None:
+        raise RuntimeError(
+            "LangChain Chroma 패키지가 설치되어 있지 않습니다. "
+            "pip install langchain-chroma langchain-core 를 확인하세요."
+        )
+
+    embeddings = UpstageLangChainEmbeddings(EmbedConfig())
+
+    vectorstore = LangChainChroma(
+        collection_name=collection_name,
+        persist_directory=persist_dir,
+        embedding_function=embeddings,
+    )
+
+    search_type = os.getenv("LANGCHAIN_RETRIEVER_SEARCH_TYPE", "similarity").strip() or "similarity"
+
+    search_kwargs: Dict[str, Any] = {"k": top_k}
+    if where:
+        search_kwargs["filter"] = where
+
+    fetch_k = os.getenv("LANGCHAIN_RETRIEVER_FETCH_K", "").strip()
+    if fetch_k:
+        try:
+            search_kwargs["fetch_k"] = int(fetch_k)
+        except Exception:
+            pass
+
+    retriever = vectorstore.as_retriever(
+        search_type=search_type,
+        search_kwargs=search_kwargs,
+    )
+
+    docs = retriever.invoke(query)
+
+    documents: List[str] = []
+    metadatas: List[Dict[str, Any]] = []
+    ids: List[str] = []
+
+    for idx, doc in enumerate(docs):
+        documents.append(str(getattr(doc, "page_content", "") or ""))
+        metadata = dict(getattr(doc, "metadata", {}) or {})
+        metadatas.append(metadata)
+
+        doc_id = (
+            metadata.get("id")
+            or metadata.get("chunk_id")
+            or metadata.get("source")
+            or f"langchain_doc_{idx + 1}"
+        )
+        ids.append(str(doc_id))
+
+    return {
+        "ids": [ids],
+        "documents": [documents],
+        "metadatas": [metadatas],
+        "distances": [[]],
+    }
+
+
+def retrieve_docs(
+    persist_dir: str,
+    collection_name: str,
+    query: str,
+    top_k: int = 4,
+    where: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """문서 검색 진입점.
+
+    기본은 LangChain Retriever를 사용하고, 실패하면 기존 ChromaDB 직접 조회로 fallback한다.
+    업무별 조건은 코드에 박지 않고 where filter와 env 설정으로 주입한다.
+    """
+    if _use_langchain() and _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true"):
+        try:
+            return _retrieve_docs_langchain(
+                persist_dir=persist_dir,
+                collection_name=collection_name,
+                query=query,
+                top_k=top_k,
+                where=where,
+            )
+        except Exception:
+            # 호출부의 AgentResult/debug_logs 구조를 깨지 않기 위해 여기서는 조용히 fallback한다.
+            # 검색 실패 원인까지 화면에 보여줘야 하면 answer_question에서 별도 wrapper를 두면 된다.
+            pass
+
+    return _retrieve_docs_chromadb_direct(
+        persist_dir=persist_dir,
+        collection_name=collection_name,
+        query=query,
+        top_k=top_k,
+        where=where,
+    )
 
 
 def build_answer_prompt(
@@ -1244,28 +1424,12 @@ class HandoverAgent:
         debug_logs.append(f"[STEP 7] render_type = {render_type}")
         debug_logs.append(f"[STEP 8] where_filter = {where}")
 
-        if intent == "overview" and system_id and structured_data:
-            debug_logs.append("[STEP 9] overview_direct_render = true")
-            debug_logs.append("[STEP 10] retrieval = skipped")
-            debug_logs.append("[STEP 11] answer_generation = skipped (structured_overview_renderer)")
-            return AgentResult(
-                original_question=question,
-                normalized_question=normalized_question,
-                rewritten_question=rewritten_question,
-                system_id=system_id,
-                intent=intent,
-                answer=build_overview_fallback(structured_data),
-                render_type=render_type,
-                graph_data=graph_data,
-                query_meta=query_meta,
-                realtime_mode=None,
-                structured_data=structured_data,
-                sources=[],
-                debug_logs=debug_logs,
-            )
-
         search_query = rewritten_question
         debug_logs.append(f"[STEP 9] search_query = {search_query}")
+        if _use_langchain() and _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true"):
+            debug_logs.append("[STEP 9-0] retriever_engine = langchain_chroma")
+        else:
+            debug_logs.append("[STEP 9-0] retriever_engine = chromadb_direct")
 
         search_result = retrieve_docs(
             persist_dir=self.persist_dir,
@@ -1399,6 +1563,25 @@ class HandoverAgent:
                 query_meta,
                 route.realtime_mode,
                 None,
+                source_rows,
+                debug_logs,
+            )
+
+        if intent == "overview" and structured_data:
+            answer = build_overview_fallback(structured_data)
+            debug_logs.append("[STEP 11] answer_generation = skipped (structured_overview_renderer_after_retrieval)")
+            return AgentResult(
+                question,
+                normalized_question,
+                rewritten_question,
+                system_id,
+                intent,
+                answer,
+                render_type,
+                graph_data,
+                query_meta,
+                None,
+                structured_data,
                 source_rows,
                 debug_logs,
             )

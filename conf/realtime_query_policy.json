@@ -1,0 +1,15 @@
+{
+  "default": {
+    "empty_message": "조회 결과가 없습니다.",
+    "summary_type": null
+  },
+  "billing_monthly_amount": {
+    "empty_message": "청구 데이터가 없습니다.",
+    "summary_type": "billing_monthly_amount"
+  },
+  "today_incidents": {
+    "empty_message": "오늘 장애는 없습니다.",
+    "summary_type": "incident_summary",
+    "realtime_mode": "incident_table_with_summary"
+  }
+}

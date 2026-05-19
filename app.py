@@ -1,37 +1,55 @@
 from __future__ import annotations
-
 import json
 import os
 import uuid
 import re
+import logging
+from urllib.parse import quote_plus
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
-
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from dotenv import load_dotenv
 from graphviz import Digraph
-
 load_dotenv()
+
+CONFIG_DIR = Path(os.getenv("CONFIG_DIR", "conf"))
+
+SQL_ANALYSIS_SECTION_ALIASES_PATH = (
+    CONFIG_DIR / "sql_analysis_section_aliases.json"
+)
+
+REALTIME_QUERY_POLICY_PATH = (
+    CONFIG_DIR / "realtime_query_policy.json"
+)
+
+APP_RENDER_SCHEMA_PATH = (
+    CONFIG_DIR / "app_render_schema.json"
+)
+
+SQL_REVIEW_POLICY_PATH = (
+    CONFIG_DIR / "sql_review_policy.json"
+)
 
 from llm import ChatConfig, HandoverAgent, ollama_generate, apply_dictionary_rewrite, detect_intent, get_llm_engine_name, get_langchain_feature_flags
 from realtime_query_service import RealtimeQueryService
 from batch_dev import BatchDevAgent
-
-try:
-    from batch_dev.llm_batch_validator import validate_batch_generation
-except Exception:
-    validate_batch_generation = None
-
-try:
-    from batch_dev.sql_improvement_advisor import analyze_sql_improvement
-except Exception:
-    analyze_sql_improvement = None
+from batch_dev.llm_batch_validator import validate_batch_generation
+from batch_dev.sql_improvement_advisor import analyze_sql_improvement
 
 PAGE_TITLE = "업무 인수인계 에이전트"
 PAGE_ICON = "🤖"
+
+LOG_LEVEL = os.getenv("APP_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+logger = logging.getLogger("handover_app")
+
+REALTIME_MAX_ROWS = int(os.getenv("REALTIME_MAX_ROWS", "1000"))
 
 JSON_PATH = os.getenv("JSON_PATH", "ingest/handover_improved.json")
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma")
@@ -44,13 +62,14 @@ DB_SERVICE = os.getenv("DB_SERVICE", "").strip()
 
 DATABASE_URL = ""
 if all([DB_USER, DB_PASSWORD, DB_HOST, DB_SERVICE]):
+    # DB 계정/비밀번호에 @, #, %, / 같은 특수문자가 있어도 안전하게 접속 URL을 만든다.
+    safe_user = quote_plus(DB_USER)
+    safe_password = quote_plus(DB_PASSWORD)
     DATABASE_URL = (
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}"
+        f"mysql+pymysql://{safe_user}:{safe_password}"
         f"@{DB_HOST}:{DB_PORT}/{DB_SERVICE}"
     )
 
-BILLING_QUERY_ID = "billing_monthly_amount"
-TODAY_INCIDENTS_QUERY_ID = "today_incidents"
 BATCH_VALIDATION_USE_LLM = os.getenv("BATCH_VALIDATION_USE_LLM", "true").strip().lower() in {"1", "true", "yes", "y"}
 BATCH_VALIDATION_LLM_MODEL = os.getenv("BATCH_VALIDATION_LLM_MODEL", os.getenv("OLLAMA_CHAT_MODEL", "llama3:8b")).strip()
 BATCH_VALIDATION_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
@@ -61,9 +80,7 @@ SQL_ANALYSIS_LLM_TIMEOUT = int(os.getenv("SQL_ANALYSIS_LLM_TIMEOUT", os.getenv("
 SQL_ANALYSIS_TEMPERATURE = float(os.getenv("SQL_ANALYSIS_TEMPERATURE", os.getenv("UPSTAGE_TEMPERATURE", "0.1")))
 SQL_ANALYSIS_MAX_TOKENS = int(os.getenv("SQL_ANALYSIS_MAX_TOKENS", os.getenv("UPSTAGE_MAX_TOKENS", "2048")))
 
-# SQL 분석 요청서 섹션은 설정형 alias로 관리한다.
-# 새 섹션이 필요하면 코드 분기 추가 없이 alias만 확장하면 된다.
-SQL_ANALYSIS_SECTION_ALIASES = {
+DEFAULT_SQL_ANALYSIS_SECTION_ALIASES = {
     "request_type": ["요청유형", "요청 유형", "REQUEST_TYPE", "TYPE"],
     "business_name": ["업무명", "업무 명", "BUSINESS_NAME", "업무"],
     "system_name": ["시스템", "시스템명", "SYSTEM", "SYSTEM_NAME"],
@@ -76,6 +93,124 @@ SQL_ANALYSIS_SECTION_ALIASES = {
     "output_request": ["출력요청", "출력 요청", "OUTPUT_REQUEST"],
     "context": ["업무내용", "업무 내용", "배경", "목적", "비고", "참고사항", "참고 사항"],
 }
+
+DEFAULT_REALTIME_QUERY_POLICY = {
+    "default": {
+        "empty_message": "조회 결과가 없습니다.",
+        "summary_type": None,
+    },
+    "billing_monthly_amount": {
+        "empty_message": "조회 결과가 없습니다.",
+        "summary_type": "billing_monthly_amount",
+    },
+    "today_incidents": {
+        "empty_message": "오늘 장애는 없습니다.",
+        "summary_type": "incident_summary",
+        "realtime_mode": "incident_table_with_summary",
+    },
+}
+
+DEFAULT_APP_RENDER_SCHEMA = {
+    "overview_sections": [
+        {"key": "input_data", "label": "주요 입력 데이터", "icon": "📥"},
+        {"key": "target_transactions", "label": "주요 대상 거래", "icon": "🎯"},
+        {"key": "exclusions", "label": "제외 및 보정 항목", "icon": "🚫"},
+        {"key": "outputs", "label": "최종 산출물", "icon": "📤"},
+        {"key": "key_points", "label": "핵심 포인트", "icon": "⭐"},
+    ],
+    "overview_extra_labels": {
+        "owner": "담당자",
+        "owner_team": "담당팀",
+        "cycle": "처리 주기",
+        "notes": "참고사항",
+    },
+    "batch_job_info_fields": [
+        {"key": "schedule_type", "label": "배치주기"},
+        {"key": "execution_time", "label": "실행시간"},
+        {"key": "avg_duration_sec", "label": "평균수행시간", "formatter": "duration_sec"},
+        {"key": "batch_file", "label": "실행파일"},
+        {"key": "owner_team", "label": "담당자"},
+    ],
+}
+
+
+DEFAULT_SQL_REVIEW_POLICY = {
+    "large_table_threshold_rows": 10000000,
+    "allow_realtime_with_without_limit": True
+}
+
+
+def deep_merge_config(default: Any, override: Any) -> Any:
+    """기본 설정과 외부 설정을 안전하게 병합한다.
+
+    외부 JSON이 일부 항목만 가지고 있어도 기본 설정을 잃지 않도록 한다.
+    - dict: key 단위 병합
+    - list: 외부 list가 비어 있으면 기본 list 유지, 값이 있으면 외부 list 사용
+    - scalar: 외부 값이 None/빈 문자열이 아니면 외부 값 사용
+    """
+    if isinstance(default, dict) and isinstance(override, dict):
+        merged = dict(default)
+        for key, value in override.items():
+            if key in merged:
+                merged[key] = deep_merge_config(merged[key], value)
+            elif value not in (None, "", [], {}):
+                merged[key] = value
+        return merged
+
+    if isinstance(default, list):
+        return override if isinstance(override, list) and len(override) > 0 else default
+
+    return override if override not in (None, "") else default
+
+
+def load_optional_json_config(path: Path, default: Any, config_name: str) -> Any:
+    """설정 파일이 있으면 읽고, 없으면 기본값을 사용한다.
+
+    app.py 안에 업무별 값을 직접 박지 않기 위한 공통 설정 로더다.
+    기본값은 로컬 실행/경진대회 실행 안정성을 위한 fallback이다.
+    외부 설정은 기본 설정과 병합하므로 일부 설정 누락으로 화면/정책이 깨지지 않는다.
+    """
+    if not path.exists():
+        return default
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return deep_merge_config(default, data)
+    except Exception as exc:
+        logger.exception("%s 설정 파일 로드 실패: %s", config_name, path)
+        st.warning(f"{config_name} 설정 파일을 읽지 못해 기본값을 사용합니다: {exc}")
+        return default
+
+
+SQL_ANALYSIS_SECTION_ALIASES = load_optional_json_config(
+    SQL_ANALYSIS_SECTION_ALIASES_PATH,
+    DEFAULT_SQL_ANALYSIS_SECTION_ALIASES,
+    "sql_analysis_section_aliases",
+)
+REALTIME_QUERY_POLICY = load_optional_json_config(
+    REALTIME_QUERY_POLICY_PATH,
+    DEFAULT_REALTIME_QUERY_POLICY,
+    "realtime_query_policy",
+)
+APP_RENDER_SCHEMA = load_optional_json_config(
+    APP_RENDER_SCHEMA_PATH,
+    DEFAULT_APP_RENDER_SCHEMA,
+    "app_render_schema",
+)
+SQL_REVIEW_POLICY = load_optional_json_config(
+    SQL_REVIEW_POLICY_PATH,
+    DEFAULT_SQL_REVIEW_POLICY,
+    "sql_review_policy",
+)
+
+
+def get_realtime_policy(query_meta: Dict[str, Any]) -> Dict[str, Any]:
+    query_id = str((query_meta or {}).get("query_id") or "").strip()
+    default_policy = dict(REALTIME_QUERY_POLICY.get("default", {}))
+    query_policy = REALTIME_QUERY_POLICY.get(query_id, {}) if query_id else {}
+    if isinstance(query_policy, dict):
+        default_policy.update(query_policy)
+    return default_policy
 
 @st.cache_resource
 def get_agent() -> HandoverAgent:
@@ -152,6 +287,44 @@ def draw_graphviz_graph(graph_data: Dict[str, Any], graph_kind: str = "flow") ->
                 dot.edge(src, dst)
     st.graphviz_chart(dot, use_container_width=True)
 
+def get_query_sql_text(query_meta: Dict[str, Any]) -> str:
+    """query_meta에서 SQL 문자열 후보를 찾는다.
+
+    realtime_query_service 구현이 query/sql/sql_text 중 어떤 키를 쓰더라도
+    app.py에서 최소한의 읽기 전용 검증을 수행할 수 있게 한다.
+    """
+    for key in ("sql", "query", "query_text"):
+        value = (query_meta or {}).get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def validate_realtime_query_meta(query_meta: Dict[str, Any]) -> None:
+    """Realtime 조회는 읽기 전용 SELECT/WITH만 허용한다.
+
+    실제 운영에서는 DB 권한도 read-only 계정으로 분리해야 하며,
+    이 함수는 app 레벨의 2차 방어선 역할을 한다.
+    """
+    sql_text = get_query_sql_text(query_meta).strip()
+    if not sql_text:
+        return
+
+    normalized = re.sub(r"/\*.*?\*/", " ", sql_text, flags=re.DOTALL)
+    normalized = re.sub(r"--.*?$", " ", normalized, flags=re.MULTILINE).strip()
+    upper_sql = normalized.upper()
+
+    if not re.match(r"^(SELECT|WITH)\b", upper_sql):
+        raise RuntimeError("Realtime 조회는 SELECT/WITH 문만 허용됩니다.")
+
+    blocked = [
+        "INSERT", "UPDATE", "DELETE", "MERGE", "DROP", "ALTER", "CREATE",
+        "TRUNCATE", "REPLACE", "GRANT", "REVOKE", "CALL", "EXEC"
+    ]
+    if any(re.search(rf"\b{token}\b", upper_sql) for token in blocked):
+        raise RuntimeError("Realtime 조회 SQL에 변경/DDL 키워드가 포함되어 실행을 차단했습니다.")
+
+
 @st.cache_resource
 def get_realtime_service() -> RealtimeQueryService | None:
     if not DATABASE_URL:
@@ -159,10 +332,24 @@ def get_realtime_service() -> RealtimeQueryService | None:
     return RealtimeQueryService(DATABASE_URL)
 
 def fetch_realtime_dataframe(query_meta: Dict[str, Any]) -> pd.DataFrame:
+    validate_realtime_query_meta(query_meta)
+
     service = get_realtime_service()
     if service is None:
         raise RuntimeError("DB 접속 정보가 설정되지 않았습니다. .env에 DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SERVICE를 설정하세요.")
-    return service.fetch_dataframe(query_meta)
+
+    df = service.fetch_dataframe(query_meta)
+
+    if REALTIME_MAX_ROWS > 0 and len(df) > REALTIME_MAX_ROWS:
+        logger.warning(
+            "Realtime query result truncated: query_id=%s rows=%s limit=%s",
+            (query_meta or {}).get("query_id"),
+            len(df),
+            REALTIME_MAX_ROWS,
+        )
+        return df.head(REALTIME_MAX_ROWS).copy()
+
+    return df
 
 def summarize_billing_dataframe(df: pd.DataFrame, x_field: str, y_field: str) -> Dict[str, Any]:
     if df.empty:
@@ -388,10 +575,15 @@ def payload_to_dataframe(payload: Optional[Dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=columns)
 
 def build_realtime_payload(query_meta: Dict[str, Any], render_type: str, realtime_mode: Optional[str] = None) -> Dict[str, Any]:
+    policy = get_realtime_policy(query_meta)
+    summary_type = policy.get("summary_type")
+    effective_realtime_mode = realtime_mode or policy.get("realtime_mode")
+
     payload: Dict[str, Any] = {
         "query_id": query_meta.get("query_id"),
         "render_type": render_type,
         "summary": None,
+        "summary_type": summary_type,
         "dataframe": None,
         "empty_message": None,
         "error": None,
@@ -400,25 +592,23 @@ def build_realtime_payload(query_meta: Dict[str, Any], render_type: str, realtim
     try:
         df = fetch_realtime_dataframe(query_meta)
     except Exception as e:
+        logger.exception("Realtime query failed: query_id=%s", (query_meta or {}).get("query_id"))
         payload["error"] = str(e)
         return payload
 
     payload["dataframe"] = dataframe_to_payload(df)
 
     if df.empty:
-        if query_meta.get("query_id") == TODAY_INCIDENTS_QUERY_ID:
-            payload["empty_message"] = "오늘 장애는 없습니다."
-        else:
-            payload["empty_message"] = "조회 결과가 없습니다."
+        payload["empty_message"] = str(policy.get("empty_message") or "조회 결과가 없습니다.")
         return payload
 
     try:
-        query_id = query_meta.get("query_id")
-        if render_type == "table" and (realtime_mode == "incident_table_with_summary" or query_id == TODAY_INCIDENTS_QUERY_ID):
+        if summary_type == "incident_summary" or effective_realtime_mode == "incident_table_with_summary":
             payload["summary"] = generate_incident_summary(df)
-        elif render_type == "chart" and query_id == BILLING_QUERY_ID:
+        elif summary_type == "billing_monthly_amount":
             payload["summary"] = generate_billing_summary(query_meta, df)
     except Exception as e:
+        logger.exception("Realtime summary generation failed: query_id=%s", (query_meta or {}).get("query_id"))
         payload["summary_error"] = str(e)
 
     return payload
@@ -475,30 +665,27 @@ def render_overview_block(result: Any) -> None:
 
     st.markdown(f"#### 📌 {title}")
 
-    section_specs = [
-        ("input_data", "주요 입력 데이터", "📥"),
-        ("target_transactions", "주요 대상 거래", "🎯"),
-        ("exclusions", "제외 및 보정 항목", "🚫"),
-        ("outputs", "최종 산출물", "📤"),
-        ("key_points", "핵심 포인트", "⭐"),
-    ]
+    section_specs = APP_RENDER_SCHEMA.get("overview_sections", []) or DEFAULT_APP_RENDER_SCHEMA.get("overview_sections", [])
 
     rendered_keys = {"title", "summary", "content"}
     visible_sections: List[tuple[str, str, List[str]]] = []
 
-    for key, label, icon in section_specs:
+    for spec in section_specs:
+        key = str(spec.get("key") or spec.get("field") or "").strip()
+        if not key:
+            continue
+        label = str(spec.get("label") or key)
+        icon = str(spec.get("icon") or "ℹ️")
         rendered_keys.add(key)
         items = as_list(overview.get(key))
         if items:
             visible_sections.append((label, icon, items))
 
-    # 향후 overview JSON 필드가 추가되어도 기본 섹션으로 표시한다.
-    label_map = {
-        "owner": "담당자",
-        "owner_team": "담당팀",
-        "cycle": "처리 주기",
-        "notes": "참고사항",
-    }
+    # 향후 overview JSON 필드가 추가되어도 설정 label이 있으면 사용하고, 없으면 원 key를 표시한다.
+    label_map = deep_merge_config(
+        DEFAULT_APP_RENDER_SCHEMA.get("overview_extra_labels", {}),
+        APP_RENDER_SCHEMA.get("overview_extra_labels", {}) or {},
+    )
     for key, value in overview.items():
         if key in rendered_keys:
             continue
@@ -555,6 +742,13 @@ def format_duration_sec(value: Any) -> str:
     return f"{minutes}분"
 
 
+def format_render_field_value(value: Any, formatter: str | None = None) -> str:
+    """렌더링 스키마의 formatter 설정에 따라 표시값을 변환한다."""
+    if formatter == "duration_sec":
+        return format_duration_sec(value)
+    return str(value or "").strip()
+
+
 def _html_escape(value: Any) -> str:
     """Streamlit HTML 카드에 표시할 문자열을 안전하게 이스케이프한다."""
     text = str(value or "")
@@ -577,26 +771,17 @@ def render_batch_job_card(job: Dict[str, Any]) -> None:
     job_name = str(job.get("job_name", "")).strip()
     job_desc = str(job.get("description", "")).strip()
 
-    schedule_type = str(job.get("schedule_type", "")).strip()
-    execution_time = str(job.get("execution_time", "")).strip()
-    avg_duration = format_duration_sec(job.get("avg_duration_sec"))
-    batch_file = str(job.get("batch_file", "")).strip()
-    owner_team = str(job.get("owner_team", "")).strip()
-
     title = job_id or job_name or "배치명 없음"
     subtitle = job_name if job_name and job_name != job_id else ""
 
     info_rows = []
-    if schedule_type:
-        info_rows.append(("배치주기", schedule_type))
-    if execution_time:
-        info_rows.append(("실행시간", execution_time))
-    if avg_duration:
-        info_rows.append(("평균수행시간", avg_duration))
-    if batch_file:
-        info_rows.append(("실행파일", batch_file))
-    if owner_team:
-        info_rows.append(("담당자", owner_team))
+    for field_spec in (APP_RENDER_SCHEMA.get("batch_job_info_fields", []) or DEFAULT_APP_RENDER_SCHEMA.get("batch_job_info_fields", [])):
+        key = str(field_spec.get("key", "")).strip()
+        if not key:
+            continue
+        value = format_render_field_value(job.get(key), field_spec.get("formatter"))
+        if value:
+            info_rows.append((str(field_spec.get("label") or key), value))
 
     subtitle_html = ""
     if subtitle:
@@ -796,16 +981,14 @@ def render_table(query_meta: Dict[str, Any], realtime_mode: str | None = None, r
 
     df = payload_to_dataframe(payload.get("dataframe"))
     if df.empty:
-        if query_meta.get("query_id") == TODAY_INCIDENTS_QUERY_ID:
-            st.info("오늘 장애는 없습니다.")
-        else:
-            st.info("조회 결과가 없습니다.")
+        policy = get_realtime_policy(query_meta)
+        st.info(str(policy.get("empty_message") or "조회 결과가 없습니다."))
         return
 
     summary = payload.get("summary")
     if summary:
         st.write(summary)
-    elif payload.get("summary_error") and (realtime_mode == "incident_table_with_summary" or query_meta.get("query_id") == TODAY_INCIDENTS_QUERY_ID):
+    elif payload.get("summary_error") and (realtime_mode == "incident_table_with_summary" or payload.get("summary_type") == "incident_summary"):
         st.warning(f"LLM 요약 생성 실패: {payload['summary_error']}")
 
     st.dataframe(df, use_container_width=True)
@@ -1168,6 +1351,7 @@ def run_batch_sql_improvement(dev_result: Any) -> Dict[str, Any] | None:
             output_dir=output_dir,
         )
     except Exception as exc:
+        logger.exception("SQL improvement generation failed")
         return {
             "enabled": False,
             "risk_level": "UNKNOWN",
@@ -1558,6 +1742,10 @@ def build_rule_based_sql_analysis(
         or ""
     )
     expected_rows = _safe_int(operation_meta.get("EXPECTED_ROWS") or operation_meta.get("예상데이터건수"))
+    large_table_threshold_rows = _safe_int(
+        SQL_REVIEW_POLICY.get("large_table_threshold_rows"),
+        10_000_000,
+    )
 
     if partition_column:
         partition_norm = _normalize_identifier(partition_column)
@@ -1566,7 +1754,7 @@ def build_rule_based_sql_analysis(
             _append_finding(
                 findings,
                 item="파티션 조건 누락",
-                level="HIGH" if expected_rows >= 10_000_000 else "MEDIUM",
+                level="HIGH" if expected_rows >= large_table_threshold_rows else "MEDIUM",
                 detail=f"운영정보의 PARTITION_COLUMN={partition_column} 이지만 WHERE 절에서 해당 조건이 확인되지 않습니다.",
                 evidence=f"PARTITION_COLUMN={partition_column}, WHERE={where_clause}",
                 recommendation=f"대상 기간/기준월이 명확하다면 WHERE 절에 {partition_column} 조건 추가를 검토하세요.",
@@ -1575,13 +1763,13 @@ def build_rule_based_sql_analysis(
             _append_finding(
                 findings,
                 item="WHERE 절 없음",
-                level="HIGH" if expected_rows >= 10_000_000 else "MEDIUM",
+                level="HIGH" if expected_rows >= large_table_threshold_rows else "MEDIUM",
                 detail=f"PARTITION_COLUMN={partition_column} 이 제공됐지만 WHERE 절이 없어 파티션 프루닝 여부를 판단할 수 없습니다.",
                 evidence=f"PARTITION_COLUMN={partition_column}, WHERE 절 미검출",
                 recommendation=f"대량 데이터 SQL이면 {partition_column} 기준 필터 조건을 명확히 지정하세요.",
             )
 
-    if expected_rows >= 10_000_000:
+    if expected_rows >= large_table_threshold_rows:
         if not where_clause:
             _append_finding(
                 findings,
@@ -1623,7 +1811,7 @@ def build_rule_based_sql_analysis(
                 recommendation="실제 실행계획에서 인덱스 스캔 여부와 선행 컬럼 조건 사용 여부를 확인하세요.",
             )
 
-    if _review_points_contain(review_points, "FULL TABLE SCAN", "FULL SCAN", "풀스캔") and expected_rows >= 10_000_000:
+    if _review_points_contain(review_points, "FULL TABLE SCAN", "FULL SCAN", "풀스캔") and expected_rows >= large_table_threshold_rows:
         _append_finding(
             findings,
             item="FULL SCAN 중점 검토",

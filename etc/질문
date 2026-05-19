@@ -1,5 +1,9 @@
 
-SELECT * FROM testDB.TB_BATCH_INCIDENT;
+Import-Csv query_routing_test_results.csv | Where-Object {$_.pass_yn -eq "N"} | Select-Object case_id, category, question, rewritten_question, score | Format-Table -AutoSize
+
+전통시장 가맹점 파일 생성 배치 개발해줘 39
+
+Import-Csv ..\query_routing_test_results.csv | Where-Object {$_.pass_yn -eq "N"} | Select-Object question
 
 KKK은행 소득공제 업무 개요를 알려줘
 => 오리지날 질문
@@ -8,14 +12,17 @@ KKK은행 소득공제 업무 개요를 알려줘
 => history + 
 
 
-1. KKK은행 소득공제 업무 개요를 알려줘 25
+1. KKK은행 소득공제 업무 알려줘 25
+
 2. KKK은행 소득공제 배치 프로세스를 설명해줘 16 21
+
 3. KKK은행 소득공제 배치 흐름도를 그려줘 
  - 흐름도는 외부라이브러로 그린다
+
 4. KKK은행 소득공제 테이블 리니지를 보여줘
 - 리니지는 외부라이브러로 그린다
 
-5. BBB증권 소득공제 업무 개요를 알려줘 24  27
+5. BBB증권 소득공제 업무 알려줘 24  27
 
 6. BBB증권 소득공제 배치 프로세스를 설명해줘 28 33
 

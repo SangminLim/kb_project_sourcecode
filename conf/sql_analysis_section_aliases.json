@@ -1,0 +1,77 @@
+{
+  "request_type": [
+    "요청유형",
+    "요청 유형",
+    "REQUEST_TYPE",
+    "TYPE"
+  ],
+  "business_name": [
+    "업무명",
+    "업무 명",
+    "BUSINESS_NAME",
+    "업무"
+  ],
+  "system_name": [
+    "시스템",
+    "시스템명",
+    "SYSTEM",
+    "SYSTEM_NAME"
+  ],
+  "sql_id": [
+    "SQL_ID",
+    "SQLID",
+    "쿼리ID",
+    "QUERY_ID"
+  ],
+  "sql_description": [
+    "SQL설명",
+    "SQL 설명",
+    "쿼리설명",
+    "QUERY_DESCRIPTION"
+  ],
+  "sql": [
+    "SQL",
+    "쿼리",
+    "QUERY",
+    "원본SQL",
+    "원본 SQL"
+  ],
+  "change_request": [
+    "수정내용",
+    "수정 내용",
+    "변경요청",
+    "변경 요청",
+    "개선요청",
+    "개선 요청",
+    "요청사항",
+    "요청 사항"
+  ],
+  "operation_info": [
+    "운영정보",
+    "운영 정보",
+    "실행정보",
+    "실행 정보",
+    "OPERATION_INFO"
+  ],
+  "review_points": [
+    "검토포인트",
+    "검토 포인트",
+    "점검항목",
+    "점검 항목",
+    "REVIEW_POINTS"
+  ],
+  "output_request": [
+    "출력요청",
+    "출력 요청",
+    "OUTPUT_REQUEST"
+  ],
+  "context": [
+    "업무내용",
+    "업무 내용",
+    "배경",
+    "목적",
+    "비고",
+    "참고사항",
+    "참고 사항"
+  ]
+}

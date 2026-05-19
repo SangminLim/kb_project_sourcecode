@@ -1,0 +1,59 @@
+{
+  "valid": true,
+  "score": 1.0,
+  "summary": "기본 룰 검증을 완료했습니다.",
+  "interpretation": "소득공제 월별 통합 집계 배치은 batch_type=aggregation_to_table 유형으로 생성되었습니다. 주요 기준 테이블은 TB_CARD_SALES_LEDGER로 해석됩니다. 배치 파라미터는 base_ym 기준으로 사용됩니다. SQL에는 조건절이 포함되어 있어 무조건 전체 추출보다는 기준 조건 기반 처리로 보입니다. 운영 반영 전에는 실제 컬럼 존재 여부, 인덱스, 파일 경로 권한, 재실행 시 중복/덮어쓰기 정책을 확인해야 합니다. LLM 의미 검증은 호출 오류로 생략되었으므로, 위 해석은 룰 기반 정적 해석입니다.",
+  "detected_batch_type": "aggregation_to_table",
+  "checks": [
+    {
+      "item": "batch_spec.json",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "query.sql",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "job.py",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "SQL 위험 패턴",
+      "result": "PASS",
+      "detail": "명백한 위험 SQL 패턴은 발견되지 않았습니다."
+    },
+    {
+      "item": "SQL 파라미터와 batch_spec 일치성",
+      "result": "PASS",
+      "detail": "SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_ym"
+    },
+    {
+      "item": "spec 테이블과 SQL 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
+    },
+    {
+      "item": "LLM 의미 검증",
+      "result": "WARN",
+      "detail": "LLM 검증 실패: JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 906 (char 905)"
+    }
+  ],
+  "issues": [],
+  "warnings": [
+    "LLM 검증 실패: JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 906 (char 905)"
+  ],
+  "recommendations": [
+    "운영 반영 전 실제 DB 컬럼 존재 여부와 컬럼 타입을 확인하세요.",
+    "기준일자/기간 조건 컬럼에 적절한 인덱스가 있는지 확인하세요.",
+    "파일 생성 배치라면 output_dir 권한과 파일명 중복/덮어쓰기 정책을 확인하세요.",
+    "대량 데이터 기준 row count, not null, 중복 건수 검증을 추가하세요.",
+    "LLM 검증은 보조 검증이므로 최종 승인 기준은 룰 검증과 테스트 결과를 함께 보세요.",
+    "LLM 검증이 반복해서 느리면 BATCH_VALIDATION_USE_LLM=false로 끄고 룰 검증만 사용하세요.",
+    "BATCH_VALIDATION_LLM_TIMEOUT, UPSTAGE_CHAT_MODEL, UPSTAGE_BASE_URL, UPSTAGE_MAX_TOKENS 설정을 확인하세요."
+  ],
+  "raw_llm_response": null,
+  "score_breakdown": {}
+}

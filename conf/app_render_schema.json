@@ -1,0 +1,58 @@
+{
+  "overview_sections": [
+    {
+      "key": "input_data",
+      "label": "주요 입력 데이터",
+      "icon": "📥"
+    },
+    {
+      "key": "target_transactions",
+      "label": "주요 대상 거래",
+      "icon": "🎯"
+    },
+    {
+      "key": "exclusions",
+      "label": "제외 및 보정 항목",
+      "icon": "🚫"
+    },
+    {
+      "key": "outputs",
+      "label": "최종 산출물",
+      "icon": "📤"
+    },
+    {
+      "key": "key_points",
+      "label": "핵심 포인트",
+      "icon": "⭐"
+    }
+  ],
+  "overview_extra_labels": {
+    "owner": "담당자",
+    "owner_team": "담당팀",
+    "cycle": "처리 주기",
+    "notes": "참고사항"
+  },
+  "batch_job_info_fields": [
+    {
+      "key": "schedule_type",
+      "label": "배치주기"
+    },
+    {
+      "key": "execution_time",
+      "label": "실행시간"
+    },
+    {
+      "key": "avg_duration_sec",
+      "label": "평균수행시간",
+      "formatter": "duration_sec"
+    },
+    {
+      "key": "batch_file",
+      "label": "실행파일"
+    },
+    {
+      "key": "owner_team",
+      "label": "담당자"
+    }
+  ]
+}

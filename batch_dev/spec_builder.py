@@ -299,6 +299,123 @@ def _build_conditions(rule: Optional[Dict[str, Any]], context: Dict[str, Any]) -
     return "\n  AND ".join(rendered) if rendered else "1 = 1"
 
 
+def _parameter_to_default_column(parameter_name: str) -> str:
+    """배치 파라미터명에서 기본 target 파티션 컬럼명을 추론한다.
+
+    특정 업무/테이블명이 아니라 배치 파라미터 역할 기반이다.
+    - base_ym   -> BASE_YM
+    - base_date -> BASE_DATE
+    - 그 외     -> 파라미터명을 대문자 컬럼명으로 변환
+    """
+    normalized = re.sub(r"[^0-9A-Za-z_]+", "_", str(parameter_name or "")).strip("_").lower()
+    if normalized == "base_ym":
+        return "BASE_YM"
+    if normalized in {"base_date", "base_dt"}:
+        return "BASE_DATE"
+    return normalized.upper() if normalized else ""
+
+
+def _infer_partition_param(parameters: List[Dict[str, Any]]) -> str:
+    """parameters 목록에서 재처리 기준 파라미터를 추론한다."""
+    names = [str(item.get("name", "")).strip() for item in parameters or [] if str(item.get("name", "")).strip()]
+    if not names:
+        return ""
+
+    for preferred in ("base_ym", "base_date", "base_dt"):
+        if preferred in names:
+            return preferred
+
+    return names[0]
+
+
+def _infer_partition_column(
+    rule: Optional[Dict[str, Any]],
+    target_columns: List[str],
+    partition_param: str,
+) -> str:
+    """rule/target columns/parameter 기반으로 target 삭제 기준 컬럼을 추론한다.
+
+    우선순위:
+    1. rule.target.partition_column 또는 rule.target.base_column
+    2. parameter명 역할에서 유도한 컬럼명이 target_columns에 있으면 사용
+    3. target_columns 중 기준 컬럼 후보 사용
+    4. parameter명 기반 컬럼명 fallback
+    """
+    target_rule = (rule or {}).get("target") or {}
+
+    explicit = (
+        target_rule.get("partition_column")
+        or target_rule.get("base_column")
+        or target_rule.get("delete_key_column")
+    )
+    if explicit:
+        return str(explicit).upper()
+
+    normalized_target_columns = [str(col).upper() for col in target_columns or []]
+    default_column = _parameter_to_default_column(partition_param)
+
+    if default_column and default_column in normalized_target_columns:
+        return default_column
+
+    for candidate in ("BASE_YM", "BASE_DATE", "BASE_DT", "STD_YM", "YYYYMM"):
+        if candidate in normalized_target_columns:
+            return candidate
+
+    return default_column
+
+
+def _build_execution_strategy(
+    rule: Optional[Dict[str, Any]],
+    target_table: str,
+    target_columns: List[str],
+    parameters: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """집계/적재 배치의 재실행 전략을 메타데이터로 만든다.
+
+    특정 테이블명 하드코딩 없이 rule target 설정과 parameter 역할을 사용한다.
+    rule에서 별도 execution_strategy가 오면 그 값을 우선하고,
+    없으면 load_strategy=delete_insert/replace_partition 계열을 replace_partition으로 변환한다.
+    """
+    rule_target = (rule or {}).get("target") or {}
+    rule_strategy = (
+        (rule or {}).get("execution_strategy")
+        or rule_target.get("execution_strategy")
+        or {}
+    )
+
+    if isinstance(rule_strategy, dict) and rule_strategy:
+        strategy = dict(rule_strategy)
+        strategy.setdefault("target_table", target_table)
+        strategy.setdefault("partition_param", _infer_partition_param(parameters))
+        strategy.setdefault(
+            "partition_column",
+            _infer_partition_column(rule, target_columns, str(strategy.get("partition_param", ""))),
+        )
+        return strategy
+
+    load_strategy = str(
+        rule_target.get("load_strategy")
+        or rule_target.get("write_mode")
+        or "delete_insert"
+    ).strip().lower()
+
+    if load_strategy not in {"delete_insert", "replace_partition", "delete_then_insert"}:
+        return {
+            "type": load_strategy or "append_only",
+            "target_table": target_table,
+        }
+
+    partition_param = _infer_partition_param(parameters)
+    partition_column = _infer_partition_column(rule, target_columns, partition_param)
+
+    return {
+        "type": "replace_partition",
+        "target_table": target_table,
+        "partition_column": partition_column,
+        "partition_param": partition_param,
+    }
+
+
 def _schedule_type(values: Dict[str, str], rule: Optional[Dict[str, Any]]) -> str:
     return str(values.get("schedule_type") or ((rule or {}).get("defaults") or {}).get("schedule_type") or "manual")
 
@@ -426,10 +543,19 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
         f"FROM (\n{select_sql}\n) S"
     )
 
+    parameters = [{"name": "base_ym", "required": True, "description": "기준년월(YYYYMM)"}]
+    execution_strategy = _build_execution_strategy(
+        rule=rule,
+        target_table=target_table,
+        target_columns=target_columns,
+        parameters=parameters,
+    )
+
     return {
         "batch_type": "aggregation_to_table",
         "batch_id": _default_batch_id(base_table_name, "AGG"),
-        "parameters": [{"name": "base_ym", "required": True, "description": "기준년월(YYYYMM)"}],
+        "parameters": parameters,
+        "execution_strategy": execution_strategy,
 
         # source는 물리 테이블명이 아니라 업무 역할만 표현한다.
         "source": {
@@ -456,7 +582,16 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
         "target": {
             "table": target_table,
             "load_strategy": "delete_insert",
-            "delete_sql": f"DELETE FROM {target_table} WHERE BASE_YM = :base_ym" if target_table != "TODO_TARGET_TABLE" else "",
+            "execution_strategy": execution_strategy,
+            "delete_sql": (
+                f"DELETE FROM {execution_strategy.get('target_table')} "
+                f"WHERE {execution_strategy.get('partition_column')} = :{execution_strategy.get('partition_param')}"
+                if execution_strategy.get("type") == "replace_partition"
+                and execution_strategy.get("target_table")
+                and execution_strategy.get("partition_column")
+                and execution_strategy.get("partition_param")
+                else ""
+            ),
             "columns": target_columns,
         },
         "sql": sql,
@@ -631,6 +766,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
             "description": text,
             "schedule_type": _schedule_type(values, rule),
             "parameters": dynamic["parameters"],
+            "execution_strategy": dynamic.get("execution_strategy", {}),
             "source": dynamic["source"],
             "target": dynamic["target"],
             "sql": dynamic["sql"],

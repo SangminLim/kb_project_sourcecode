@@ -1,0 +1,4 @@
+{
+  "large_table_threshold_rows": 10000000,
+  "allow_realtime_with_without_limit": true
+}

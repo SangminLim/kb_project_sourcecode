@@ -1,24 +1,4 @@
-
-소득집계 
-python generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-ym 202604
-
-전통시장
-python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
-
-도서공연
-
-python generated/BATCH_BOOK_PERF_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
-
-일반소득공제
-
-python generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
-
-
-python generated\BATCH_CARD_SALES_LEDGER_EXTRACT\job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-ym 202604
-
-
 지금 네 구조는 이미 생성기는 꽤 안정적이라서, LLM은 생성보다 검증/해석 쪽에 붙이는 게 실무적입니다.
-
 현재 수정 없이 가능한 것:
 
 1. 단일 테이블 파일 생성
@@ -58,22 +38,26 @@ JOIN 관계
 배치 유형
 
 소득집계 
-python generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-ym 202604
+python generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --base-ym 202604
+-- TB_DEDUCTION_MONTHLY_SUMMARY 
 
 전통시장
-python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+python generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --base-date 20260430
 
 도서공연
 
-python generated/BATCH_BOOK_PERF_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+python generated/BATCH_BOOK_PERF_MERCHANT_EXPORT/job.py --base-date 20260430
 
 일반소득공제
 
-python generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4"  --base-date 20260430
+python generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py   --base-date 20260430
 
 
-python generated\BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py --database-url "mysql+pymysql://smlim:1111@localhost:3306/testDB?charset=utf8mb4" --base-ym 202604
+python generated\BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py  --base-ym 202604
+
 그리고 중요한 건 지금 이미:
+
+python ingest/ingest_with_batch_operation_metadata.py --json_path ingest/handover_with_batch_operation_metadata.json --persist_dir ./chroma --collection handover_agent --reset
 
 배치 요청서
 → ERWin 메타 기반 추론

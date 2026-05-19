@@ -1,0 +1,45 @@
+{
+  "enabled": true,
+  "risk_level": "LOW",
+  "summary": "기준 테이블 TB_GENERAL_DEDUCT_MERCHANT에 대한 인덱스, 조인, 파티션, 데이터 검증 개선 제안",
+  "suggestions": [
+    {
+      "type": "INDEX",
+      "target": "TB_GENERAL_DEDUCT_MERCHANT",
+      "reason": "APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 대한 조건 검색 성능 향상",
+      "recommendation": "APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 복합 인덱스 생성 (예: (APPLY_START_DT, APPLY_END_DT, USE_YN))",
+      "sql": "CREATE INDEX idx_general_deduct_merchant_start_end_yn ON TB_GENERAL_DEDUCT_MERCHANT (APPLY_START_DT, APPLY_END_DT, USE_YN);"
+    },
+    {
+      "type": "INDEX",
+      "target": "TB_GENERAL_DEDUCT_MERCHANT",
+      "reason": "기준일자(:base_date) 범위 검색 최적화",
+      "recommendation": "APPLY_START_DT 컬럼에 단일 인덱스 추가 (복합 인덱스와 중복되지 않도록 주의)",
+      "sql": "CREATE INDEX idx_general_deduct_merchant_start ON TB_GENERAL_DEDUCT_MERCHANT (APPLY_START_DT);"
+    },
+    {
+      "type": "VALIDATION",
+      "target": "TB_GENERAL_DEDUCT_MERCHANT",
+      "reason": "USE_YN='Y' 조건 누락 시 데이터 누락 위험",
+      "recommendation": "USE_YN='Y' 조건을 명시적으로 포함한 검증 쿼리 추가",
+      "sql": "SELECT COUNT(*) AS row_count, COUNT(DISTINCT MERCHANT_ID) AS merchant_count FROM TB_GENERAL_DEDUCT_MERCHANT WHERE USE_YN = 'Y' AND :base_date BETWEEN APPLY_START_DT AND COALESCE(APPLY_END_DT, :base_date + INTERVAL '9999' DAY);"
+    },
+    {
+      "type": "PARTITION",
+      "target": "TB_GENERAL_DEDUCT_MERCHANT",
+      "reason": "기준일자 기준 데이터 파티셔닝으로 스캔 범위 축소",
+      "recommendation": "APPLY_START_DT 컬럼을 기준으로 RANGE 파티션 생성 (예: YYYYMM 단위)",
+      "sql": "ALTER TABLE TB_GENERAL_DEDUCT_MERCHANT PARTITION BY RANGE (APPLY_START_DT) (PARTITION p202301 VALUES LESS THAN ('2023-02-01'), PARTITION p202302 VALUES LESS THAN ('2023-03-01'), ...);"
+    },
+    {
+      "type": "JOIN",
+      "target": "TB_GENERAL_DEDUCT_MERCHANT",
+      "reason": "MCC_CD 코드 유효성 검증 필요",
+      "recommendation": "MCC_CD 코드 테이블과의 조인을 통해 유효성 검증 추가",
+      "sql": "SELECT m.*, c.MCC_NM FROM TB_GENERAL_DEDUCT_MERCHANT m LEFT JOIN TB_MCC_CODE c ON m.MCC_CD = c.MCC_CD WHERE m.USE_YN = 'Y' AND :base_date BETWEEN m.APPLY_START_DT AND COALESCE(m.APPLY_END_DT, :base_date + INTERVAL '9999' DAY);"
+    }
+  ],
+  "generated_by": "llm",
+  "warnings": [],
+  "raw_llm_response": "{\"risk_level\":\"LOW\",\"summary\":\"기준 테이블 TB_GENERAL_DEDUCT_MERCHANT에 대한 인덱스, 조인, 파티션, 데이터 검증 개선 제안\",\"suggestions\":[{\"type\":\"INDEX\",\"target\":\"TB_GENERAL_DEDUCT_MERCHANT\",\"reason\":\"APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 대한 조건 검색 성능 향상\",\"recommendation\":\"APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 복합 인덱스 생성 (예: (APPLY_START_DT, APPLY_END_DT, USE_YN))\",\"sql\":\"CREATE INDEX idx_general_deduct_merchant_start_end_yn ON TB_GENERAL_DEDUCT_MERCHANT (APPLY_START_DT, APPLY_END_DT, USE_YN);\"},{\"type\":\"INDEX\",\"target\":\"TB_GENERAL_DEDUCT_MERCHANT\",\"reason\":\"기준일자(:base_date) 범위 검색 최적화\",\"recommendation\":\"APPLY_START_DT 컬럼에 단일 인덱스 추가 (복합 인덱스와 중복되지 않도록 주의)\",\"sql\":\"CREATE INDEX idx_general_deduct_merchant_start ON TB_GENERAL_DEDUCT_MERCHANT (APPLY_START_DT);\"},{\"type\":\"VALIDATION\",\"target\":\"TB_GENERAL_DEDUCT_MERCHANT\",\"reason\":\"USE_YN='Y' 조건 누락 시 데이터 누락 위험\",\"recommendation\":\"USE_YN='Y' 조건을 명시적으로 포함한 검증 쿼리 추가\",\"sql\":\"SELECT COUNT(*) AS row_count, COUNT(DISTINCT MERCHANT_ID) AS merchant_count FROM TB_GENERAL_DEDUCT_MERCHANT WHERE USE_YN = 'Y' AND :base_date BETWEEN APPLY_START_DT AND COALESCE(APPLY_END_DT, :base_date + INTERVAL '9999' DAY);\"},{\"type\":\"PARTITION\",\"target\":\"TB_GENERAL_DEDUCT_MERCHANT\",\"reason\":\"기준일자 기준 데이터 파티셔닝으로 스캔 범위 축소\",\"recommendation\":\"APPLY_START_DT 컬럼을 기준으로 RANGE 파티션 생성 (예: YYYYMM 단위)\",\"sql\":\"ALTER TABLE TB_GENERAL_DEDUCT_MERCHANT PARTITION BY RANGE (APPLY_START_DT) (PARTITION p202301 VALUES LESS THAN ('2023-02-01'), PARTITION p202302 VALUES LESS THAN ('2023-03-01'), ...);\"},{\"type\":\"JOIN\",\"target\":\"TB_GENERAL_DEDUCT_MERCHANT\",\"reason\":\"MCC_CD 코드 유효성 검증 필요\",\"recommendation\":\"MCC_CD 코드 테이블과의 조인을 통해 유효성 검증 추가\",\"sql\":\"SELECT m.*, c.MCC_NM FROM TB_GENERAL_DEDUCT_MERCHANT m LEFT JOIN TB_MCC_CODE c ON m.MCC_CD = c.MCC_CD WHERE m.USE_YN = 'Y' AND :base_date BETWEEN m.APPLY_START_DT AND COALESCE(m.APPLY_END_DT, :base_date + INTERVAL '9999' DAY);\"}]}"
+}
