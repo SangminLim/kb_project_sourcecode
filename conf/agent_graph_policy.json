@@ -1,0 +1,59 @@
+{
+  "routes": [
+    {
+      "name": "sql_analysis",
+      "intents": [
+        "sql_analysis"
+      ],
+      "node": "sql_analysis"
+    },
+    {
+      "name": "batch_development",
+      "intents": [
+        "batch_development"
+      ],
+      "node": "batch_development"
+    },
+    {
+      "name": "handover_agent",
+      "intents": [
+        "overview",
+        "batch_process",
+        "batch_flow",
+        "table_lineage",
+        "billing_monthly_amount",
+        "today_incidents"
+      ],
+      "node": "handover_agent"
+    }
+  ],
+  "fallback_node": "general_fallback",
+  "force_sql_analysis_node": "sql_analysis",
+  "graph_nodes": {
+    "sql_analysis": {},
+    "batch_development": {},
+    "handover_agent": {},
+    "general_fallback": {}
+  },
+  "post_nodes": {
+    "default": [
+      "finalize"
+    ],
+    "batch_development": [
+      "batch_validation",
+      "sql_improvement",
+      "finalize"
+    ]
+  },
+  "node_options": {
+    "batch_validation": {
+      "enabled": true
+    },
+    "sql_improvement": {
+      "enabled_env": "BATCH_SQL_IMPROVEMENT_ENABLED"
+    },
+    "finalize": {
+      "enabled": true
+    }
+  }
+}

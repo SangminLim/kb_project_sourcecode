@@ -114,21 +114,14 @@ def _choose_index_columns(sql: str, table: str, prefer_base: bool) -> List[str]:
     where_cols = _extract_where_columns(sql, alias)
     on_cols = _extract_on_columns_for_alias(sql, alias)
 
-    priority_names = ["BASE_YM", "BASE_YYMM", "SALES_DT", "TR_DT", "MERCHANT_ID", "CUST_ID", "CUSTOMER_ID", "USE_YN"]
     if prefer_base:
         candidates = where_cols + on_cols
     else:
         candidates = on_cols + where_cols
 
-    ordered: List[str] = []
-    for col in priority_names:
-        if col in candidates:
-            ordered.append(col)
-    for col in candidates:
-        if col not in ordered:
-            ordered.append(col)
-
-    return ordered[:4]
+    # 특정 업무 컬럼명을 우선순위로 박지 않고,
+    # SQL에서 실제 사용된 순서와 중복 제거만 적용한다.
+    return _dedupe(candidates)[:4]
 
 
 def _index_name(table: str, idx_no: int = 1) -> str:
@@ -143,27 +136,79 @@ def _has_left_join_filter_pattern(sql: str) -> bool:
     return "LEFT JOIN" in upper and re.search(r"\bWHERE\b.+IS\s+NOT\s+NULL", upper, re.DOTALL) is not None
 
 
-def _build_validation_sql(batch_spec: Dict[str, Any], base_table: str) -> str:
-    sql = _compact(batch_spec.get("sql"))
-    base_month_col = "BASE_YM"
-    cancel_col = "CANCEL_YN"
-    if sql:
-        base_match = re.search(r"\b([A-Za-z0-9_]+)\.([A-Za-z0-9_]*BASE[A-Za-z0-9_]*(?:YM|YYMM|MONTH)?)\s*=\s*:base_ym", sql, re.IGNORECASE)
-        if base_match:
-            base_month_col = base_match.group(2).upper()
-        cancel_match = re.search(r"\b([A-Za-z0-9_]+)\.([A-Za-z0-9_]*CANCEL[A-Za-z0-9_]*|CANCEL_YN)\s*=\s*'N'", sql, re.IGNORECASE)
-        if cancel_match:
-            cancel_col = cancel_match.group(2).upper()
+def _source_columns_from_spec(batch_spec: Dict[str, Any]) -> List[str]:
+    """batch_spec에 들어 있는 실제 출력/소스 컬럼 목록을 표준화한다.
 
-    table = base_table or "기준테이블"
+    특정 업무 컬럼을 직접 전제하지 않고, 생성된 spec의 source.columns를
+    기준으로 LLM 제안을 grounding한다.
+    """
+    source = batch_spec.get("source") or {}
+    columns = source.get("columns") or []
+    if not isinstance(columns, list):
+        return []
+    return _dedupe([str(col).upper() for col in columns if _compact(col) and str(col).strip() != "*"])
+
+
+ROLE_COLUMN_PATTERNS: Dict[str, Sequence[str]] = {
+    # 업무명이 아니라 일반적인 데이터 역할 기반 패턴이다.
+    "entity_id": (r".*_ID$", r".*_NO$"),
+    "merchant_id": (r"MERCHANT.*ID$", r"MCHT.*ID$", r"MER.*ID$"),
+    "customer_id": (r"CUST.*ID$", r"CUSTOMER.*ID$", r"MBR.*ID$"),
+    "amount": (r".*AMT$", r".*AMOUNT$"),
+    "base_period": (r"BASE_.*", r".*_YM$", r".*_YYMM$", r".*_DATE$", r".*_DT$"),
+    "use_flag": (r"USE_YN$", r"VALID_YN$", r".*_YN$"),
+}
+
+
+def _find_columns_by_role(columns: Sequence[str], roles: Sequence[str]) -> List[str]:
+    """컬럼명을 직접 박지 않고 role pattern으로 컬럼 후보를 찾는다."""
+    result: List[str] = []
+    for role in roles:
+        patterns = ROLE_COLUMN_PATTERNS.get(role, ())
+        for col in columns:
+            upper_col = str(col).upper()
+            if any(re.fullmatch(pattern, upper_col, flags=re.IGNORECASE) for pattern in patterns):
+                result.append(upper_col)
+    return _dedupe(result)
+
+
+def _strip_sql_semicolon(sql: str) -> str:
+    return _compact(sql).rstrip(";").strip()
+
+
+def _build_validation_sql(batch_spec: Dict[str, Any], base_table: str) -> str:
+    """생성 SQL 결과를 감싸는 검증 SQL을 만든다.
+
+    특정 업무 컬럼을 직접 가정하지 않는다.
+    생성된 SQL 결과 컬럼과 role pattern으로 확인 가능한 컬럼만 검증 항목에 포함한다.
+    """
+    query_sql = _strip_sql_semicolon(_compact(batch_spec.get("sql")))
+    if not query_sql:
+        return ""
+
+    actual_columns = _source_columns_from_spec(batch_spec)
+
+    select_items = ["COUNT(*) AS ROW_COUNT"]
+
+    distinct_candidates = _find_columns_by_role(
+        actual_columns,
+        roles=["merchant_id", "customer_id", "entity_id"],
+    )
+    if distinct_candidates:
+        col = distinct_candidates[0]
+        select_items.append(f"COUNT(DISTINCT V.{col}) AS DISTINCT_{col}_COUNT")
+
+    amount_candidates = _find_columns_by_role(actual_columns, roles=["amount"])
+    if amount_candidates:
+        col = amount_candidates[0]
+        select_items.append(f"SUM(V.{col}) AS {col}_SUM")
+
     return (
-        f"SELECT\n"
-        f"    COUNT(*) AS ROW_COUNT,\n"
-        f"    COUNT(DISTINCT MERCHANT_ID) AS MERCHANT_COUNT,\n"
-        f"    SUM(SALES_AMT) AS SALES_AMT_SUM\n"
-        f"FROM {table}\n"
-        f"WHERE {base_month_col} = :base_ym\n"
-        f"  AND {cancel_col} = 'N';"
+        "SELECT\n"
+        "    " + ",\n    ".join(select_items) + "\n"
+        "FROM (\n"
+        f"{query_sql}\n"
+        ") V;"
     )
 
 
@@ -218,22 +263,30 @@ def build_rule_based_sql_improvement(batch_spec: Dict[str, Any], generated_files
             sql="-- 실행계획 비교 대상\n-- 1) 현재 LEFT JOIN 유지\n-- 2) EXISTS 조건으로 대상 거래 선별\n-- 3) 분류별 UNION ALL 후 우선순위 적용",
         ))
 
-    if "BASE_YM" in query_sql.upper() or "SALES_DT" in query_sql.upper():
+    base_period_columns = _find_columns_by_role(_source_columns_from_spec(batch_spec), roles=["base_period"])
+    if base_period_columns:
         partition_target = base_table or "대량 기준 테이블"
         suggestions.append(SqlImprovementSuggestion(
             type="PARTITION",
             target=partition_target,
-            reason="월 배치/거래 원장성 테이블은 기준년월 또는 거래일자 조건으로 대량 데이터를 반복 조회할 가능성이 높습니다.",
-            recommendation="운영 데이터 건수가 큰 경우 BASE_YM 또는 SALES_DT 기준 월 파티션 적용 여부를 DBA와 검토하세요.",
-            sql="-- 예시: 월 단위 RANGE/LIST 파티션 정책 검토\n-- 기준 컬럼 후보: BASE_YM, SALES_DT",
+            reason="일/월 배치에서 기준일자 또는 기준기간 role 컬럼으로 대량 데이터를 반복 조회할 가능성이 높습니다.",
+            recommendation="운영 데이터 건수가 큰 경우 실제 기준 컬럼을 기준으로 파티션 적용 여부를 DBA와 검토하세요.",
+            sql=f"-- 예시: RANGE/LIST 파티션 정책 검토\n-- 기준 컬럼 후보: {', '.join(base_period_columns)}",
         ))
 
+    validation_sql = _build_validation_sql(batch_spec, base_table)
     suggestions.append(SqlImprovementSuggestion(
         type="VALIDATION",
         target=base_table or "생성 SQL",
-        reason="운영 반영 전 월별 대상 건수, 가맹점 수, 금액 합계를 비교해야 재처리/누락/중복 위험을 줄일 수 있습니다.",
-        recommendation="배치 실행 전후 검증 SQL을 test_job.py 또는 별도 검증 스크립트에 추가하세요.",
-        sql=_build_validation_sql(batch_spec, base_table),
+        reason=(
+            "운영 반영 전 생성 SQL 결과 기준 건수와 식별자/금액 role 컬럼의 집계값을 "
+            "검증하면 재처리/누락/중복 위험을 줄일 수 있습니다."
+        ),
+        recommendation=(
+            "배치 실행 전후 검증 SQL을 test_job.py 또는 별도 검증 스크립트에 추가하세요. "
+            "검증 항목은 실제 spec 컬럼과 role metadata로 확인 가능한 항목만 포함합니다."
+        ),
+        sql=validation_sql,
     ))
 
     if not suggestions:
@@ -268,6 +321,8 @@ def build_llm_prompt(batch_spec: Dict[str, Any], generated_files: Dict[str, str]
 - 운영 SQL을 자동 변경하지 말고 개선 후보만 제안한다.
 - 테이블명/컬럼명은 입력 SQL과 메타에 있는 값만 사용한다.
 - 근거 없는 컬럼명은 만들지 않는다.
+- 실제 사용 가능한 source columns 목록에 없는 컬럼은 SQL 예시에 절대 쓰지 않는다.
+- 검증 SQL은 생성 SQL 결과 또는 실제 컬럼 목록에 있는 컬럼만 사용한다.
 - 반드시 JSON만 응답한다.
 
 응답 형식:
@@ -287,6 +342,9 @@ def build_llm_prompt(batch_spec: Dict[str, Any], generated_files: Dict[str, str]
 
 생성 SQL:
 {query_sql}
+
+실제 사용 가능한 source columns:
+{json.dumps(_source_columns_from_spec(batch_spec), ensure_ascii=False)}
 
 배치 명세:
 {json.dumps(batch_spec, ensure_ascii=False, indent=2)}
@@ -443,6 +501,83 @@ def _parse_json_object(text: str) -> Dict[str, Any]:
     return _coerce_llm_payload(json.loads(json_candidate))
 
 
+def _extract_identifiers_from_sql(sql: str) -> List[str]:
+    """SQL 예시에서 식별자 후보를 추출한다.
+
+    완전한 SQL parser가 아니라 LLM 제안의 명백한 hallucination을 막기 위한
+    보수적 필터다. SQL keyword, 함수명, alias, 숫자/문자열은 제외한다.
+    """
+    cleaned = re.sub(r"'[^']*'", " ", sql or "")
+    cleaned = re.sub(r'"[^"]*"', " ", cleaned)
+    identifiers = re.findall(r"\b[A-Za-z][A-Za-z0-9_]*\b", cleaned)
+
+    ignored = set(SQL_KEYWORDS) | {
+        "CREATE", "INDEX", "ON", "COUNT", "DISTINCT", "SUM", "AVG", "MIN", "MAX",
+        "ROW_COUNT", "UNKNOWN", "V", "IFNULL", "NVL",
+    }
+    return _dedupe([item.upper() for item in identifiers if item.upper() not in ignored])
+
+
+def _known_identifiers_for_grounding(batch_spec: Dict[str, Any], fallback: SqlImprovementReport) -> set[str]:
+    source = batch_spec.get("source") or {}
+    target = batch_spec.get("target") or {}
+    known = set(_source_columns_from_spec(batch_spec))
+
+    for value in [
+        source.get("table"),
+        target.get("table"),
+        _extract_base_table(_compact(batch_spec.get("sql"))),
+    ]:
+        if _compact(value):
+            known.add(_compact(value).upper())
+
+    for item in fallback.suggestions or []:
+        if _compact(item.target):
+            known.add(_compact(item.target).upper())
+
+    # SQL 예시에서 흔히 나오는 생성 산출 alias는 실제 DB 컬럼 검증 대상에서 제외한다.
+    known.update({"ROW_COUNT"})
+    return known
+
+
+def _is_sql_grounded(sql: str, known_identifiers: set[str]) -> Tuple[bool, List[str]]:
+    if not _compact(sql):
+        return True, []
+
+    unknown = [
+        identifier
+        for identifier in _extract_identifiers_from_sql(sql)
+        if identifier not in known_identifiers
+        and not identifier.startswith("IDX_")
+        and not identifier.startswith("IX_")
+    ]
+    return (len(unknown) == 0), unknown
+
+
+def _filter_ungrounded_suggestions(
+    suggestions: List[SqlImprovementSuggestion],
+    batch_spec: Dict[str, Any],
+    fallback: SqlImprovementReport,
+) -> Tuple[List[SqlImprovementSuggestion], List[str]]:
+    """LLM/룰 제안 중 실제 spec 컬럼·테이블에 없는 SQL 예시를 제거한다."""
+    known_identifiers = _known_identifiers_for_grounding(batch_spec, fallback)
+    filtered: List[SqlImprovementSuggestion] = []
+    warnings: List[str] = []
+
+    for item in suggestions or []:
+        ok, unknown = _is_sql_grounded(item.sql, known_identifiers)
+        if ok:
+            filtered.append(item)
+            continue
+
+        warnings.append(
+            f"SQL 개선 제안 제외: {item.type}/{item.target} - "
+            f"메타데이터에서 확인되지 않는 식별자: {', '.join(unknown)}"
+        )
+
+    return filtered, warnings
+
+
 def _merge_llm_suggestions_with_rule_sql(
     llm_items: List[Dict[str, Any]],
     fallback: SqlImprovementReport,
@@ -476,17 +611,36 @@ def _merge_llm_suggestions_with_rule_sql(
     return suggestions
 
 
-def _report_from_payload(payload: Dict[str, Any], fallback: SqlImprovementReport, raw: str) -> SqlImprovementReport:
+def _report_from_payload(
+    payload: Dict[str, Any],
+    fallback: SqlImprovementReport,
+    raw: str,
+    batch_spec: Dict[str, Any],
+) -> SqlImprovementReport:
     llm_items = payload.get("suggestions", []) or []
     suggestions = _merge_llm_suggestions_with_rule_sql(llm_items, fallback)
+
+    grounded_suggestions, grounding_warnings = _filter_ungrounded_suggestions(
+        suggestions=suggestions,
+        batch_spec=batch_spec,
+        fallback=fallback,
+    )
+
+    if not grounded_suggestions:
+        grounded_suggestions, fallback_grounding_warnings = _filter_ungrounded_suggestions(
+            suggestions=fallback.suggestions,
+            batch_spec=batch_spec,
+            fallback=fallback,
+        )
+        grounding_warnings.extend(fallback_grounding_warnings)
 
     return SqlImprovementReport(
         enabled=True,
         risk_level=_compact(payload.get("risk_level")) or fallback.risk_level,
         summary=_compact(payload.get("summary")) or fallback.summary,
-        suggestions=suggestions or fallback.suggestions,
+        suggestions=grounded_suggestions or fallback.suggestions,
         generated_by="llm",
-        warnings=fallback.warnings or [],
+        warnings=(fallback.warnings or []) + grounding_warnings,
         raw_llm_response=raw,
     )
 
@@ -513,7 +667,7 @@ def analyze_sql_improvement(
         try:
             raw = _call_llm(llm_generate_fn=llm_generate_fn, prompt=prompt, model=model)
             payload = _parse_json_object(raw)
-            final_report = _report_from_payload(payload=payload, fallback=rule_report, raw=raw)
+            final_report = _report_from_payload(payload=payload, fallback=rule_report, raw=raw, batch_spec=batch_spec)
         except Exception as exc:
             warnings = list(rule_report.warnings or [])
             warnings.append(f"LLM SQL 개선 제안 실패로 룰 기반 결과를 사용했습니다: {exc}")

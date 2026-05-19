@@ -1,4 +1,4 @@
-# 전통시장가맹점테이블 파일 생성
+# 전통시장 가맹점 파일 생성
 
 ## Batch ID
 `BATCH_TRAD_MARKET_MERCHANT_EXPORT`
@@ -7,7 +7,7 @@
 `db_to_file`
 
 ## 설명
-전통시장 가맹점코드 전송파일 배치 개발 해줘
+[배치 개발 요청서] 배치명: 전통시장 가맹점 파일 생성 기준 테이블: TB_TRAD_MARKET_MERCHANT 출력 목적: 소득공제 대상 전통시장 가맹점 추출 출력 형식: CSV 파일명: traditional_market_merchant_YYYYMMDD.csv 기준일자: APPLY_START_DT 조건: - 기준일자가 적용시작일자와 종료일자 사이 - USE_YN = 'Y'
 
 ## 실행 예시
 
@@ -16,7 +16,7 @@ python job.py --database-url "$DATABASE_URL" --base-date 20260428 --output-dir .
 ```
 
 ## 출력 파일
-`trad_market_merchant_{base_date}.csv`
+`traditional_market_merchant_{base_date}.csv`
 
 ## 검토 필요사항
 - query.sql의 테이블/컬럼/조건이 실제 운영 기준과 맞는지 확인

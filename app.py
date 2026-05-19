@@ -7,12 +7,21 @@ import logging
 from urllib.parse import quote_plus
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 from dotenv import load_dotenv
 from graphviz import Digraph
+
+try:
+    from langgraph.graph import StateGraph, START, END
+except Exception:
+    # LangGraph 미설치 환경에서도 기존 앱은 동작하도록 optional import 처리한다.
+    StateGraph = None
+    START = "__start__"
+    END = "__end__"
+
 load_dotenv()
 
 CONFIG_DIR = Path(os.getenv("CONFIG_DIR", "conf"))
@@ -33,9 +42,26 @@ SQL_REVIEW_POLICY_PATH = (
     CONFIG_DIR / "sql_review_policy.json"
 )
 
+AGENT_GRAPH_POLICY_PATH = (
+    CONFIG_DIR / "agent_graph_policy.json"
+)
+
+AGENT_INTENT_REGISTRY_PATH = (
+    CONFIG_DIR / "agent_intent_registry.json"
+)
+
 from llm import ChatConfig, HandoverAgent, ollama_generate, apply_dictionary_rewrite, detect_intent, get_llm_engine_name, get_langchain_feature_flags
 from realtime_query_service import RealtimeQueryService
 from batch_dev import BatchDevAgent
+try:
+    from batch_dev.config import BATCH_SQL_IMPROVEMENT_ENABLED
+except Exception:
+    # config.py 반영 전에도 앱이 깨지지 않도록 환경변수 fallback을 둔다.
+    # 기본값은 false: 배치 개발 요청 화면에서 SQL 자동 개선 제안을 실행/표시하지 않는다.
+    BATCH_SQL_IMPROVEMENT_ENABLED = os.getenv(
+        "BATCH_SQL_IMPROVEMENT_ENABLED",
+        "false",
+    ).strip().lower() in {"1", "true", "yes", "y"}
 from batch_dev.llm_batch_validator import validate_batch_generation
 from batch_dev.sql_improvement_advisor import analyze_sql_improvement
 
@@ -80,6 +106,59 @@ SQL_ANALYSIS_LLM_TIMEOUT = int(os.getenv("SQL_ANALYSIS_LLM_TIMEOUT", os.getenv("
 SQL_ANALYSIS_TEMPERATURE = float(os.getenv("SQL_ANALYSIS_TEMPERATURE", os.getenv("UPSTAGE_TEMPERATURE", "0.1")))
 SQL_ANALYSIS_MAX_TOKENS = int(os.getenv("SQL_ANALYSIS_MAX_TOKENS", os.getenv("UPSTAGE_MAX_TOKENS", "2048")))
 
+# 업무 범위 밖 질문 처리 정책
+# - false: 기존처럼 지원 범위 안내만 표시
+# - true: 일반 질문은 LLM fallback으로 답변 시도
+GENERAL_FALLBACK_USE_LLM = os.getenv("GENERAL_FALLBACK_USE_LLM", "true").strip().lower() in {"1", "true", "yes", "y"}
+GENERAL_FALLBACK_MODEL = os.getenv("GENERAL_FALLBACK_MODEL", os.getenv("UPSTAGE_CHAT_MODEL", BATCH_VALIDATION_LLM_MODEL)).strip()
+GENERAL_FALLBACK_TIMEOUT = int(os.getenv("GENERAL_FALLBACK_TIMEOUT", os.getenv("UPSTAGE_CHAT_TIMEOUT", "60")))
+GENERAL_FALLBACK_TEMPERATURE = float(os.getenv("GENERAL_FALLBACK_TEMPERATURE", "0.2"))
+GENERAL_FALLBACK_MAX_TOKENS = int(os.getenv("GENERAL_FALLBACK_MAX_TOKENS", os.getenv("UPSTAGE_MAX_TOKENS", "2048")))
+
+DEFAULT_AGENT_INTENT_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
+
+# LangGraph route 정책은 intent registry를 기준으로 생성한다.
+# 새 intent 추가 시 agent_intent_registry.json만 확장하면 기본 라우팅도 함께 확장된다.
+SUPPORTED_AGENT_INTENTS = set(DEFAULT_AGENT_INTENT_REGISTRY.keys())
+
+LANGGRAPH_ENABLED = os.getenv("LANGGRAPH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "y"}
+
+DEFAULT_AGENT_GRAPH_POLICY = {
+    "routes": [
+        {
+            "name": "sql_analysis",
+            "intents": [intent for intent, spec in DEFAULT_AGENT_INTENT_REGISTRY.items() if spec.get("node") == "sql_analysis"],
+            "node": "sql_analysis",
+        },
+        {
+            "name": "batch_development",
+            "intents": [intent for intent, spec in DEFAULT_AGENT_INTENT_REGISTRY.items() if spec.get("node") == "batch_development"],
+            "node": "batch_development",
+        },
+        {
+            "name": "handover_agent",
+            "intents": [intent for intent, spec in DEFAULT_AGENT_INTENT_REGISTRY.items() if spec.get("node") == "handover_agent"],
+            "node": "handover_agent",
+        },
+    ],
+    "fallback_node": "general_fallback",
+    "force_sql_analysis_node": "sql_analysis",
+    # LangGraph 후처리 정책
+    # - app.py에 업무별 분기 로직을 더 늘리지 않고, 정책 파일에서 노드 사용 여부를 제어한다.
+    # - batch_development는 생성 이후 검증/개선 노드를 통과한다.
+    "post_nodes": {
+        "default": ["finalize"],
+        "batch_development": ["batch_validation", "sql_improvement", "finalize"],
+    },
+    "node_options": {
+        "batch_validation": {"enabled": True},
+        "sql_improvement": {"enabled_env": "BATCH_SQL_IMPROVEMENT_ENABLED"},
+        "finalize": {"enabled": True},
+    },
+}
+
+
 DEFAULT_SQL_ANALYSIS_SECTION_ALIASES = {
     "request_type": ["요청유형", "요청 유형", "REQUEST_TYPE", "TYPE"],
     "business_name": ["업무명", "업무 명", "BUSINESS_NAME", "업무"],
@@ -97,16 +176,8 @@ DEFAULT_SQL_ANALYSIS_SECTION_ALIASES = {
 DEFAULT_REALTIME_QUERY_POLICY = {
     "default": {
         "empty_message": "조회 결과가 없습니다.",
-        "summary_type": None,
-    },
-    "billing_monthly_amount": {
-        "empty_message": "조회 결과가 없습니다.",
-        "summary_type": "billing_monthly_amount",
-    },
-    "today_incidents": {
-        "empty_message": "오늘 장애는 없습니다.",
-        "summary_type": "incident_summary",
-        "realtime_mode": "incident_table_with_summary",
+        "summary_handler": None,
+        "summary_type": None,  # 기존 설정 호환용 alias
     },
 }
 
@@ -202,14 +273,57 @@ SQL_REVIEW_POLICY = load_optional_json_config(
     DEFAULT_SQL_REVIEW_POLICY,
     "sql_review_policy",
 )
+AGENT_GRAPH_POLICY = load_optional_json_config(
+    AGENT_GRAPH_POLICY_PATH,
+    DEFAULT_AGENT_GRAPH_POLICY,
+    "agent_graph_policy",
+)
+AGENT_INTENT_REGISTRY = load_optional_json_config(
+    AGENT_INTENT_REGISTRY_PATH,
+    DEFAULT_AGENT_INTENT_REGISTRY,
+    "agent_intent_registry",
+)
+SUPPORTED_AGENT_INTENTS = set(AGENT_INTENT_REGISTRY.keys())
+
+
+def get_intent_spec(intent: str) -> Dict[str, Any]:
+    return dict(AGENT_INTENT_REGISTRY.get(str(intent or ""), {}) or {})
+
+
+def get_intents_by_category(category: str) -> set[str]:
+    return {
+        intent
+        for intent, spec in AGENT_INTENT_REGISTRY.items()
+        if str((spec or {}).get("category") or "") == category
+    }
+
+
+def is_supported_intent(intent: str) -> bool:
+    return str(intent or "") in AGENT_INTENT_REGISTRY
 
 
 def get_realtime_policy(query_meta: Dict[str, Any]) -> Dict[str, Any]:
     query_id = str((query_meta or {}).get("query_id") or "").strip()
     default_policy = dict(REALTIME_QUERY_POLICY.get("default", {}))
+
+    # registry의 realtime intent 설정을 query_id 기준으로 병합한다.
+    # 따라서 새 realtime 조회는 agent_intent_registry.json에 query_id/summary_handler만 추가하면 된다.
+    registry_policy: Dict[str, Any] = {}
+    for _intent, spec in AGENT_INTENT_REGISTRY.items():
+        if str((spec or {}).get("query_id") or "").strip() == query_id:
+            registry_policy = dict(spec or {})
+            break
+
     query_policy = REALTIME_QUERY_POLICY.get(query_id, {}) if query_id else {}
+    if isinstance(registry_policy, dict):
+        default_policy.update(registry_policy)
     if isinstance(query_policy, dict):
         default_policy.update(query_policy)
+
+    if not default_policy.get("summary_handler") and default_policy.get("summary_type"):
+        default_policy["summary_handler"] = default_policy.get("summary_type")
+    if not default_policy.get("summary_type") and default_policy.get("summary_handler"):
+        default_policy["summary_type"] = default_policy.get("summary_handler")
     return default_policy
 
 @st.cache_resource
@@ -519,6 +633,36 @@ def generate_billing_summary(query_meta: Dict[str, Any], df: pd.DataFrame) -> Op
     lines.append(_billing_pattern_text(summary))
     return "\n\n".join(lines)
 
+
+SUMMARY_HANDLER_MAP = {
+    "incident_summary": generate_incident_summary,
+    "timeseries_amount_summary": generate_billing_summary,
+}
+
+
+def generate_realtime_summary(query_meta: Dict[str, Any], df: pd.DataFrame, policy: Dict[str, Any]) -> Optional[str]:
+    """realtime summary를 registry 기반 handler로 생성한다.
+
+    app.py에 intent별 if문을 늘리지 않고,
+    conf/agent_intent_registry.json 또는 conf/realtime_query_policy.json의
+    summary_handler 값으로 요약 함수를 선택한다.
+    """
+    handler_name = str(
+        policy.get("summary_handler")
+        or policy.get("summary_type")
+        or ""
+    ).strip()
+    if not handler_name:
+        return None
+
+    handler = SUMMARY_HANDLER_MAP.get(handler_name)
+    if handler is None:
+        return f"등록되지 않은 요약 handler입니다: {handler_name}"
+
+    if handler_name == "timeseries_amount_summary":
+        return handler(query_meta, df)
+    return handler(df)
+
 def _render_bullets(items: List[str]) -> None:
     for item in items or []:
         st.markdown(f"- {item}")
@@ -603,10 +747,7 @@ def build_realtime_payload(query_meta: Dict[str, Any], render_type: str, realtim
         return payload
 
     try:
-        if summary_type == "incident_summary" or effective_realtime_mode == "incident_table_with_summary":
-            payload["summary"] = generate_incident_summary(df)
-        elif summary_type == "billing_monthly_amount":
-            payload["summary"] = generate_billing_summary(query_meta, df)
+        payload["summary"] = generate_realtime_summary(query_meta, df, policy)
     except Exception as e:
         logger.exception("Realtime summary generation failed: query_id=%s", (query_meta or {}).get("query_id"))
         payload["summary_error"] = str(e)
@@ -988,8 +1129,8 @@ def render_table(query_meta: Dict[str, Any], realtime_mode: str | None = None, r
     summary = payload.get("summary")
     if summary:
         st.write(summary)
-    elif payload.get("summary_error") and (realtime_mode == "incident_table_with_summary" or payload.get("summary_type") == "incident_summary"):
-        st.warning(f"LLM 요약 생성 실패: {payload['summary_error']}")
+    elif payload.get("summary_error"):
+        st.warning(f"요약 생성 실패: {payload['summary_error']}")
 
     st.dataframe(df, use_container_width=True)
 
@@ -1005,98 +1146,62 @@ def _extract_search_query(debug_logs: List[str] | None) -> str:
             return log.split("search_query =", 1)[1].strip()
     return ""
 
+def _filter_fields(data: Dict[str, Any], field_names: List[str]) -> Dict[str, Any]:
+    """registry의 used_fields 기준으로 사용 JSON 필드를 추출한다."""
+    if not field_names:
+        return data
+    return {field: data.get(field, [] if isinstance(data.get(field), list) else None) for field in field_names}
+
+
 def build_used_json_view(result: Any) -> Dict[str, Any]:
     intent = getattr(result, "intent", None)
     structured_data = getattr(result, "structured_data", None) or {}
     graph_data = getattr(result, "graph_data", None) or {}
     query_meta = getattr(result, "query_meta", None) or {}
-
-    if intent == "overview":
-        overview = structured_data.get("overview", structured_data)
-        return {
-            "json_path": "domains[].systems[].overview",
-            "used_fields": {
-                "title": overview.get("title"),
-                "summary": overview.get("summary"),
-                "content": overview.get("content"),
-                "input_data": overview.get("input_data", []),
-                "target_transactions": overview.get("target_transactions", []),
-                "exclusions": overview.get("exclusions", []),
-                "outputs": overview.get("outputs", []),
-                "key_points": overview.get("key_points", []),
-            },
-        }
-
-    if intent == "batch_process":
-        batch_process = structured_data.get("batch_process", structured_data)
-        return {
-            "json_path": "domains[].systems[].batch_process",
-            "used_fields": {
-                "title": batch_process.get("title"),
-                "steps": batch_process.get("steps", []),
-            },
-        }
-
-    if intent == "batch_flow":
-        return {
-            "json_path": "domains[].systems[].batch_flow",
-            "used_fields": {
-                "title": graph_data.get("title"),
-                "summary": graph_data.get("summary"),
-                "start_nodes": graph_data.get("start_nodes", []),
-                "highlight_nodes": graph_data.get("highlight_nodes", []),
-                "end_nodes": graph_data.get("end_nodes", []),
-                "nodes": graph_data.get("nodes", []),
-                "edges": graph_data.get("edges", []),
-            },
-        }
-
-    if intent == "table_lineage":
-        return {
-            "json_path": "domains[].systems[].table_lineage",
-            "used_fields": {
-                "title": graph_data.get("title"),
-                "summary": graph_data.get("summary"),
-                "highlight_tables": graph_data.get("highlight_tables", []),
-                "source_tables": graph_data.get("source_tables", []),
-                "result_tables": graph_data.get("result_tables", []),
-                "tables": graph_data.get("tables", []),
-                "edges": graph_data.get("edges", []),
-            },
-        }
+    spec = get_intent_spec(str(intent or ""))
 
     if query_meta:
-        return {"json_path": "realtime_queries[]", "used_fields": query_meta}
+        return {"json_path": spec.get("json_path", "realtime_queries[]"), "used_fields": query_meta}
 
-    return {"json_path": "(확인 불가)", "used_fields": {}}
+    source_data = graph_data or structured_data
+    if isinstance(source_data, dict) and intent in source_data and isinstance(source_data.get(intent), dict):
+        source_data = source_data.get(intent) or {}
+
+    if source_data:
+        return {
+            "json_path": spec.get("json_path", "domains[].systems[]"),
+            "used_fields": _filter_fields(source_data, list(spec.get("used_fields", []) or [])),
+        }
+
+    return {"json_path": spec.get("json_path", "(확인 불가)"), "used_fields": {}}
+
 
 def build_evaluation_checks(result: Any) -> List[str]:
     """
-    평가용 문구 생성
-    - 시스템별 RAG 질문과 realtime_query 질문을 분리해서 평가한다.
-    - realtime_query는 특정 system_id 기준 검색이 아니므로 "다른 시스템 source" 검사를 하지 않는다.
+    평가용 문구 생성.
+    intent 분류는 코드 상수 대신 agent_intent_registry.json의 category/section/query_id를 사용한다.
     """
     system_id = getattr(result, "system_id", None)
-    intent = getattr(result, "intent", None)
+    intent = str(getattr(result, "intent", None) or "")
     sources = getattr(result, "sources", []) or []
+    spec = get_intent_spec(intent)
+    category = str(spec.get("category") or "")
     checks: List[str] = []
 
-    realtime_intents = {"billing_monthly_amount", "today_incidents"}
-    system_intents = {"overview", "batch_process", "batch_flow", "table_lineage"}
-
-    if intent in realtime_intents:
+    if category == "realtime":
+        expected_section = str(spec.get("source_section") or "realtime_query")
         wrong_realtime_sources = [
             s for s in sources
-            if s.get("section") and s.get("section") != "realtime_query"
+            if s.get("section") and s.get("section") != expected_section
         ]
         checks.append(
-            "✅ realtime_query 기준으로 조회 정의가 선택됨"
+            f"✅ {expected_section} 기준으로 조회 정의가 선택됨"
             if not wrong_realtime_sources
-            else "⚠️ realtime_query가 아닌 source가 포함됨"
+            else f"⚠️ {expected_section}가 아닌 source가 포함됨"
         )
 
         query_meta = getattr(result, "query_meta", None) or {}
-        query_id = query_meta.get("query_id")
+        query_id = query_meta.get("query_id") or spec.get("query_id")
         wrong_query_sources = [
             s for s in sources
             if s.get("query_id") and query_id and s.get("query_id") != query_id
@@ -1107,7 +1212,7 @@ def build_evaluation_checks(result: Any) -> List[str]:
             else "⚠️ 다른 query_id source가 섞였는지 확인 필요"
         )
 
-    elif intent in system_intents:
+    elif category == "system":
         if system_id:
             mixed_sources = [
                 s for s in sources
@@ -1121,9 +1226,10 @@ def build_evaluation_checks(result: Any) -> List[str]:
         else:
             checks.append("⚠️ 시스템별 질문인데 system_id가 확인되지 않음")
 
+        expected_section = str(spec.get("section") or intent)
         wrong_section = [
             s for s in sources
-            if s.get("section") and s.get("section") != intent
+            if s.get("section") and s.get("section") != expected_section
         ]
         checks.append(
             "✅ intent에 맞는 section을 사용함"
@@ -1131,6 +1237,8 @@ def build_evaluation_checks(result: Any) -> List[str]:
             else "⚠️ 의도와 다른 section source가 포함됨"
         )
 
+    elif category == "tool":
+        checks.append(f"✅ registry 기준 tool intent로 처리됨: {intent}")
     else:
         checks.append("ℹ️ 기본 검색 질문으로 처리됨")
 
@@ -1325,7 +1433,11 @@ def run_batch_sql_improvement(dev_result: Any) -> Dict[str, Any] | None:
     - SQL을 직접 수정하지 않고 개선 후보만 제안한다.
     - LLM 모듈이 없거나 실패해도 룰 기반 분석 결과를 반환한다.
     - 테이블/컬럼은 batch_spec.sql, meta_source, created_files에서 읽어 하드코딩을 줄인다.
+    - BATCH_SQL_IMPROVEMENT_ENABLED=false이면 아예 실행하지 않아 화면/리포트에 표시하지 않는다.
     """
+    if not BATCH_SQL_IMPROVEMENT_ENABLED:
+        return None
+
     if analyze_sql_improvement is None:
         return {
             "enabled": False,
@@ -2213,7 +2325,7 @@ def run_batch_development(user_question: str) -> Any:
     기존 HandoverAgent/Chroma 검색 품질에 영향을 주지 않기 위한 별도 진입점이다.
     """
     dev_result = BatchDevAgent().run(user_question)
-    sql_improvement = run_batch_sql_improvement(dev_result) if dev_result.success else None
+    sql_improvement = run_batch_sql_improvement(dev_result) if dev_result.success and BATCH_SQL_IMPROVEMENT_ENABLED else None
     validation_report = run_batch_llm_validation(user_question, dev_result) if dev_result.success else None
     answer = dev_result.message
     if dev_result.errors:
@@ -2246,6 +2358,164 @@ def run_batch_development(user_question: str) -> Any:
             "validation_report": validation_report,
             "sql_improvement": sql_improvement,
         },
+    )
+
+
+def _build_general_fallback_chat_config() -> Any:
+    """일반 질문 fallback용 ChatConfig를 만든다.
+
+    app.py가 특정 LLM provider에 묶이지 않도록 프로젝트 공통 ChatConfig를 우선 사용하고,
+    생성자 차이가 있으면 SimpleNamespace로 안전하게 대체한다.
+    """
+    candidates = [
+        {
+            "model": GENERAL_FALLBACK_MODEL,
+            "temperature": GENERAL_FALLBACK_TEMPERATURE,
+            "timeout": GENERAL_FALLBACK_TIMEOUT,
+            "max_tokens": GENERAL_FALLBACK_MAX_TOKENS,
+        },
+        {
+            "model": GENERAL_FALLBACK_MODEL,
+            "temperature": GENERAL_FALLBACK_TEMPERATURE,
+            "timeout": GENERAL_FALLBACK_TIMEOUT,
+        },
+        {
+            "model": GENERAL_FALLBACK_MODEL,
+            "timeout": GENERAL_FALLBACK_TIMEOUT,
+        },
+        {
+            "model": GENERAL_FALLBACK_MODEL,
+        },
+    ]
+    for kwargs in candidates:
+        try:
+            return ChatConfig(**kwargs)
+        except TypeError:
+            continue
+    return SimpleNamespace(
+        model=GENERAL_FALLBACK_MODEL,
+        temperature=GENERAL_FALLBACK_TEMPERATURE,
+        timeout=GENERAL_FALLBACK_TIMEOUT,
+        max_tokens=GENERAL_FALLBACK_MAX_TOKENS,
+    )
+
+
+def build_out_of_scope_message(question: str = "") -> str:
+    """업무 범위 밖 질문 안내 문구를 한 곳에서 관리한다."""
+    return """
+현재 질문은 업무 인수인계 지원 범위를 벗어난 일반 질문으로 판단되었습니다.
+
+이 에이전트는 현재 카드업무 인수인계 및 운영 지원 기능에 특화되어 있습니다.
+
+지원 기능 예시:
+- 업무 개요 조회
+- 배치 프로세스 조회
+- 배치 흐름도 조회
+- 테이블 리니지 조회
+- 청구 이용내역서 월별 금액 조회
+- 오늘 장애현황 조회
+- 배치 개발 요청
+- SQL 분석 및 개선 검토
+
+예시 질문:
+- "소득공제 업무 개요 알려줘"
+- "청구 배치 흐름도 보여줘"
+- "오늘 장애현황 조회"
+- "가맹점 월정산 배치 개발 요청"
+- "이 SQL 문제점 분석해줘"
+
+일반 질문 응답을 사용하려면 GENERAL_FALLBACK_USE_LLM=true 로 설정하세요.
+""".strip()
+
+
+def _looks_like_out_of_scope_answer(answer: str) -> bool:
+    """기존 Agent가 반환한 범위 밖 안내 문구를 감지한다.
+
+    llm.py 내부 문구가 일부 바뀌어도 핵심 표현 기준으로 보수적으로 감지한다.
+    """
+    text = str(answer or "")
+    patterns = [
+        "업무 인수인계 범위",
+        "지원 범위",
+        "현재 업무 인수인계",
+        "질문만 지원",
+        "지원하지 않는 질문",
+    ]
+    return any(pattern in text for pattern in patterns)
+
+
+def run_general_fallback(user_question: str, chat_history: Optional[List[Dict[str, str]]] = None, reason: str = "out_of_scope") -> Any:
+    """업무 범위 밖 일반 질문을 처리한다.
+
+    - 설정으로 LLM fallback을 끌 수 있다.
+    - LLM 호출 실패 시에도 사용자에게 딱딱한 차단 문구가 아니라 자연스러운 안내를 보여준다.
+    - 업무 전용 RAG/DB/배치 로직과 분리해 운영 영향도를 낮춘다.
+    """
+    normalized_question = apply_dictionary_rewrite(user_question)
+    answer = build_out_of_scope_message(user_question)
+    generated_by = "guide"
+    error_message = None
+
+    if GENERAL_FALLBACK_USE_LLM:
+        system_prompt = """
+너는 업무 인수인계 에이전트의 일반 질문 fallback assistant다.
+사용자가 업무 범위 밖의 일반 질문을 하면 한국어로 간단하고 실용적으로 답한다.
+단, 회사 내부 데이터/DB/문서가 필요한 척 추측하지 않는다.
+최신 정보, 날씨, 주가, 법률/의료/금융 투자판단처럼 실시간성 또는 전문성이 필요한 내용은 확인 필요성을 명확히 말한다.
+""".strip()
+        history_text = ""
+        for item in (chat_history or [])[-6:]:
+            role = item.get("role", "")
+            content = str(item.get("content", "")).strip()
+            if role and content:
+                history_text += f"{role}: {content}\n"
+        user_prompt = f"""
+최근 대화:
+{history_text or "(없음)"}
+
+사용자 질문:
+{user_question}
+
+답변 조건:
+- 업무 인수인계 범위 밖 질문임을 길게 반복하지 말 것
+- 가능한 경우 바로 답변할 것
+- 실시간 정보가 필요한 질문이면 현재 시스템에서는 실시간 조회가 필요하다고 말하고, 확인 방법을 짧게 안내할 것
+""".strip()
+        try:
+            raw = ollama_generate(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                config=_build_general_fallback_chat_config(),
+            )
+            if isinstance(raw, dict):
+                answer = str(raw.get("answer") or raw.get("content") or raw)
+            else:
+                answer = str(raw or "").strip() or answer
+            generated_by = "llm_fallback"
+        except Exception as exc:
+            logger.exception("General fallback generation failed")
+            error_message = str(exc)
+            answer = build_out_of_scope_message(user_question)
+
+    return SimpleNamespace(
+        answer=answer,
+        intent="general_fallback",
+        render_type="text",
+        graph_data=None,
+        query_meta=None,
+        realtime_mode=None,
+        structured_data=None,
+        realtime_payload=None,
+        normalized_question=normalized_question,
+        rewritten_question=user_question,
+        system_id=None,
+        sources=[],
+        debug_logs=[
+            f"[GENERAL_FALLBACK 1] reason={reason}",
+            f"[GENERAL_FALLBACK 2] enabled={GENERAL_FALLBACK_USE_LLM}",
+            f"[GENERAL_FALLBACK 3] generated_by={generated_by}",
+            f"[GENERAL_FALLBACK 4] error={error_message}" if error_message else "[GENERAL_FALLBACK 4] error=None",
+        ],
     )
 
 def render_batch_development_result(result: Any) -> None:
@@ -2305,6 +2575,460 @@ def render_batch_development_result(result: Any) -> None:
                     st.markdown(f"- {item}")
 
     st.info("운영 반영 전 query.sql, 컬럼, 인덱스, 검증조건, 파일 포맷을 개발자가 반드시 검토하세요.")
+
+
+
+class HandoverGraphState(TypedDict, total=False):
+    """LangGraph에서 공유하는 상태.
+
+    Streamlit 화면 상태와 분리하고, 질문 처리에 필요한 값만 그래프 상태로 전달한다.
+    """
+    question: str
+    chat_history: List[Dict[str, str]]
+    force_sql_analysis: bool
+    normalized_question: str
+    initial_intent: str
+    route: str
+    result: Any
+    batch_dev_raw: Any
+    graph_trace: List[str]
+    error: str
+
+
+def _append_graph_trace(state: HandoverGraphState, message: str) -> List[str]:
+    trace = list(state.get("graph_trace") or [])
+    trace.append(message)
+    return trace
+
+
+def _agent_graph_routes() -> List[Dict[str, Any]]:
+    """agent_graph_policy.json 기반 라우팅 정책을 반환한다.
+
+    intent가 추가되면 코드 수정 없이 conf/agent_graph_policy.json의 routes만 확장하면 된다.
+    """
+    routes = AGENT_GRAPH_POLICY.get("routes", []) if isinstance(AGENT_GRAPH_POLICY, dict) else []
+    return [route for route in routes if isinstance(route, dict)]
+
+
+def _resolve_route_by_intent(intent: str) -> str:
+    """intent를 실행 노드명으로 변환한다."""
+    normalized_intent = str(intent or "default").strip()
+    for route in _agent_graph_routes():
+        node = str(route.get("node") or route.get("name") or "").strip()
+        intents = [str(item).strip() for item in route.get("intents", []) if str(item).strip()]
+        if node and normalized_intent in intents:
+            return node
+    return str(AGENT_GRAPH_POLICY.get("fallback_node") or "general_fallback")
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    """정책 파일에서 지정한 환경변수 flag를 bool로 읽는다."""
+    if not name:
+        return default
+    return os.getenv(name, "true" if default else "false").strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _graph_node_enabled(node_name: str) -> bool:
+    """agent_graph_policy.json의 node_options에 따라 노드 실행 여부를 판단한다."""
+    options = {}
+    if isinstance(AGENT_GRAPH_POLICY, dict):
+        options = (AGENT_GRAPH_POLICY.get("node_options") or {}).get(node_name, {}) or {}
+    if not isinstance(options, dict):
+        return True
+    if "enabled" in options:
+        return bool(options.get("enabled"))
+    enabled_env = str(options.get("enabled_env") or "").strip()
+    if enabled_env:
+        return _env_flag(enabled_env, default=False)
+    return True
+
+
+def _post_nodes_for_route(route: str) -> List[str]:
+    """실행 노드 이후에 수행할 후처리 노드 목록을 정책 기반으로 반환한다."""
+    if not isinstance(AGENT_GRAPH_POLICY, dict):
+        return ["finalize"]
+    post_nodes = AGENT_GRAPH_POLICY.get("post_nodes") or {}
+    if not isinstance(post_nodes, dict):
+        return ["finalize"]
+    route_key = str(route or "default").strip()
+    nodes = post_nodes.get(route_key, post_nodes.get("default", ["finalize"]))
+    if not isinstance(nodes, list):
+        return ["finalize"]
+    return [str(node).strip() for node in nodes if str(node).strip()]
+
+
+def _first_post_node(state: HandoverGraphState) -> str:
+    """현재 route의 첫 번째 후처리 노드를 반환한다."""
+    for node_name in _post_nodes_for_route(str(state.get("route") or "")):
+        if _graph_node_enabled(node_name):
+            return node_name
+    return "finalize"
+
+
+def _next_post_node(state: HandoverGraphState, current_node: str) -> str:
+    """후처리 체인에서 다음 노드를 반환한다."""
+    nodes = _post_nodes_for_route(str(state.get("route") or ""))
+    try:
+        start_idx = nodes.index(current_node) + 1
+    except ValueError:
+        start_idx = 0
+    for node_name in nodes[start_idx:]:
+        if _graph_node_enabled(node_name):
+            return node_name
+    return "finalize"
+
+
+def _attach_graph_trace_to_result(result: Any, trace: List[str]) -> Any:
+    """그래프 trace를 결과 객체 debug_logs에 중복 없이 붙인다."""
+    if result is None:
+        return result
+    debug_logs = list(getattr(result, "debug_logs", []) or [])
+    debug_logs.extend(trace or [])
+    setattr(result, "debug_logs", unique_preserve_order(debug_logs))
+    return result
+
+
+def graph_classify_node(state: HandoverGraphState) -> HandoverGraphState:
+    """질문을 표준화하고 1차 intent를 판별한다."""
+    question = str(state.get("question") or "").strip()
+    normalized_question = apply_dictionary_rewrite(question)
+    initial_intent = detect_intent(normalized_question)
+    return {
+        **state,
+        "question": question,
+        "normalized_question": normalized_question,
+        "initial_intent": initial_intent,
+        "graph_trace": _append_graph_trace(
+            state,
+            f"[GRAPH 1] classify intent={initial_intent}",
+        ),
+    }
+
+
+def graph_route_node(state: HandoverGraphState) -> HandoverGraphState:
+    """강제 SQL 분석 여부와 intent 정책에 따라 실행 노드를 결정한다."""
+    if state.get("force_sql_analysis"):
+        route = str(AGENT_GRAPH_POLICY.get("force_sql_analysis_node") or "sql_analysis")
+    else:
+        route = _resolve_route_by_intent(str(state.get("initial_intent") or "default"))
+    return {
+        **state,
+        "route": route,
+        "graph_trace": _append_graph_trace(state, f"[GRAPH 2] route={route}"),
+    }
+
+
+def graph_next_node(state: HandoverGraphState) -> str:
+    """LangGraph conditional edge에서 사용할 실행 노드명."""
+    route = str(state.get("route") or "general_fallback").strip()
+    allowed_nodes = set((AGENT_GRAPH_POLICY.get("graph_nodes") or {}).keys()) or {
+        str(route_spec.get("node"))
+        for route_spec in AGENT_GRAPH_POLICY.get("routes", [])
+        if isinstance(route_spec, dict) and route_spec.get("node")
+    }
+    allowed_nodes.add(str(AGENT_GRAPH_POLICY.get("fallback_node") or "general_fallback"))
+    return route if route in allowed_nodes else str(AGENT_GRAPH_POLICY.get("fallback_node") or "general_fallback")
+
+
+def graph_after_execute_node(state: HandoverGraphState) -> str:
+    """실행 노드 이후 첫 후처리 노드명."""
+    return _first_post_node(state)
+
+
+def graph_after_batch_validation_node(state: HandoverGraphState) -> str:
+    """batch_validation 이후 다음 후처리 노드명."""
+    return _next_post_node(state, "batch_validation")
+
+
+def graph_after_sql_improvement_node(state: HandoverGraphState) -> str:
+    """sql_improvement 이후 다음 후처리 노드명."""
+    return _next_post_node(state, "sql_improvement")
+
+
+def graph_sql_analysis_node(state: HandoverGraphState) -> HandoverGraphState:
+    result = run_sql_analysis_request(str(state.get("question") or ""))
+    debug_logs = list(getattr(result, "debug_logs", []) or [])
+    debug_logs.extend(state.get("graph_trace") or [])
+    setattr(result, "debug_logs", debug_logs)
+    return {
+        **state,
+        "result": result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH 3] executed=sql_analysis"),
+    }
+
+
+def graph_batch_development_node(state: HandoverGraphState) -> HandoverGraphState:
+    """배치 개발 파일 생성 노드.
+
+    검증/개선은 별도 LangGraph 노드에서 수행한다.
+    """
+    user_question = str(state.get("question") or "")
+    dev_result = BatchDevAgent().run(user_question)
+    answer = dev_result.message
+    if dev_result.errors:
+        answer = "배치 개발 요청을 처리하지 못했습니다. 오류를 확인하세요."
+
+    result = SimpleNamespace(
+        answer=answer,
+        intent="batch_development",
+        render_type="batch_dev",
+        graph_data=None,
+        query_meta=None,
+        realtime_mode=None,
+        structured_data=None,
+        realtime_payload=None,
+        normalized_question=apply_dictionary_rewrite(user_question),
+        rewritten_question=user_question,
+        system_id=None,
+        sources=[],
+        debug_logs=[
+            "[BATCH_DEV 1] intent=batch_development",
+            f"[BATCH_DEV 2] success={dev_result.success}",
+            f"[BATCH_DEV 3] created_files={len(dev_result.created_files)}",
+        ],
+        batch_dev_result={
+            "batch_spec": dev_result.batch_spec,
+            "created_files": dev_result.created_files,
+            "warnings": dev_result.warnings,
+            "errors": dev_result.errors,
+            "message": dev_result.message,
+            "success": dev_result.success,
+            "validation_report": None,
+            "sql_improvement": None,
+        },
+    )
+    return {
+        **state,
+        "result": result,
+        "batch_dev_raw": dev_result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH 3] executed=batch_development.generate"),
+    }
+
+
+def graph_batch_validation_node(state: HandoverGraphState) -> HandoverGraphState:
+    """배치 생성 결과 검증 노드."""
+    result = state.get("result")
+    dev_result = state.get("batch_dev_raw")
+    if result is None or dev_result is None:
+        return {
+            **state,
+            "graph_trace": _append_graph_trace(state, "[GRAPH 4] skipped=batch_validation:no_result"),
+        }
+
+    payload = getattr(result, "batch_dev_result", {}) or {}
+    if not payload.get("success"):
+        return {
+            **state,
+            "graph_trace": _append_graph_trace(state, "[GRAPH 4] skipped=batch_validation:generation_failed"),
+        }
+
+    validation_report = run_batch_llm_validation(str(state.get("question") or ""), dev_result)
+    payload["validation_report"] = validation_report
+    setattr(result, "batch_dev_result", payload)
+    return {
+        **state,
+        "result": result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH 4] executed=batch_validation"),
+    }
+
+
+def graph_sql_improvement_node(state: HandoverGraphState) -> HandoverGraphState:
+    """배치 SQL 개선 제안 노드."""
+    result = state.get("result")
+    dev_result = state.get("batch_dev_raw")
+    if result is None or dev_result is None:
+        return {
+            **state,
+            "graph_trace": _append_graph_trace(state, "[GRAPH 5] skipped=sql_improvement:no_result"),
+        }
+
+    payload = getattr(result, "batch_dev_result", {}) or {}
+    if not payload.get("success"):
+        return {
+            **state,
+            "graph_trace": _append_graph_trace(state, "[GRAPH 5] skipped=sql_improvement:generation_failed"),
+        }
+
+    sql_improvement = run_batch_sql_improvement(dev_result)
+    payload["sql_improvement"] = sql_improvement
+    setattr(result, "batch_dev_result", payload)
+    return {
+        **state,
+        "result": result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH 5] executed=sql_improvement"),
+    }
+
+
+def graph_finalize_node(state: HandoverGraphState) -> HandoverGraphState:
+    """공통 최종 정리 노드.
+
+    모든 route의 마지막에서 trace를 result.debug_logs에 합쳐 평가 패널에서 확인 가능하게 한다.
+    """
+    result = _attach_graph_trace_to_result(state.get("result"), state.get("graph_trace") or [])
+    return {
+        **state,
+        "result": result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH FINAL] finalized"),
+    }
+
+
+def graph_handover_agent_node(state: HandoverGraphState) -> HandoverGraphState:
+    agent = get_agent()
+    result = agent.answer_question(
+        question=str(state.get("question") or ""),
+        chat_history=state.get("chat_history") or [],
+    )
+    result = enrich_result_with_realtime_payload(result)
+    if _looks_like_out_of_scope_answer(getattr(result, "answer", "")):
+        result = run_general_fallback(
+            str(state.get("question") or ""),
+            state.get("chat_history") or [],
+            reason="agent_out_of_scope_message",
+        )
+    debug_logs = list(getattr(result, "debug_logs", []) or [])
+    debug_logs.extend(state.get("graph_trace") or [])
+    setattr(result, "debug_logs", debug_logs)
+    return {
+        **state,
+        "result": result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH 3] executed=handover_agent"),
+    }
+
+
+def graph_general_fallback_node(state: HandoverGraphState) -> HandoverGraphState:
+    result = run_general_fallback(
+        str(state.get("question") or ""),
+        state.get("chat_history") or [],
+        reason=f"unsupported_intent:{state.get('initial_intent')}",
+    )
+    debug_logs = list(getattr(result, "debug_logs", []) or [])
+    debug_logs.extend(state.get("graph_trace") or [])
+    setattr(result, "debug_logs", debug_logs)
+    return {
+        **state,
+        "result": result,
+        "graph_trace": _append_graph_trace(state, "[GRAPH 3] executed=general_fallback"),
+    }
+
+
+def build_handover_graph() -> Any:
+    """업무 인수인계 질문 처리 그래프를 생성한다.
+
+    노드 추가/intent 추가는 agent_graph_policy.json과 노드 함수 확장으로 처리한다.
+    LangGraph가 설치되지 않았거나 비활성화된 경우 None을 반환하고 legacy runner로 fallback한다.
+    """
+    if not LANGGRAPH_ENABLED or StateGraph is None:
+        return None
+
+    workflow = StateGraph(HandoverGraphState)
+    workflow.add_node("classify", graph_classify_node)
+    workflow.add_node("route", graph_route_node)
+    workflow.add_node("sql_analysis", graph_sql_analysis_node)
+    workflow.add_node("batch_development", graph_batch_development_node)
+    workflow.add_node("batch_validation", graph_batch_validation_node)
+    workflow.add_node("sql_improvement", graph_sql_improvement_node)
+    workflow.add_node("handover_agent", graph_handover_agent_node)
+    workflow.add_node("general_fallback", graph_general_fallback_node)
+    workflow.add_node("finalize", graph_finalize_node)
+
+    workflow.add_edge(START, "classify")
+    workflow.add_edge("classify", "route")
+    workflow.add_conditional_edges(
+        "route",
+        graph_next_node,
+        {
+            "sql_analysis": "sql_analysis",
+            "batch_development": "batch_development",
+            "handover_agent": "handover_agent",
+            "general_fallback": "general_fallback",
+        },
+    )
+
+    for node_name in ["sql_analysis", "batch_development", "handover_agent", "general_fallback"]:
+        workflow.add_conditional_edges(
+            node_name,
+            graph_after_execute_node,
+            {
+                "batch_validation": "batch_validation",
+                "sql_improvement": "sql_improvement",
+                "finalize": "finalize",
+            },
+        )
+
+    workflow.add_conditional_edges(
+        "batch_validation",
+        graph_after_batch_validation_node,
+        {
+            "sql_improvement": "sql_improvement",
+            "finalize": "finalize",
+        },
+    )
+    workflow.add_conditional_edges(
+        "sql_improvement",
+        graph_after_sql_improvement_node,
+        {"finalize": "finalize"},
+    )
+    workflow.add_edge("finalize", END)
+    return workflow.compile()
+
+
+@st.cache_resource
+def get_handover_graph() -> Any:
+    return build_handover_graph()
+
+
+def run_legacy_handover_flow(
+    user_question: str,
+    chat_history: List[Dict[str, str]],
+    force_sql_analysis: bool = False,
+) -> Any:
+    """LangGraph 비활성/미설치 시 기존 처리 흐름을 그대로 수행한다."""
+    normalized_for_intent = apply_dictionary_rewrite(user_question)
+    initial_intent = detect_intent(normalized_for_intent)
+    if force_sql_analysis:
+        return run_sql_analysis_request(user_question)
+    if initial_intent == "batch_development":
+        return run_batch_development(user_question)
+    if not is_supported_intent(initial_intent):
+        return run_general_fallback(user_question, chat_history, reason=f"unsupported_intent:{initial_intent}")
+
+    agent = get_agent()
+    result = agent.answer_question(question=user_question, chat_history=chat_history)
+    result = enrich_result_with_realtime_payload(result)
+    if _looks_like_out_of_scope_answer(getattr(result, "answer", "")):
+        result = run_general_fallback(user_question, chat_history, reason="agent_out_of_scope_message")
+    return result
+
+
+def run_handover_graph(
+    user_question: str,
+    chat_history: List[Dict[str, str]],
+    force_sql_analysis: bool = False,
+) -> Any:
+    """Streamlit main에서 호출하는 단일 진입점."""
+    graph = get_handover_graph()
+    if graph is None:
+        result = run_legacy_handover_flow(user_question, chat_history, force_sql_analysis)
+        debug_logs = list(getattr(result, "debug_logs", []) or [])
+        debug_logs.append("[GRAPH 0] LangGraph disabled or not installed; legacy flow used")
+        setattr(result, "debug_logs", debug_logs)
+        return result
+
+    state = graph.invoke(
+        {
+            "question": user_question,
+            "chat_history": chat_history,
+            "force_sql_analysis": force_sql_analysis,
+            "graph_trace": [],
+        }
+    )
+    result = state.get("result")
+    if result is None:
+        return run_general_fallback(user_question, chat_history, reason="graph_empty_result")
+    debug_logs = list(getattr(result, "debug_logs", []) or [])
+    debug_logs.extend(state.get("graph_trace") or [])
+    setattr(result, "debug_logs", unique_preserve_order(debug_logs))
+    return result
 
 def render_agent_result(result: Any) -> None:
     with st.chat_message("assistant"):
@@ -2457,18 +3181,13 @@ def main() -> None:
         with st.chat_message("user"):
             st.write(user_question)
         st.session_state.message_list.append({"role": "user", "content": user_question})
-        normalized_for_intent = apply_dictionary_rewrite(user_question)
-        initial_intent = detect_intent(normalized_for_intent)
         chat_history = build_chat_history(st.session_state.message_list[:-1])
         with st.spinner("답변을 생성하는 중입니다..."):
-            if force_sql_analysis:
-                result = run_sql_analysis_request(user_question)
-            elif initial_intent == "batch_development":
-                result = run_batch_development(user_question)
-            else:
-                agent = get_agent()
-                result = agent.answer_question(question=user_question, chat_history=chat_history)
-                result = enrich_result_with_realtime_payload(result)
+            result = run_handover_graph(
+                user_question=user_question,
+                chat_history=chat_history,
+                force_sql_analysis=force_sql_analysis,
+            )
             current_message_id = str(uuid.uuid4())
             setattr(result, "message_id", current_message_id)
             render_agent_result(result)

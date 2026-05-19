@@ -1,8 +1,8 @@
 {
   "valid": true,
-  "score": 1.0,
-  "summary": "기본 룰 검증을 완료했습니다.",
-  "interpretation": "소득공제 월별 통합 집계 배치은 batch_type=aggregation_to_table 유형으로 생성되었습니다. 주요 기준 테이블은 TB_CARD_SALES_LEDGER로 해석됩니다. 배치 파라미터는 base_ym 기준으로 사용됩니다. SQL에는 조건절이 포함되어 있어 무조건 전체 추출보다는 기준 조건 기반 처리로 보입니다. 운영 반영 전에는 실제 컬럼 존재 여부, 인덱스, 파일 경로 권한, 재실행 시 중복/덮어쓰기 정책을 확인해야 합니다. LLM 의미 검증은 호출 오류로 생략되었으므로, 위 해석은 룰 기반 정적 해석입니다.",
+  "score": 0.82,
+  "summary": "소득공제 월별 통합 집계 배치가 생성되었으며, DELETE 후 INSERT 방식으로 월별 집계 데이터를 TB_DEDUCTION_MONTHLY_SUMMARY 테이블에 적재한다. 운영 반영 전 검토사항이 있습니다.",
+  "interpretation": "배치는 기준년월(base_ym) 단위로 TB_CARD_SALES_LEDGER에서 취소되지 않은(YN='N') 거래 중 사용여부(YN='Y')가 활성화된 가맹점 마스터(TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT)와 유효기간 매칭을 통해 가맹점 유형을 판별하고, 고객별/월별/유형별 금액 합계와 거래 건수를 집계하여 TB_DEDUCTION_MONTHLY_SUMMARY 테이블에 신규 삽입한다. job.py는 DB 접속, 파라미터 처리, SQL 실행 로직을 포함하며, test_job.py는 파일 존재 여부와 SQL/파라미터 검증만 수행한다.",
   "detected_batch_type": "aggregation_to_table",
   "checks": [
     {
@@ -36,24 +36,109 @@
       "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
     },
     {
-      "item": "LLM 의미 검증",
+      "item": "요청 목적 적합성",
+      "result": "PASS",
+      "detail": "고객별 월별 소득공제 대상 이용금액 및 가맹점 유형별 금액/건수 집계라는 업무 목적과 배치 유형이 일치한다."
+    },
+    {
+      "item": "SQL 의미 일치성",
+      "result": "PASS",
+      "detail": "DELETE 후 INSERT 방식으로 월별 집계 데이터를 대상 테이블에 적재하며, WHERE 조건에 CANCEL_YN='N'과 가맹점 마스터 매칭 조건이 포함되어 있다."
+    },
+    {
+      "item": "파라미터 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 parameters에 base_ym이 필수 파라미터로 정의되어 있고, SQL에서 :base_ym으로 참조된다."
+    },
+    {
+      "item": "파일 출력 설정",
       "result": "WARN",
-      "detail": "LLM 검증 실패: JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 906 (char 905)"
+      "detail": "batch_spec의 target에 output_format, output_file_pattern, output_dir, encoding이 null로 설정되어 있어 파일 출력 배치인지 테이블 적재 배치인지 명확하지 않다."
+    },
+    {
+      "item": "운영 재처리 위험",
+      "result": "WARN",
+      "detail": "DELETE 후 INSERT 방식으로 멱등성이 보장되지 않으며, 재처리 시 중복 적재 또는 데이터 손실 위험이 있다."
+    },
+    {
+      "item": "성능 위험",
+      "result": "WARN",
+      "detail": "TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스가 없을 경우 Full Scan 가능성이 있으며, 대량 데이터 조회 시 성능 저하 위험이 있다."
+    },
+    {
+      "item": "테스트 충분성",
+      "result": "WARN",
+      "detail": "test_job.py는 파일 존재 여부와 SQL/파라미터 존재만 검증하며, 집계 로직, JOIN 조건, 데이터 품질 검증은 테스트되지 않는다."
+    },
+    {
+      "item": "데이터 품질 검증",
+      "result": "WARN",
+      "detail": "NOT NULL 컬럼(CUSTOMER_ID, BASE_YM)은 검증되나, 중복 집계, 금액 합계 정확성, 가맹점 유형 매핑 정확성 검증 로직이 없다."
     }
   ],
   "issues": [],
   "warnings": [
-    "LLM 검증 실패: JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 906 (char 905)"
+    "파일 출력 설정 누락으로 배치 유형(테이블 적재 vs 파일 export) 확인이 필요하다.",
+    "DELETE 후 INSERT 방식으로 멱등성이 보장되지 않아 재처리 시 중복 적재 또는 데이터 손실 위험이 있다.",
+    "TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스가 없을 경우 Full Scan 가능성이 있다.",
+    "test_job.py는 집계 로직, JOIN 조건, 데이터 품질 검증을 포함하지 않아 테스트 충분성이 부족하다."
   ],
   "recommendations": [
-    "운영 반영 전 실제 DB 컬럼 존재 여부와 컬럼 타입을 확인하세요.",
-    "기준일자/기간 조건 컬럼에 적절한 인덱스가 있는지 확인하세요.",
-    "파일 생성 배치라면 output_dir 권한과 파일명 중복/덮어쓰기 정책을 확인하세요.",
-    "대량 데이터 기준 row count, not null, 중복 건수 검증을 추가하세요.",
-    "LLM 검증은 보조 검증이므로 최종 승인 기준은 룰 검증과 테스트 결과를 함께 보세요.",
-    "LLM 검증이 반복해서 느리면 BATCH_VALIDATION_USE_LLM=false로 끄고 룰 검증만 사용하세요.",
-    "BATCH_VALIDATION_LLM_TIMEOUT, UPSTAGE_CHAT_MODEL, UPSTAGE_BASE_URL, UPSTAGE_MAX_TOKENS 설정을 확인하세요."
+    "운영 반영 전 실행계획 및 데이터 검증을 확인하세요.",
+    "대량 데이터 기준 row count 및 중복 검증을 확인하세요.",
+    "TB_DEDUCTION_MONTHLY_SUMMARY 테이블에 BASE_YM, CUSTOMER_ID, MERCHANT_TYPE 복합 인덱스를 추가하여 조회 성능 개선",
+    "재처리 방지를 위해 MERGE 또는 UPSERT 방식으로 SQL 변경 검토",
+    "test_job.py에 집계 결과 검증, 중복 체크, 금액 합계 정확성 테스트 추가",
+    "TB_CARD_SALES_LEDGER에 SALES_DT, MERCHANT_ID, CANCEL_YN 인덱스 생성 여부 확인"
   ],
-  "raw_llm_response": null,
-  "score_breakdown": {}
+  "raw_llm_response": "{\"valid\": true, \"score\": 0.75, \"summary\": \"소득공제 월별 통합 집계 배치가 생성되었으며, DELETE 후 INSERT 방식으로 월별 집계 데이터를 TB_DEDUCTION_MONTHLY_SUMMARY 테이블에 적재한다.\", \"interpretation\": \"배치는 기준년월(base_ym) 단위로 TB_CARD_SALES_LEDGER에서 취소되지 않은(YN='N') 거래 중 사용여부(YN='Y')가 활성화된 가맹점 마스터(TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT)와 유효기간 매칭을 통해 가맹점 유형을 판별하고, 고객별/월별/유형별 금액 합계와 거래 건수를 집계하여 TB_DEDUCTION_MONTHLY_SUMMARY 테이블에 신규 삽입한다. job.py는 DB 접속, 파라미터 처리, SQL 실행 로직을 포함하며, test_job.py는 파일 존재 여부와 SQL/파라미터 검증만 수행한다.\", \"detected_batch_type\": \"aggregation_to_table\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"고객별 월별 소득공제 대상 이용금액 및 가맹점 유형별 금액/건수 집계라는 업무 목적과 배치 유형이 일치한다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"DELETE 후 INSERT 방식으로 월별 집계 데이터를 대상 테이블에 적재하며, WHERE 조건에 CANCEL_YN='N'과 가맹점 마스터 매칭 조건이 포함되어 있다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 parameters에 base_ym이 필수 파라미터로 정의되어 있고, SQL에서 :base_ym으로 참조된다.\"}, {\"item\": \"파일 출력 설정\", \"result\": \"WARN\", \"detail\": \"batch_spec의 target에 output_format, output_file_pattern, output_dir, encoding이 null로 설정되어 있어 파일 출력 배치인지 테이블 적재 배치인지 명확하지 않다.\"}, {\"item\": \"운영 재처리 위험\", \"result\": \"WARN\", \"detail\": \"DELETE 후 INSERT 방식으로 멱등성이 보장되지 않으며, 재처리 시 중복 적재 또는 데이터 손실 위험이 있다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스가 없을 경우 Full Scan 가능성이 있으며, 대량 데이터 조회 시 성능 저하 위험이 있다.\"}, {\"item\": \"테스트 충분성\", \"result\": \"WARN\", \"detail\": \"test_job.py는 파일 존재 여부와 SQL/파라미터 존재만 검증하며, 집계 로직, JOIN 조건, 데이터 품질 검증은 테스트되지 않는다.\"}, {\"item\": \"데이터 품질 검증\", \"result\": \"WARN\", \"detail\": \"NOT NULL 컬럼(CUSTOMER_ID, BASE_YM)은 검증되나, 중복 집계, 금액 합계 정확성, 가맹점 유형 매핑 정확성 검증 로직이 없다.\"}], \"issues\": [], \"warnings\": [\"파일 출력 설정 누락으로 배치 유형(테이블 적재 vs 파일 export) 확인이 필요하다.\", \"DELETE 후 INSERT 방식으로 멱등성이 보장되지 않아 재처리 시 중복 적재 또는 데이터 손실 위험이 있다.\", \"TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스가 없을 경우 Full Scan 가능성이 있다.\", \"test_job.py는 집계 로직, JOIN 조건, 데이터 품질 검증을 포함하지 않아 테스트 충분성이 부족하다.\"], \"recommendations\": [\"TB_DEDUCTION_MONTHLY_SUMMARY 테이블에 BASE_YM, CUSTOMER_ID, MERCHANT_TYPE 복합 인덱스를 추가하여 조회 성능 개선\", \"재처리 방지를 위해 MERGE 또는 UPSERT 방식으로 SQL 변경 검토\", \"test_job.py에 집계 결과 검증, 중복 체크, 금액 합계 정확성 테스트 추가\", \"TB_CARD_SALES_LEDGER에 SALES_DT, MERCHANT_ID, CANCEL_YN 인덱스 생성 여부 확인\"]}",
+  "score_breakdown": {
+    "policy_version": "practical-scoring-v3-nonblocking-warn",
+    "final_score": 0.82,
+    "rule_score": 1.0,
+    "llm_score": 0.75,
+    "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
+    "blocking_fail_checks": [],
+    "downgraded_fail_checks": [],
+    "score_policy": {
+      "policy_version": "practical-scoring-v3-nonblocking-warn",
+      "effective_rule_score": 1.0,
+      "effective_llm_score": 0.75,
+      "base_score_before_penalty": 0.863,
+      "warn_penalty": 0.018,
+      "risk_penalty": 0.055,
+      "pass_count": 9,
+      "warn_count": 5,
+      "fail_count_after_normalization": 0,
+      "has_blocking_fail": false,
+      "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
+    },
+    "risk_penalty": {
+      "total_penalty": 0.055,
+      "penalties": {
+        "join_complexity": 0.018000000000000002,
+        "aggregation_group_by": 0.01,
+        "aggregate_functions": 0.012,
+        "case_classification": 0.006,
+        "table_load": 0.006,
+        "delete_insert_reprocess_review": 0.004,
+        "condition_complexity": 0.006,
+        "performance_review": 0.008,
+        "test_coverage_gap": 0.008,
+        "reprocess_or_duplication_review": 0.008,
+        "data_quality_review": 0.008,
+        "warning_volume": 0.006
+      },
+      "signals": {
+        "join_count": 3,
+        "aggregate_count": 2,
+        "warning_count": 4,
+        "has_group_by": true,
+        "has_case": true,
+        "has_insert": true,
+        "has_delete_or_delete_insert": true,
+        "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
+      }
+    }
+  }
 }

@@ -1,0 +1,89 @@
+{
+  "overview": {
+    "category": "system",
+    "node": "handover_agent",
+    "section": "overview",
+    "requires_system": true,
+    "json_path": "domains[].systems[].overview",
+    "used_fields": [
+      "title",
+      "summary",
+      "content",
+      "input_data",
+      "target_transactions",
+      "exclusions",
+      "outputs",
+      "key_points"
+    ]
+  },
+  "batch_process": {
+    "category": "system",
+    "node": "handover_agent",
+    "section": "batch_process",
+    "requires_system": true,
+    "json_path": "domains[].systems[].batch_process",
+    "used_fields": [
+      "title",
+      "steps"
+    ]
+  },
+  "batch_flow": {
+    "category": "system",
+    "node": "handover_agent",
+    "section": "batch_flow",
+    "requires_system": true,
+    "json_path": "domains[].systems[].batch_flow",
+    "used_fields": [
+      "title",
+      "summary",
+      "start_nodes",
+      "highlight_nodes",
+      "end_nodes",
+      "nodes",
+      "edges"
+    ]
+  },
+  "table_lineage": {
+    "category": "system",
+    "node": "handover_agent",
+    "section": "table_lineage",
+    "requires_system": true,
+    "json_path": "domains[].systems[].table_lineage",
+    "used_fields": [
+      "title",
+      "summary",
+      "highlight_tables",
+      "source_tables",
+      "result_tables",
+      "tables",
+      "edges"
+    ]
+  },
+  "billing_monthly_amount": {
+    "category": "realtime",
+    "node": "handover_agent",
+    "query_id": "billing_monthly_amount",
+    "renderer": "chart",
+    "summary_handler": "timeseries_amount_summary",
+    "json_path": "realtime_queries[]"
+  },
+  "today_incidents": {
+    "category": "realtime",
+    "node": "handover_agent",
+    "query_id": "today_incidents",
+    "renderer": "table",
+    "summary_handler": "incident_summary",
+    "realtime_mode": "incident_table_with_summary",
+    "json_path": "realtime_queries[]"
+  },
+  "batch_development": {
+    "category": "tool",
+    "node": "batch_development",
+    "renderer": "batch_dev"
+  },
+  "sql_analysis": {
+    "category": "tool",
+    "node": "sql_analysis",
+    "renderer": "sql_analysis"
+  }
+}

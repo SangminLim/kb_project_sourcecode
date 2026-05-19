@@ -10,7 +10,6 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-
 BATCH_ID = "BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT"
 BATCH_NAME = "일반 소득공제 가맹점 파일 생성"
 OUTPUT_FILE_PREFIX = "general_deduct_merchant"
@@ -24,7 +23,6 @@ OUTPUT_ENCODING = "utf-8-sig"
 DEFAULT_OUTPUT_DIR = (
     Path(__file__).resolve().parents[2] / "output"
 ).resolve()
-
 
 def build_database_url(database_url: Optional[str] = None) -> str:
     """
@@ -67,12 +65,10 @@ def build_database_url(database_url: Optional[str] = None) -> str:
         f"@{db_host}:{db_port}/{db_service}"
     )
 
-
 def read_sql() -> str:
     return (
         Path(__file__).resolve().parent / "query.sql"
     ).read_text(encoding="utf-8").strip()
-
 
 def resolve_runtime_value(
     base_date: Optional[str] = None,
@@ -90,7 +86,6 @@ def resolve_runtime_value(
         raise ValueError("base_date 또는 base_ym 중 하나는 반드시 입력해야 합니다.")
     return value
 
-
 def build_sql_params(
     base_date: Optional[str] = None,
     base_ym: Optional[str] = None,
@@ -107,20 +102,17 @@ def build_sql_params(
         "base_ym": (base_ym or runtime_value).strip(),
     }
 
-
 def build_output_path(output_dir: str, runtime_value: str) -> Path:
     path = Path(output_dir)
     path.mkdir(parents=True, exist_ok=True)
 
     return path / f"{OUTPUT_FILE_PREFIX}_{runtime_value}.{OUTPUT_FORMAT}"
 
-
 def validate_dataframe(df: pd.DataFrame) -> None:
     # 실무 확장 포인트:
     # 건수 검증 / NULL 검증 / 중복 검증 / 금액 합계 검증 등을 추가 가능
     if df is None:
         raise ValueError("조회 결과 DataFrame이 없습니다.")
-
 
 def write_output(df: pd.DataFrame, output_path: Path) -> None:
     if OUTPUT_FORMAT == "csv":
@@ -143,7 +135,6 @@ def write_output(df: pd.DataFrame, output_path: Path) -> None:
     raise ValueError(
         f"지원하지 않는 출력 형식입니다: {OUTPUT_FORMAT}"
     )
-
 
 def run(
     database_url: Optional[str],
@@ -194,7 +185,6 @@ def run(
     )
 
     return result
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=BATCH_NAME)

@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 BATCH_ID = "BATCH_TRAD_MARKET_MERCHANT_EXPORT"
-BATCH_NAME = "전통시장가맹점테이블 파일 생성"
-OUTPUT_FILE_PREFIX = "trad_market_merchant"
+BATCH_NAME = "전통시장 가맹점 파일 생성"
+OUTPUT_FILE_PREFIX = "traditional_market_merchant"
 OUTPUT_FORMAT = "csv"
 OUTPUT_ENCODING = "utf-8-sig"
 

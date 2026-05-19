@@ -13,6 +13,7 @@
     }
   ],
   "source": {
+    "table": "TB_CARD_SALES_LEDGER",
     "table_role": "transaction_ledger",
     "column_roles": [
       "transaction_date",
@@ -62,6 +63,13 @@
       "base_month": "BASE_YM",
       "cancel_flag": "CANCEL_YN"
     }
+  },
+  "llm_spec_source": {
+    "enabled": false,
+    "used": false,
+    "error": null,
+    "draft_keys": [],
+    "notes": []
   },
   "rule_source": {
     "rule_id": "ledger_extract_with_classification",

@@ -449,11 +449,8 @@ def _run_rule_validation(
         issues=issues,
         warnings=_dedupe(warnings),
         recommendations=[
-            "운영 반영 전 실제 DB 컬럼 존재 여부와 컬럼 타입을 확인하세요.",
-            "기준일자/기간 조건 컬럼에 적절한 인덱스가 있는지 확인하세요.",
-            "파일 생성 배치라면 output_dir 권한과 파일명 중복/덮어쓰기 정책을 확인하세요.",
-            "대량 데이터 기준 row count, not null, 중복 건수 검증을 추가하세요.",
-            "LLM 검증은 보조 검증이므로 최종 승인 기준은 룰 검증과 테스트 결과를 함께 보세요.",
+            "운영 반영 전 실행계획 및 데이터 검증을 확인하세요.",
+            "대량 데이터 기준 row count 및 중복 검증을 확인하세요.",
         ],
         score_breakdown={
             "query_sql": query_sql,
@@ -1247,53 +1244,45 @@ def _calculate_operational_risk_penalty(context: Dict[str, Any]) -> Dict[str, An
 
 
 def _render_markdown_report(report: ValidationReport) -> str:
-    """ValidationReport를 사람이 보기 좋은 Markdown으로 변환한다."""
+    """ValidationReport를 운영/발표용 Markdown 형태로 렌더링한다."""
 
     if report.valid and report.warnings:
-        status = "✅ PASS WITH WARNINGS"
+        status = "PASS WITH WARNINGS"
+    elif report.valid:
+        status = "PASS"
     else:
-        status = "✅ PASS" if report.valid else "❌ CHECK REQUIRED"
+        status = "CHECK REQUIRED"
+
+    review_items = []
+    for warning in report.warnings[:4]:
+        review_items.append(f"- {warning}")
+
+    if not review_items and report.issues:
+        for issue in report.issues[:4]:
+            review_items.append(f"- {issue}")
+
+    if not review_items:
+        review_items.append("- 운영 반영 전 실행계획 및 데이터 검증 확인")
+
     lines = [
-        "# 🔍 배치 생성 검증 리포트",
+        "# 🔍 생성 결과 검증",
         "",
-        f"- 최종 상태: **{status}**",
+        f"- 상태: **{status}**",
         f"- 점수: **{report.score:.2f}**",
-        f"- 배치 유형: **{report.detected_batch_type or '확인 필요'}**",
-        f"- 검증정책: **{report.score_breakdown.get('policy_version', VALIDATION_POLICY_VERSION) if report.score_breakdown else VALIDATION_POLICY_VERSION}**",
+        f"- 배치유형: **{report.detected_batch_type or '확인 필요'}**",
         "",
         "## 요약",
-        report.summary or "요약 없음",
+        report.summary or "생성 결과 요약 없음",
         "",
         "## 배치 해석",
-        report.interpretation or "해석 없음",
+        report.interpretation or "배치 해석 정보 없음",
         "",
-        "## 검증 항목",
-        "| 항목 | 결과 | 상세 |",
-        "|---|---|---|",
+        "## 검토 필요",
     ]
 
-    for check in report.checks:
-        lines.append(f"| {check.item} | {check.result} | {check.detail} |")
+    lines.extend(review_items)
 
-    if report.issues:
-        lines.extend(["", "## 오류"])
-        lines.extend([f"- {item}" for item in report.issues])
-
-    if report.warnings:
-        lines.extend(["", "## 경고"])
-        lines.extend([f"- {item}" for item in report.warnings])
-
-    if report.score_breakdown:
-        lines.extend(["", "## 점수 산정 근거"])
-        lines.append("```json")
-        lines.append(json.dumps(report.score_breakdown, ensure_ascii=False, indent=2))
-        lines.append("```")
-
-    if report.recommendations:
-        lines.extend(["", "## 권장사항"])
-        lines.extend([f"- {item}" for item in report.recommendations])
-
-    return "\n".join(lines) + "\n"
+    return "".join(lines) + ""
 
 
 def _extract_table_candidates(batch_spec: Mapping[str, Any]) -> List[str]:

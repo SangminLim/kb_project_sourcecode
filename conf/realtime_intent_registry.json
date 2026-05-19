@@ -1,0 +1,14 @@
+{
+  "billing_monthly_amount": {
+    "query_id": "billing_monthly_amount",
+    "render_type": "chart",
+    "realtime_mode": "chart_only",
+    "canonical_question": "청구 이용내역서 월별 금액을 조회해서 그래프로 보여줘"
+  },
+  "today_incidents": {
+    "query_id": "today_incidents",
+    "render_type": "table",
+    "realtime_mode": "incident_table_with_summary",
+    "canonical_question": "오늘 장애현황 알려줘"
+  }
+}

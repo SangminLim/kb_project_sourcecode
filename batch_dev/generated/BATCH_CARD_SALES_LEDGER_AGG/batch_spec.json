@@ -19,6 +19,7 @@
     "partition_param": "base_ym"
   },
   "source": {
+    "table": "TB_CARD_SALES_LEDGER",
     "table_role": "transaction_ledger",
     "column_roles": [
       "customer_id",
@@ -72,6 +73,13 @@
       "amount": "SALES_AMT",
       "cancel_flag": "CANCEL_YN"
     }
+  },
+  "llm_spec_source": {
+    "enabled": false,
+    "used": false,
+    "error": null,
+    "draft_keys": [],
+    "notes": []
   },
   "rule_source": {
     "rule_id": "monthly_aggregation_dynamic",

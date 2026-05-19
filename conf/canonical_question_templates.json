@@ -1,0 +1,7 @@
+{
+  "overview": "{system_name} 소득공제 업무 개요를 알려줘",
+  "batch_process": "{system_name} 소득공제 배치 프로세스를 설명해줘",
+  "batch_flow": "{system_name} 소득공제 배치 흐름도를 그려줘",
+  "table_lineage": "{system_name} 소득공제 테이블 리니지를 보여줘",
+  "batch_development": "{question}"
+}

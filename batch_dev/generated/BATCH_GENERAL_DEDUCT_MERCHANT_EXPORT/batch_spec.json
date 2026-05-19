@@ -13,9 +13,20 @@
     }
   ],
   "source": {
+    "table": "TB_GENERAL_DEDUCT_MERCHANT",
+    "columns": [
+      "MERCHANT_ID",
+      "MERCHANT_NM",
+      "BIZ_NO",
+      "MCC_CD",
+      "APPLY_START_DT",
+      "APPLY_END_DT",
+      "USE_YN"
+    ],
     "table_role": "classification_master",
     "column_roles": [],
     "base_date_column_role": "transaction_date",
+    "base_date_column": "APPLY_START_DT",
     "dynamic_inference": true
   },
   "target": {

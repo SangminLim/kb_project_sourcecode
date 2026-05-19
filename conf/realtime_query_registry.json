@@ -1,0 +1,37 @@
+{
+  "queries": {
+    "today_incidents": {
+      "title": "오늘 장애현황",
+      "sql_file": "today_incidents.sql",
+      "variables": {
+        "schema": "env:REALTIME_DB_SCHEMA"
+      },
+      "params": {
+        "status": "FAIL",
+        "limit_count": 100
+      },
+      "param_schema": {
+        "status": {
+          "type": "string",
+          "required": true,
+          "allowed_values": ["FAIL", "ERROR", "FAILED"]
+        },
+        "limit_count": {
+          "type": "integer",
+          "required": true,
+          "min": 1,
+          "max": 1000
+        }
+      }
+    },
+    "billing_monthly_amount": {
+      "title": "청구 이용내역서 월별 금액",
+      "sql_file": "billing_monthly_amount.sql",
+      "variables": {
+        "schema": "env:REALTIME_DB_SCHEMA"
+      },
+      "params": {},
+      "param_schema": {}
+    }
+  }
+}
