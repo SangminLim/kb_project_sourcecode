@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from batch_dev.request_classifier import detect_structured_request_type
+from agents.batch_dev.classifier.request_classifier import detect_structured_request_type
 
 from .config import (
     CANONICAL_QUESTION_TEMPLATES, CONVERSATION_POLICY, INTENT_PATTERNS,

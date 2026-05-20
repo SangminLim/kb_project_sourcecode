@@ -2,13 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from langgraph.graph import StateGraph, START, END
-except Exception:
-    StateGraph = None
-    START = "__start__"
-    END = "__end__"
-
 from .config import LLM_LANGGRAPH_ENABLED, ChatConfig, CONVERSATION_POLICY
 from .data_access import get_system_by_id, get_realtime_intent_spec, get_realtime_query
 from .intent import (
@@ -25,6 +18,7 @@ from .response_builder import (
 from .retrieval import compress_search_result, retrieve_docs
 from .rewrite import rewrite_question
 from .utils import load_json, normalize_whitespace
+from .workflow import run_handover_graph
 
 class HandoverAgent:
     def __init__(
@@ -100,7 +94,14 @@ class HandoverAgent:
         return self._answer_question_linear(question, chat_history, top_k)
 
     def _should_use_langgraph(self) -> bool:
-        return bool(LLM_LANGGRAPH_ENABLED and StateGraph is not None)
+        if not LLM_LANGGRAPH_ENABLED:
+            return False
+
+        try:
+            from langgraph.graph import StateGraph  # noqa
+            return True
+        except Exception:
+            return False
 
     def _answer_question_graph(
         self,
@@ -108,44 +109,14 @@ class HandoverAgent:
         chat_history: Optional[List[Dict[str, str]]] = None,
         top_k: int = 4,
     ) -> AgentResult:
-        workflow = StateGraph(AgentWorkflowState)
-        workflow.add_node("prepare", self._graph_prepare_node)
-        workflow.add_node("rewrite", self._graph_rewrite_node)
-        workflow.add_node("resolve", self._graph_resolve_node)
-        workflow.add_node("guard", self._graph_guard_node)
-        workflow.add_node("retrieve", self._graph_retrieve_node)
-        workflow.add_node("respond", self._graph_respond_node)
+        """LangGraph workflow 실행."""
 
-        workflow.add_edge(START, "prepare")
-        workflow.add_edge("prepare", "rewrite")
-        workflow.add_edge("rewrite", "resolve")
-        workflow.add_edge("resolve", "guard")
-        workflow.add_conditional_edges(
-            "guard",
-            self._graph_after_guard,
-            {
-                "end": END,
-                "retrieve": "retrieve",
-            },
+        return run_handover_graph(
+            agent=self,
+            question=question,
+            chat_history=chat_history or [],
+            top_k=top_k,
         )
-        workflow.add_edge("retrieve", "respond")
-        workflow.add_edge("respond", END)
-
-        compiled = workflow.compile()
-        initial_state: AgentWorkflowState = {
-            "question": question,
-            "chat_history": chat_history or [],
-            "top_k": top_k,
-            "debug_logs": [
-                f"[LG 0] llm_langgraph_enabled = {LLM_LANGGRAPH_ENABLED}",
-                f"[LC 1] feature_flags = {get_langchain_feature_flags()}",
-            ],
-        }
-        final_state = compiled.invoke(initial_state)
-        result = final_state.get("result")
-        if not result:
-            raise RuntimeError("LangGraph workflow did not return AgentResult.")
-        return result
 
     def _graph_prepare_node(self, state: AgentWorkflowState) -> AgentWorkflowState:
         question = state.get("question", "")

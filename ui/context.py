@@ -50,11 +50,19 @@ AGENT_INTENT_REGISTRY_PATH = (
     CONFIG_DIR / "agent_intent_registry.json"
 )
 
-from llm import ChatConfig, HandoverAgent, ollama_generate, apply_dictionary_rewrite, detect_intent, get_llm_engine_name, get_langchain_feature_flags
-from realtime_query_service import RealtimeQueryService
-from batch_dev import BatchDevAgent
+from agents.handover import (
+    ChatConfig,
+    HandoverAgent,
+    ollama_generate,
+    apply_dictionary_rewrite,
+    detect_intent,
+    get_llm_engine_name,
+    get_langchain_feature_flags,
+)
+from services.realtime_query_service import RealtimeQueryService
+from agents.batch_dev import BatchDevAgent
 try:
-    from batch_dev.config import BATCH_SQL_IMPROVEMENT_ENABLED
+    from agents.batch_dev.config import BATCH_SQL_IMPROVEMENT_ENABLED
 except Exception:
     # config.py 반영 전에도 앱이 깨지지 않도록 환경변수 fallback을 둔다.
     # 기본값은 false: 배치 개발 요청 화면에서 SQL 자동 개선 제안을 실행/표시하지 않는다.
@@ -62,8 +70,8 @@ except Exception:
         "BATCH_SQL_IMPROVEMENT_ENABLED",
         "false",
     ).strip().lower() in {"1", "true", "yes", "y"}
-from batch_dev.llm_batch_validator import validate_batch_generation
-from batch_dev.sql_improvement_advisor import analyze_sql_improvement
+from agents.batch_dev.validation.llm_batch_validator import validate_batch_generation
+from agents.batch_dev.advisor.sql_improvement_advisor import analyze_sql_improvement
 
 PAGE_TITLE = "업무 인수인계 에이전트"
 PAGE_ICON = "🤖"

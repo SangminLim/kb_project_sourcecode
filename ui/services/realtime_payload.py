@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import streamlit as st
 
-from realtime_query_service import RealtimeQueryService
+from services.realtime_query_service import RealtimeQueryService
 
 from ..context import (
     DATABASE_URL,
