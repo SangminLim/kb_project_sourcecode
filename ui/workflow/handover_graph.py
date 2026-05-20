@@ -9,6 +9,7 @@ from ..state import build_chat_history
 from ..services.realtime_payload import enrich_result_with_realtime_payload
 from ..sql.sql_analysis_ui import run_sql_analysis_request
 from ..batch.batch_ui import run_batch_development, run_batch_llm_validation, run_batch_sql_improvement
+from agents.batch_dev.classifier.request_classifier import detect_structured_request_type
 
 def unique_preserve_order(items: List[Any]) -> List[str]:
     """순서를 유지하면서 중복 값을 제거한다.
@@ -217,13 +218,42 @@ def _agent_graph_routes() -> List[Dict[str, Any]]:
 
 
 def _resolve_route_by_intent(intent: str) -> str:
-    """intent를 실행 노드명으로 변환한다."""
+    """intent를 실행 노드명으로 변환한다.
+
+    1. agent_graph_policy.json routes 우선
+    2. intent 값이 실제 그래프 실행 노드명과 같으면 직접 라우팅
+    3. 그 외 fallback
+    """
     normalized_intent = str(intent or "default").strip()
+
     for route in _agent_graph_routes():
         node = str(route.get("node") or route.get("name") or "").strip()
         intents = [str(item).strip() for item in route.get("intents", []) if str(item).strip()]
         if node and normalized_intent in intents:
             return node
+
+    policy_nodes = set()
+    graph_nodes = AGENT_GRAPH_POLICY.get("graph_nodes") if isinstance(AGENT_GRAPH_POLICY, dict) else None
+    if isinstance(graph_nodes, dict):
+        policy_nodes.update(str(node).strip() for node in graph_nodes.keys() if str(node).strip())
+
+    for route in _agent_graph_routes():
+        node = str(route.get("node") or route.get("name") or "").strip()
+        if node:
+            policy_nodes.add(node)
+
+    # build_handover_graph에서 실제 add_node로 등록하는 실행 노드명.
+    # 업무명/테이블명/배치명 하드코딩이 아니라 그래프 노드명 안전망이다.
+    runtime_nodes = {
+        "sql_analysis",
+        "batch_development",
+        "handover_agent",
+        "general_fallback",
+    }
+
+    if normalized_intent in policy_nodes or normalized_intent in runtime_nodes:
+        return normalized_intent
+
     return str(AGENT_GRAPH_POLICY.get("fallback_node") or "general_fallback")
 
 
@@ -295,19 +325,30 @@ def _attach_graph_trace_to_result(result: Any, trace: List[str]) -> Any:
 
 
 def graph_classify_node(state: HandoverGraphState) -> HandoverGraphState:
-    """질문을 표준화하고 1차 intent를 판별한다."""
+    """질문을 표준화하고 1차 intent를 판별한다.
+
+    구조화된 배치 요청서는 일반 자연어 intent 분류보다 먼저 감지한다.
+    """
     question = str(state.get("question") or "").strip()
     normalized_question = apply_dictionary_rewrite(question)
-    initial_intent = detect_intent(normalized_question)
+
+    structured_intent = detect_structured_request_type(question)
+    detected_intent = detect_intent(normalized_question)
+    initial_intent = structured_intent or detected_intent
+
+    trace = _append_graph_trace(
+        state,
+        f"[GRAPH 1] classify intent={initial_intent}",
+    )
+    trace.append(f"[GRAPH 1-1] structured_intent={structured_intent}")
+    trace.append(f"[GRAPH 1-2] detected_intent={detected_intent}")
+
     return {
         **state,
         "question": question,
         "normalized_question": normalized_question,
         "initial_intent": initial_intent,
-        "graph_trace": _append_graph_trace(
-            state,
-            f"[GRAPH 1] classify intent={initial_intent}",
-        ),
+        "graph_trace": trace,
     }
 
 
@@ -317,23 +358,34 @@ def graph_route_node(state: HandoverGraphState) -> HandoverGraphState:
         route = str(AGENT_GRAPH_POLICY.get("force_sql_analysis_node") or "sql_analysis")
     else:
         route = _resolve_route_by_intent(str(state.get("initial_intent") or "default"))
+
+    trace = _append_graph_trace(state, f"[GRAPH 2] route={route}")
+    trace.append(f"[GRAPH 2-1] initial_intent={state.get('initial_intent')}")
+
     return {
         **state,
         "route": route,
-        "graph_trace": _append_graph_trace(state, f"[GRAPH 2] route={route}"),
+        "graph_trace": trace,
     }
 
 
 def graph_next_node(state: HandoverGraphState) -> str:
-    """LangGraph conditional edge에서 사용할 실행 노드명."""
+    """LangGraph conditional edge에서 사용할 실행 노드명.
+
+    구조화 배치요청서에서 판별된 route가
+    agent_graph_policy.json 누락 때문에 fallback 되지 않도록
+    실제 실행 가능한 graph node 기준으로 허용한다.
+    """
     route = str(state.get("route") or "general_fallback").strip()
-    allowed_nodes = set((AGENT_GRAPH_POLICY.get("graph_nodes") or {}).keys()) or {
-        str(route_spec.get("node"))
-        for route_spec in AGENT_GRAPH_POLICY.get("routes", [])
-        if isinstance(route_spec, dict) and route_spec.get("node")
+
+    allowed_nodes = {
+        "sql_analysis",
+        "batch_development",
+        "handover_agent",
+        "general_fallback",
     }
-    allowed_nodes.add(str(AGENT_GRAPH_POLICY.get("fallback_node") or "general_fallback"))
-    return route if route in allowed_nodes else str(AGENT_GRAPH_POLICY.get("fallback_node") or "general_fallback")
+
+    return route if route in allowed_nodes else "general_fallback"
 
 
 def graph_after_execute_node(state: HandoverGraphState) -> str:
@@ -590,7 +642,9 @@ def run_legacy_handover_flow(
 ) -> Any:
     """LangGraph 비활성/미설치 시 기존 처리 흐름을 그대로 수행한다."""
     normalized_for_intent = apply_dictionary_rewrite(user_question)
-    initial_intent = detect_intent(normalized_for_intent)
+    structured_intent = detect_structured_request_type(user_question)
+    initial_intent = structured_intent or detect_intent(normalized_for_intent)
+
     if force_sql_analysis:
         return run_sql_analysis_request(user_question)
     if initial_intent == "batch_development":

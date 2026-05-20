@@ -27,8 +27,14 @@
     ],
     "table_role": "classification_master",
     "column_roles": [],
-    "base_date_column_role": "transaction_date",
+    "base_date_column_role": "effective_date_range",
     "base_date_column": "APPLY_START_DT",
+    "effective_date": {
+      "start_column": "APPLY_START_DT",
+      "end_column": "APPLY_END_DT",
+      "parameter": "base_date",
+      "use_flag_column": "USE_YN"
+    },
     "dynamic_inference": true
   },
   "target": {
@@ -38,7 +44,7 @@
     "output_dir": "./output",
     "encoding": "utf-8-sig"
   },
-  "sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE APPLY_START_DT = :base_date",
+  "sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
   "validation_rules": {
     "min_rows": 0,
     "not_null_columns": [
@@ -53,8 +59,27 @@
       "base": "TB_TRAD_MARKET_MERCHANT"
     },
     "resolved_columns": {
-      "base_date": "APPLY_START_DT"
+      "base_date": "APPLY_START_DT",
+      "effective_start": "APPLY_START_DT",
+      "effective_end": "APPLY_END_DT",
+      "use_flag": "USE_YN"
     }
+  },
+  "llm_spec_source": {
+    "enabled": false,
+    "used": false,
+    "error": null,
+    "draft_keys": [],
+    "notes": [],
+    "capabilities": [
+      "aggregation_source",
+      "classification_master_available",
+      "classification_relation_available",
+      "effective_date_matching",
+      "file_export",
+      "source_role:classification_master",
+      "use_flag_filter"
+    ]
   },
   "rule_source": {
     "rule_id": null,

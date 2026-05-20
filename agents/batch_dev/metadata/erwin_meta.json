@@ -426,6 +426,85 @@
         }
       ],
       "table_role": "transaction_ledger"
+    },
+    {
+      "table_name": "TB_DEDUCTION_MONTHLY_SUMMARY",
+      "table_kor_name": "소득공제월별집계테이블",
+      "aliases": [
+        "월별집계테이블",
+        "소득공제 월별 집계",
+        "소득공제 월별 집계 테이블"
+      ],
+      "description": "소득공제 대상 거래를 고객/기준년월/가맹점유형 단위로 집계한 결과 테이블",
+      "primary_keys": [
+        "CUSTOMER_ID",
+        "BASE_YM",
+        "MERCHANT_TYPE"
+      ],
+      "columns": [
+        {
+          "column_name": "CUSTOMER_ID",
+          "column_kor_name": "고객ID",
+          "data_type": "VARCHAR2",
+          "length": 20,
+          "nullable": false,
+          "role": "customer_id"
+        },
+        {
+          "column_name": "BASE_YM",
+          "column_kor_name": "기준년월",
+          "data_type": "VARCHAR2",
+          "length": 6,
+          "nullable": false,
+          "role": "base_month"
+        },
+        {
+          "column_name": "MERCHANT_TYPE",
+          "column_kor_name": "가맹점유형",
+          "data_type": "VARCHAR2",
+          "length": 30,
+          "nullable": false,
+          "role": "classification_type"
+        },
+        {
+          "column_name": "TOTAL_AMT",
+          "column_kor_name": "총이용금액",
+          "data_type": "NUMBER",
+          "nullable": false,
+          "role": "amount_sum"
+        },
+        {
+          "column_name": "TXN_COUNT",
+          "column_kor_name": "거래건수",
+          "data_type": "NUMBER",
+          "nullable": false,
+          "role": "row_count"
+        },
+        {
+          "column_name": "REG_DTM",
+          "column_kor_name": "등록일시",
+          "data_type": "DATE",
+          "nullable": false,
+          "role": "reg_datetime"
+        }
+      ],
+      "indexes": [
+        {
+          "index_name": "PK_DEDUCTION_MONTHLY_SUMMARY",
+          "columns": [
+            "CUSTOMER_ID",
+            "BASE_YM",
+            "MERCHANT_TYPE"
+          ]
+        },
+        {
+          "index_name": "IDX_DEDUCTION_MONTHLY_SUMMARY_01",
+          "columns": [
+            "BASE_YM"
+          ]
+        }
+      ],
+      "table_role": "monthly_summary"
     }
   ],
   "relations": [

@@ -412,6 +412,15 @@ def _run_rule_validation(
     checks.extend(sql_quality_checks)
     warnings.extend(sql_quality_warnings)
 
+    semantic_checks, semantic_issues, semantic_warnings = _run_semantic_requirement_validation(
+        request_text=request_text,
+        query_sql=query_sql,
+        batch_spec=batch_spec,
+    )
+    checks.extend(semantic_checks)
+    issues.extend(semantic_issues)
+    warnings.extend(semantic_warnings)
+
     output_checks, output_warnings = _run_output_validation(batch_spec)
     checks.extend(output_checks)
     warnings.extend(output_warnings)
@@ -548,6 +557,161 @@ def _run_sql_quality_validation(
         )
 
     return checks, warnings
+
+
+
+def _infer_request_capabilities_for_validation(request_text: str) -> set[str]:
+    """요청서에서 일반 처리 능력을 추론한다.
+
+    특정 배치명/테이블명이 아니라 출력 컬럼, 처리 동사, 기준 파라미터 같은
+    구조적 단서만 사용한다.
+    """
+    text = str(request_text or "")
+    upper = text.upper()
+    compact = re.sub(r"\s+", "", text).lower()
+
+    capabilities: set[str] = set()
+
+    if any(token in upper for token in ["TOTAL_", "SUM(", "COUNT(", "TXN_COUNT"]) or any(token in compact for token in ["집계", "합계", "건수"]):
+        capabilities.add("aggregation")
+
+    if any(token in upper for token in ["GROUP BY", "CUSTOMER_ID", "BASE_YM", "MERCHANT_TYPE"]) or any(token in compact for token in ["고객별", "월별", "유형별", "기준으로"]):
+        capabilities.add("group_by")
+
+    if "MERCHANT_TYPE" in upper or any(token in compact for token in ["가맹점유형", "분류마스터", "참조"]):
+        capabilities.add("classification_join")
+
+    if any(token in upper for token in ["APPLY_START_DT", "APPLY_END_DT", "BETWEEN"]) or any(token in compact for token in ["유효기간", "적용기간", "적용시작", "적용종료"]):
+        capabilities.add("effective_date_matching")
+
+    if "CANCEL_YN" in upper or any(token in compact for token in ["취소여부", "취소거래", "취소"]):
+        capabilities.add("exclude_cancelled")
+
+    if "USE_YN" in upper or "사용여부" in compact:
+        capabilities.add("use_flag_filter")
+
+    if "BASE_YM" in upper or "기준년월" in compact:
+        capabilities.add("base_month_parameter")
+
+    if any(token in compact for token in ["deleteinsert", "delete-insert", "delete후insert", "삭제후삽입"]):
+        capabilities.add("replace_partition")
+
+    return capabilities
+
+
+def _run_semantic_requirement_validation(
+    request_text: str,
+    query_sql: str,
+    batch_spec: Mapping[str, Any],
+) -> Tuple[List[ValidationCheck], List[str], List[str]]:
+    """요청서가 요구한 처리 능력과 생성 결과의 의미 일치성을 결정적으로 검증한다."""
+    checks: List[ValidationCheck] = []
+    issues: List[str] = []
+    warnings: List[str] = []
+
+    capabilities = _infer_request_capabilities_for_validation(request_text)
+    sql = str(query_sql or "")
+    upper_sql = sql.upper()
+    batch_type = str(batch_spec.get("batch_type") or batch_spec.get("type") or "").lower()
+
+    if "aggregation" in capabilities:
+        has_aggregate = bool(re.search(r"\b(SUM|COUNT|AVG|MIN|MAX)\s*\(", upper_sql))
+        has_group_by = bool(re.search(r"\bGROUP\s+BY\b", upper_sql))
+        if batch_type != "aggregation_to_table":
+            checks.append(
+                ValidationCheck(
+                    "요청 목적 적합성",
+                    "FAIL",
+                    "요청서는 집계 처리를 요구하지만 batch_type이 aggregation_to_table이 아닙니다.",
+                )
+            )
+            issues.append("집계 요청이 단순 추출 배치로 생성되었습니다.")
+        if not has_aggregate or not has_group_by:
+            checks.append(
+                ValidationCheck(
+                    "집계 SQL 의미 일치성",
+                    "FAIL",
+                    "요청서는 집계 결과를 요구하지만 SQL에 집계 함수 또는 GROUP BY가 부족합니다.",
+                )
+            )
+            issues.append("집계 요청에 필요한 SUM/COUNT/GROUP BY SQL이 누락되었습니다.")
+        if has_aggregate and has_group_by and batch_type == "aggregation_to_table":
+            checks.append(
+                ValidationCheck(
+                    "집계 SQL 의미 일치성",
+                    "PASS",
+                    "집계 함수와 GROUP BY가 SQL에 포함되어 있습니다.",
+                )
+            )
+
+    if "classification_join" in capabilities:
+        has_join = bool(re.search(r"\bJOIN\b", upper_sql))
+        if not has_join:
+            checks.append(
+                ValidationCheck(
+                    "분류 마스터 조인",
+                    "FAIL",
+                    "요청서는 분류/유형 판단을 요구하지만 SQL에 JOIN이 없습니다.",
+                )
+            )
+            issues.append("가맹점 유형 판단을 위한 분류 마스터 JOIN이 누락되었습니다.")
+
+    if "effective_date_matching" in capabilities:
+        has_effective = bool(
+            re.search(r"APPLY_START|START_DT|VALID_START", upper_sql)
+            and re.search(r"APPLY_END|END_DT|VALID_END", upper_sql)
+            and (re.search(r"\bBETWEEN\b", upper_sql) or re.search(r"<=|>=", upper_sql))
+        )
+        if not has_effective:
+            checks.append(
+                ValidationCheck(
+                    "유효기간 매칭",
+                    "FAIL",
+                    "요청서는 시작/종료일 기준 유효기간 매칭을 요구하지만 SQL에서 기간 조건을 확인하지 못했습니다.",
+                )
+            )
+            issues.append("유효기간 매칭 조건이 SQL에 반영되지 않았습니다.")
+
+    if "exclude_cancelled" in capabilities:
+        has_cancel_filter = bool(re.search(r"CANCEL_YN\s*=\s*['\"]?N['\"]?|CNCL_YN\s*=\s*['\"]?N['\"]?", upper_sql))
+        if not has_cancel_filter:
+            checks.append(
+                ValidationCheck(
+                    "취소 거래 제외",
+                    "FAIL",
+                    "요청서는 취소 거래 제외를 요구하지만 SQL에서 취소여부=N 조건을 확인하지 못했습니다.",
+                )
+            )
+            issues.append("취소 거래 제외 조건이 SQL에 반영되지 않았습니다.")
+
+    if "use_flag_filter" in capabilities:
+        has_use_filter = bool(re.search(r"USE_YN\s*=\s*['\"]?Y['\"]?|VALID_YN\s*=\s*['\"]?Y['\"]?", upper_sql))
+        if not has_use_filter:
+            checks.append(
+                ValidationCheck(
+                    "사용여부 필터",
+                    "WARN",
+                    "요청서는 사용여부=Y 조건을 요구하지만 SQL에서 명확한 사용여부 필터를 확인하지 못했습니다.",
+                )
+            )
+            warnings.append("사용여부=Y 조건 반영 여부 확인 필요")
+
+    if "replace_partition" in capabilities:
+        execution_strategy = batch_spec.get("execution_strategy") or {}
+        target = batch_spec.get("target") or {}
+        has_strategy = bool(execution_strategy) or bool(isinstance(target, Mapping) and target.get("execution_strategy"))
+        if not has_strategy:
+            checks.append(
+                ValidationCheck(
+                    "재처리 전략",
+                    "WARN",
+                    "요청서는 Delete Insert 계열 재처리를 요구하지만 batch_spec에서 execution_strategy가 명확하지 않습니다.",
+                )
+            )
+            warnings.append("Delete Insert 재처리 전략 확인 필요")
+
+    return checks, issues, warnings
+
 
 
 def _run_output_validation(batch_spec: Mapping[str, Any]) -> Tuple[List[ValidationCheck], List[str]]:
@@ -936,6 +1100,7 @@ def _is_blocking_fail_check(check: ValidationCheck) -> bool:
         "join_condition_missing",
         "parameter_blocker",
         "execution_blocker",
+        "semantic",
     }
 
 

@@ -1,0 +1,159 @@
+{
+  "valid": true,
+  "score": 0.848,
+  "summary": "소득공제 대상 거래 추출 배치가 월배치 형태로 생성되었으며, 배치 유형과 실행 주기가 일치하고 SQL과 job.py가 기본 파일 출력 로직을 포함하고 있다. 운영 반영 전 검토사항이 있습니다.",
+  "interpretation": "배치는 TB_CARD_SALES_LEDGER에서 BASE_YM 기준 거래 데이터를 조회하여 도서공연, 전통시장, 일반소득공제 가맹점 유형을 구분하는 분류 마스터 테이블과 LEFT JOIN을 수행한다. 취소거래 제외 및 사용여부 'Y' 조건을 WHERE 절에 명시하고, SALES_DT가 각 마스터 테이블의 적용기간 내에 있는지 IFNULL을 활용해 처리한다. 결과는 CSV 파일로 card_sales_ledger_{base_ym}.csv 형식으로 ./output 디렉토리에 UTF-8-SIG 인코딩으로 저장된다.",
+  "detected_batch_type": "ledger_extract_with_classification",
+  "checks": [
+    {
+      "item": "batch_spec.json",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "query.sql",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "job.py",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "SQL 위험 패턴",
+      "result": "PASS",
+      "detail": "명백한 위험 SQL 패턴은 발견되지 않았습니다."
+    },
+    {
+      "item": "SQL 파라미터와 batch_spec 일치성",
+      "result": "PASS",
+      "detail": "SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_ym"
+    },
+    {
+      "item": "출력 형식",
+      "result": "PASS",
+      "detail": "출력 형식이 정의되어 있습니다: csv"
+    },
+    {
+      "item": "출력 파일명 패턴",
+      "result": "PASS",
+      "detail": "파일명 패턴이 정의되어 있습니다: card_sales_ledger_{base_ym}.csv"
+    },
+    {
+      "item": "spec 테이블과 SQL 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
+    },
+    {
+      "item": "요청 목적 적합성",
+      "result": "PASS",
+      "detail": "배치명 '소득공제 대상 거래 추출 배치'와 배치 유형 'ledger_extract_with_classification'이 원본 요청과 일치하며, 출력 목적 및 처리 내용이 정확히 반영되었다."
+    },
+    {
+      "item": "batch_type 일치성",
+      "result": "PASS",
+      "detail": "batch_type이 'db_to_file'로 설정되어 있고, README 및 job.py 실행 단서에서 CSV 출력 로직이 명시되어 있어 배치 유형과 실행 방식이 일치한다."
+    },
+    {
+      "item": "SQL 의미 일치성",
+      "result": "PASS",
+      "detail": "FROM/JOIN/WHERE 조건이 원본 요청의 '기준 테이블 조회', '가맹점 분류 마스터 JOIN', '거래일자와 적용기간 비교', '취소거래 제외', '사용여부 Y' 조건을 모두 정확히 구현했다."
+    },
+    {
+      "item": "파라미터 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 parameters에 'base_ym'이 필수 true로 정의되어 있고, SQL에서 :base_ym으로 참조되어 의미적으로 연결되었다."
+    },
+    {
+      "item": "파일 출력 설정 적절성",
+      "result": "PASS",
+      "detail": "output_format이 'csv', output_file_pattern이 'card_sales_ledger_{base_ym}.csv', output_dir이 './output', encoding이 'utf-8-sig'로 운영 관점에서 적절한 설정이다."
+    },
+    {
+      "item": "job.py 실행 단서",
+      "result": "PASS",
+      "detail": "README 및 job.py 실행 단서에서 DB 접속/SQL 실행 로직과 CSV 출력 로직이 포함되어 있어 배치 실행 흐름을 확인할 수 있다."
+    },
+    {
+      "item": "테스트 충분성",
+      "result": "WARN",
+      "detail": "test_job.py는 파일 존재 여부만 검증하며, SQL 구문, 파라미터 유효성, 파일 포맷, 데이터 품질 검증은 포함하지 않아 테스트 범위가 제한적이다."
+    },
+    {
+      "item": "성능 위험",
+      "result": "WARN",
+      "detail": "TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스가 없을 경우 Full Scan 가능성이 있으며, 대량 데이터 조회 시 성능 저하 위험이 있다."
+    },
+    {
+      "item": "데이터 품질 검증",
+      "result": "WARN",
+      "detail": "NOT NULL 컬럼 검증은 있으나, 중복 거래, 금액 합계 검증, BASE_YM 기준일자 경계 조건 검증 등 추가적인 데이터 품질 검증이 필요하다."
+    },
+    {
+      "item": "재처리 위험",
+      "result": "WARN",
+      "detail": "파일 덮어쓰기 및 중복 적재 방지를 위한 멱등성 로직이 명시되지 않았으며, 삭제 후 적재 여부에 대한 검토가 필요하다."
+    }
+  ],
+  "issues": [],
+  "warnings": [
+    "테스트 범위가 파일 존재 여부만 검증하므로 SQL 구문, 파라미터 유효성, 파일 포맷, 데이터 품질 검증을 포함한 통합 테스트 필요",
+    "TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스 적용 여부를 확인하여 대량 데이터 조회 성능 최적화 필요",
+    "파일 덮어쓰기 및 중복 적재 방지를 위한 멱등성 로직 추가 검토 필요"
+  ],
+  "recommendations": [
+    "운영 반영 전 실행계획 및 데이터 검증을 확인하세요.",
+    "대량 데이터 기준 row count 및 중복 검증을 확인하세요.",
+    "TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스 적용 여부를 확인하고 필요 시 인덱스 생성",
+    "test_job.py를 확장하여 SQL 구문 검증, 파라미터 유효성 검사, 파일 포맷 검증, 데이터 품질 검증 로직을 추가",
+    "파일 생성 시 중복 방지를 위한 파일명 충돌 방지 로직 또는 적재 전 중복 체크 로직 구현",
+    "BASE_YM 기준일자 경계 조건(예: 202501 vs 202502)에 대한 테스트 케이스 추가"
+  ],
+  "raw_llm_response": "{\"valid\": true, \"score\": 0.85, \"summary\": \"소득공제 대상 거래 추출 배치가 월배치 형태로 생성되었으며, 배치 유형과 실행 주기가 일치하고 SQL과 job.py가 기본 파일 출력 로직을 포함하고 있다.\", \"interpretation\": \"배치는 TB_CARD_SALES_LEDGER에서 BASE_YM 기준 거래 데이터를 조회하여 도서공연, 전통시장, 일반소득공제 가맹점 유형을 구분하는 분류 마스터 테이블과 LEFT JOIN을 수행한다. 취소거래 제외 및 사용여부 'Y' 조건을 WHERE 절에 명시하고, SALES_DT가 각 마스터 테이블의 적용기간 내에 있는지 IFNULL을 활용해 처리한다. 결과는 CSV 파일로 card_sales_ledger_{base_ym}.csv 형식으로 ./output 디렉토리에 UTF-8-SIG 인코딩으로 저장된다.\", \"detected_batch_type\": \"ledger_extract_with_classification\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명 '소득공제 대상 거래 추출 배치'와 배치 유형 'ledger_extract_with_classification'이 원본 요청과 일치하며, 출력 목적 및 처리 내용이 정확히 반영되었다.\"}, {\"item\": \"batch_type 일치성\", \"result\": \"PASS\", \"detail\": \"batch_type이 'db_to_file'로 설정되어 있고, README 및 job.py 실행 단서에서 CSV 출력 로직이 명시되어 있어 배치 유형과 실행 방식이 일치한다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"FROM/JOIN/WHERE 조건이 원본 요청의 '기준 테이블 조회', '가맹점 분류 마스터 JOIN', '거래일자와 적용기간 비교', '취소거래 제외', '사용여부 Y' 조건을 모두 정확히 구현했다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 parameters에 'base_ym'이 필수 true로 정의되어 있고, SQL에서 :base_ym으로 참조되어 의미적으로 연결되었다.\"}, {\"item\": \"파일 출력 설정 적절성\", \"result\": \"PASS\", \"detail\": \"output_format이 'csv', output_file_pattern이 'card_sales_ledger_{base_ym}.csv', output_dir이 './output', encoding이 'utf-8-sig'로 운영 관점에서 적절한 설정이다.\"}, {\"item\": \"job.py 실행 단서\", \"result\": \"PASS\", \"detail\": \"README 및 job.py 실행 단서에서 DB 접속/SQL 실행 로직과 CSV 출력 로직이 포함되어 있어 배치 실행 흐름을 확인할 수 있다.\"}, {\"item\": \"테스트 충분성\", \"result\": \"WARN\", \"detail\": \"test_job.py는 파일 존재 여부만 검증하며, SQL 구문, 파라미터 유효성, 파일 포맷, 데이터 품질 검증은 포함하지 않아 테스트 범위가 제한적이다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스가 없을 경우 Full Scan 가능성이 있으며, 대량 데이터 조회 시 성능 저하 위험이 있다.\"}, {\"item\": \"데이터 품질 검증\", \"result\": \"WARN\", \"detail\": \"NOT NULL 컬럼 검증은 있으나, 중복 거래, 금액 합계 검증, BASE_YM 기준일자 경계 조건 검증 등 추가적인 데이터 품질 검증이 필요하다.\"}, {\"item\": \"재처리 위험\", \"result\": \"WARN\", \"detail\": \"파일 덮어쓰기 및 중복 적재 방지를 위한 멱등성 로직이 명시되지 않았으며, 삭제 후 적재 여부에 대한 검토가 필요하다.\"}], \"issues\": [], \"warnings\": [\"테스트 범위가 파일 존재 여부만 검증하므로 SQL 구문, 파라미터 유효성, 파일 포맷, 데이터 품질 검증을 포함한 통합 테스트 필요\", \"TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스 적용 여부를 확인하여 대량 데이터 조회 성능 최적화 필요\", \"파일 덮어쓰기 및 중복 적재 방지를 위한 멱등성 로직 추가 검토 필요\"], \"recommendations\": [\"TB_CARD_SALES_LEDGER의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스 적용 여부를 확인하고 필요 시 인덱스 생성\", \"test_job.py를 확장하여 SQL 구문 검증, 파라미터 유효성 검사, 파일 포맷 검증, 데이터 품질 검증 로직을 추가\", \"파일 생성 시 중복 방지를 위한 파일명 충돌 방지 로직 또는 적재 전 중복 체크 로직 구현\", \"BASE_YM 기준일자 경계 조건(예: 202501 vs 202502)에 대한 테스트 케이스 추가\"]}",
+  "score_breakdown": {
+    "policy_version": "practical-scoring-v3-nonblocking-warn",
+    "final_score": 0.848,
+    "rule_score": 1.0,
+    "llm_score": 0.85,
+    "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
+    "blocking_fail_checks": [],
+    "downgraded_fail_checks": [],
+    "score_policy": {
+      "policy_version": "practical-scoring-v3-nonblocking-warn",
+      "effective_rule_score": 1.0,
+      "effective_llm_score": 0.85,
+      "base_score_before_penalty": 0.917,
+      "warn_penalty": 0.014,
+      "risk_penalty": 0.055,
+      "pass_count": 14,
+      "warn_count": 4,
+      "fail_count_after_normalization": 0,
+      "has_blocking_fail": false,
+      "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
+    },
+    "risk_penalty": {
+      "total_penalty": 0.055,
+      "penalties": {
+        "join_complexity": 0.018000000000000002,
+        "case_classification": 0.006,
+        "condition_complexity": 0.006,
+        "performance_review": 0.008,
+        "test_coverage_gap": 0.008,
+        "reprocess_or_duplication_review": 0.008,
+        "data_quality_review": 0.008,
+        "warning_volume": 0.0045000000000000005
+      },
+      "signals": {
+        "join_count": 3,
+        "aggregate_count": 0,
+        "warning_count": 3,
+        "has_group_by": false,
+        "has_case": true,
+        "has_insert": false,
+        "has_delete_or_delete_insert": false,
+        "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
+      }
+    }
+  }
+}

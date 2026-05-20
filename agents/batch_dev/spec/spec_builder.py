@@ -14,11 +14,12 @@ from agents.batch_dev.config import (
     BATCH_SPEC_USE_LLM,
 )
 from agents.batch_dev.classifier.request_classifier import load_request_schema
-from agents.batch_dev.rule.rule_engine import select_business_rule
+from agents.batch_dev.rule.rule_engine import infer_request_capabilities, select_business_rule
 
 try:
-    from .llm_spec_builder import build_batch_spec_draft_with_llm
-except Exception:  # LLM draft 기능은 선택 기능이므로 import 실패 시 기존 rule/parser 흐름 유지
+    from agents.batch_dev.spec.llm_spec_builder import build_batch_spec_draft_with_llm
+except Exception as exc:  # LLM draft 기능은 선택 기능이므로 import 실패 시 기존 rule/parser 흐름 유지
+    print(f"[WARN] llm_spec_builder import failed: {type(exc).__name__}: {exc}")
     build_batch_spec_draft_with_llm = None
 
 
@@ -33,6 +34,18 @@ ROLE_SYNONYMS = {
     "effective_start_date": {"APPLY_START_DT", "START_DT", "VALID_START_DT"},
     "effective_end_date": {"APPLY_END_DT", "END_DT", "VALID_END_DT"},
     "reg_datetime": {"REG_DTM", "REG_DT", "CREATED_AT"},
+    "classification_type": {"MERCHANT_TYPE", "MERCHANT_CLASS", "MERCHANT_CATEGORY"},
+    "amount_sum": {"TOTAL_AMT", "SUM_AMT", "TOTAL_AMOUNT"},
+    "row_count": {"TXN_COUNT", "CNT", "COUNT"},
+}
+
+AGGREGATION_RESULT_ALIAS_BY_ROLE = {
+    "customer_id": "CUSTOMER_ID",
+    "base_month": "BASE_YM",
+    "classification_type": "MERCHANT_TYPE",
+    "amount_sum": "TOTAL_AMT",
+    "row_count": "TXN_COUNT",
+    "reg_datetime": "REG_DTM",
 }
 
 
@@ -99,6 +112,8 @@ def _infer_table_role(table: Dict[str, Any]) -> str:
         return "transaction_ledger"
     if "MERCHANT_ID" in cols and {"APPLY_START_DT", "APPLY_END_DT"}.issubset(cols):
         return "classification_master"
+    if {"CUSTOMER_ID", "BASE_YM"}.issubset(cols) and ("TOTAL_AMT" in cols or "SUM_AMT" in cols or "TXN_COUNT" in cols):
+        return "monthly_summary"
     return "generic_table"
 
 
@@ -146,28 +161,109 @@ def _extract_labeled_values(text: str) -> Dict[str, str]:
     schema = load_request_schema()
     fields = schema.get("fields") or {}
     label_to_field: Dict[str, str] = {}
+
     for field_name, field_def in fields.items():
         for alias in field_def.get("aliases") or []:
-            label_to_field[str(alias)] = str(field_name)
+            alias_text = str(alias).strip()
+            if alias_text:
+                label_to_field[alias_text] = str(field_name)
 
-    labels_pattern = "|".join(re.escape(label) for label in sorted(label_to_field, key=len, reverse=True))
-    if not labels_pattern:
-        return {}
-
-    pattern = re.compile(
-        rf"(?:^|\n|\s)({labels_pattern})\s*:\s*(.*?)(?=(?:\n|\s)(?:{labels_pattern})\s*:|$)",
-        flags=re.IGNORECASE | re.DOTALL,
+    labels_pattern = "|".join(
+        re.escape(label)
+        for label in sorted(label_to_field, key=len, reverse=True)
     )
 
     values: Dict[str, str] = {}
-    for match in pattern.finditer(text):
-        label = match.group(1)
-        value = re.sub(r"\s+", " ", match.group(2)).strip(" \n\t-")
-        field_name = label_to_field.get(label)
-        if field_name and value:
-            values[field_name] = value
+
+    if labels_pattern:
+        pattern = re.compile(
+            rf"(?:^|\n|\s)({labels_pattern})\s*[:：]\s*(.*?)(?=(?:\n|\s)(?:{labels_pattern})\s*[:：]|$)",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        for match in pattern.finditer(text):
+            label = match.group(1)
+            value = re.sub(r"\s+", " ", match.group(2)).strip(" \n\t-")
+            field_name = label_to_field.get(label)
+            if field_name and value:
+                values[field_name] = value
+
+    # request_schema가 오래되었거나 alias가 누락되어도,
+    # 핵심 라벨은 요청서에서 직접 보정한다.
+    # 특정 업무명/테이블명을 하드코딩하지 않고 라벨 패턴만 일반화한다.
+    if not str(values.get("target_table", "")).strip():
+        target_table = _extract_target_table_from_text(text)
+        if target_table:
+            values["target_table"] = target_table
+
+    if not str(values.get("batch_type", "")).strip():
+        batch_type = _extract_batch_type_from_text(text)
+        if batch_type:
+            values["batch_type"] = batch_type
+
+    if not str(values.get("template_type", "")).strip():
+        template_type = _extract_template_type_from_text(text)
+        if template_type:
+            values["template_type"] = template_type
+
     return values
 
+
+def _extract_target_table_from_text(text: str) -> str:
+    """요청서 원문에서 target table을 추출한다.
+
+    request_schema.json alias 기반 파싱이 우선이며,
+    이 함수는 schema 누락/구버전 설정에 대한 안전망이다.
+    """
+    patterns = [
+        r"(?:^|\n|\s)target_table\s*[:：]\s*([A-Za-z][A-Za-z0-9_\.]+)",
+        r"(?:^|\n|\s)target\s*table\s*[:：]\s*([A-Za-z][A-Za-z0-9_\.]+)",
+        r"(?:^|\n|\s)적재\s*테이블\s*[:：]\s*([A-Za-z][A-Za-z0-9_\.]+)",
+        r"(?:^|\n|\s)대상\s*테이블\s*[:：]\s*([A-Za-z][A-Za-z0-9_\.]+)",
+        r"(?:^|\n|\s)결과\s*테이블\s*[:：]\s*([A-Za-z][A-Za-z0-9_\.]+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text or "", flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip(". ,;:").upper()
+
+    return ""
+
+
+def _extract_batch_type_from_text(text: str) -> str:
+    """요청서 원문에서 batch_type을 추출한다.
+
+    예)
+    - batch_type: ledger_extract_with_classification
+    - 배치 유형: ledger_extract_with_classification 실행 주기: 월배치
+    - 처리 유형: aggregation_to_table
+    """
+    patterns = [
+        r"(?:^|\n|\s)batch_type\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+        r"(?:^|\n|\s)배치\s*유형\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+        r"(?:^|\n|\s)처리\s*유형\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text or "", flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip().lower().replace("-", "_")
+    return ""
+
+
+def _extract_template_type_from_text(text: str) -> str:
+    """요청서 원문에서 template_type을 추출한다."""
+    patterns = [
+        r"(?:^|\n|\s)template_type\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+        r"(?:^|\n|\s)template\s*type\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+        r"(?:^|\n|\s)템플릿\s*유형\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+        r"(?:^|\n|\s)템플릿\s*[:：]\s*([A-Za-z][A-Za-z0-9_\-]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text or "", flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip().lower().replace("-", "_")
+    return ""
 
 
 def _merge_llm_draft_values(parser_values: Dict[str, Any], llm_draft: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,6 +287,7 @@ def _merge_llm_draft_values(parser_values: Dict[str, Any], llm_draft: Dict[str, 
         "base_date_column": "base_date_column",
         "schedule_type": "schedule_type",
         "batch_type": "batch_type",
+        "template_type": "template_type",
         "base_parameter": "base_parameter",
     }
     for draft_key, value_key in mapping.items():
@@ -213,6 +310,8 @@ def _merge_llm_draft_values(parser_values: Dict[str, Any], llm_draft: Dict[str, 
         merged["llm_validation_rules"] = llm_draft.get("validation_rules")
     if llm_draft.get("llm_notes"):
         merged["llm_notes"] = llm_draft.get("llm_notes")
+    if llm_draft.get("capabilities"):
+        merged["capabilities"] = llm_draft.get("capabilities")
 
     return merged
 
@@ -223,16 +322,21 @@ def _safe_condition_fragment(condition: Any, context: Dict[str, Any]) -> str:
     if not text:
         return ""
 
-    # 한국어 표현이 섞인 조건을 바인드 변수 기준으로 보정한다.
     base_date_column = str(context.get("base_date_column") or "BASE_DATE")
+    start_col = str(context.get("effective_start_column") or "APPLY_START_DT")
+    end_col = str(context.get("effective_end_column") or "APPLY_END_DT")
+    use_col = str(context.get("use_flag_column") or "USE_YN")
+
     text = text.replace("기준일자", ":base_date")
     text = text.replace("기준일", ":base_date")
-    text = text.replace("적용시작일자", "APPLY_START_DT")
-    text = text.replace("적용종료일자", "APPLY_END_DT")
-    text = text.replace("종료일자", "APPLY_END_DT")
-    text = text.replace("사용여부", "USE_YN")
+    text = text.replace("적용시작일자", start_col)
+    text = text.replace("적용시작일", start_col)
+    text = text.replace("적용종료일자", end_col)
+    text = text.replace("적용종료일", end_col)
+    text = text.replace("종료일자", end_col)
+    text = text.replace("종료일", end_col)
+    text = text.replace("사용여부", use_col)
 
-    # 컬럼명 placeholder를 지원한다.
     text = text.replace("{{ base_date_column }}", base_date_column)
     text = text.replace("{{base_date_column}}", base_date_column)
 
@@ -249,22 +353,67 @@ def _safe_condition_fragment(condition: Any, context: Dict[str, Any]) -> str:
     if tokens & blocked_keywords:
         return ""
 
-    # WHERE fragment에 필요한 안전 문자만 허용한다.
     if not re.fullmatch(r"[A-Za-z0-9_:.<>=!'\"()%\s+\-/]+", text):
         return ""
 
     return text
 
 
+def _looks_like_effective_date_condition(values: Dict[str, Any], context: Dict[str, Any]) -> bool:
+    """요청서 조건이 유효기간 조건을 뜻하는지 판단한다.
+
+    특정 테이블명을 보지 않고, 자연어 표현과 table_role/컬럼 역할만 사용한다.
+    """
+    raw = values.get("conditions") or values.get("condition") or ""
+    if isinstance(raw, list):
+        raw_text = " ".join(str(item) for item in raw)
+    else:
+        raw_text = str(raw)
+
+    text = _normalize(raw_text).lower()
+    request_hint = any(token in text for token in ["사이", "between", "유효", "기간", "시작", "종료"])
+    has_effective_cols = bool(context.get("effective_start_column") and context.get("effective_end_column"))
+    table_role = str(context.get("table_role") or "").lower()
+    return has_effective_cols and (table_role == "classification_master" or request_hint)
+
+
+def _build_effective_date_conditions(context: Dict[str, Any]) -> List[str]:
+    """classification/effective-dated master 공통 조건 생성.
+
+    APPLY_START_DT 같은 물리 컬럼을 직접 고정하지 않고,
+    ERWin role 또는 ROLE_SYNONYMS로 추론된 컬럼명을 사용한다.
+    """
+    start_col = str(context.get("effective_start_column") or "").upper()
+    end_col = str(context.get("effective_end_column") or "").upper()
+    use_col = str(context.get("use_flag_column") or "").upper()
+
+    if not start_col or not end_col:
+        return []
+
+    conditions: List[str] = []
+    if use_col:
+        conditions.append(f"{use_col} = 'Y'")
+
+    conditions.append(f"{start_col} <= :base_date")
+    conditions.append(f"({end_col} IS NULL OR {end_col} >= :base_date)")
+    return conditions
+
+
 def _extract_explicit_conditions(values: Dict[str, Any], context: Dict[str, Any]) -> List[str]:
     raw_conditions = values.get("conditions") or values.get("condition") or []
     if isinstance(raw_conditions, str):
-        # 한 줄 입력이면 AND 단위로 나누되 BETWEEN ... AND ...는 깨질 수 있으므로 너무 공격적으로 나누지 않는다.
         candidates = [raw_conditions]
     elif isinstance(raw_conditions, list):
         candidates = raw_conditions
     else:
         candidates = []
+
+    # 요청서가 "기준일자가 적용시작일자와 종료일자 사이" 같은 자연어 조건이면,
+    # 안전한 SQL fragment로 직접 변환한다.
+    if _looks_like_effective_date_condition(values, context):
+        effective_conditions = _build_effective_date_conditions(context)
+        if effective_conditions:
+            return effective_conditions
 
     rendered: List[str] = []
     for item in candidates:
@@ -310,6 +459,118 @@ def _find_table(text: str, values: Dict[str, str], meta: Dict[str, Any]) -> Opti
     return best_table
 
 
+
+def _select_table_by_role(meta: Dict[str, Any], role: str) -> Optional[Dict[str, Any]]:
+    for table in meta.get("tables", []) or []:
+        if _infer_table_role(table) == role:
+            return table
+    return None
+
+
+def _columns_by_roles(table: Optional[Dict[str, Any]], roles: List[str]) -> List[str]:
+    """ERWin column role 순서로 실제 target 컬럼명을 찾는다.
+
+    rule_catalog에는 물리 컬럼명을 두지 않고 역할만 둔다.
+    실제 INSERT 대상 컬럼은 erwin_meta의 target table_role/column role에서 결정한다.
+    """
+    resolved: List[str] = []
+    for role in roles or []:
+        column = _find_column_by_role(table, role)
+        if not column:
+            raise ValueError(f"target 테이블에서 필요한 column role을 찾지 못했습니다: {role}")
+        resolved.append(column)
+    return resolved
+
+
+def _resolve_target_table(rule: Dict[str, Any], values: Dict[str, Any], meta: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+    """요청서/rule/ERWin 기준으로 target 물리 테이블을 결정한다.
+
+    우선순위:
+    1. 요청서/LLM draft가 명시한 target_table
+    2. rule.target.table_role에 해당하는 ERWin table
+
+    코드에는 특정 업무/테이블명을 넣지 않는다.
+    """
+    target_rule = (rule or {}).get("target") or {}
+    explicit = str(values.get("target_table") or "").strip()
+    if explicit:
+        table_map = _table_map(meta)
+        target_table = table_map.get(explicit.upper()) or {"table_name": explicit.upper(), "columns": []}
+        return explicit.upper(), target_table
+
+    target_role = str(target_rule.get("table_role") or "").strip()
+    if target_role:
+        target_table = _select_table_by_role(meta, target_role)
+        if not target_table:
+            raise ValueError(f"ERWin 메타에서 target table_role을 찾지 못했습니다: {target_role}")
+        return str(target_table.get("table_name", "")).upper(), target_table
+
+    raise ValueError("집계 결과 target table을 결정하지 못했습니다. 요청서 target_table 또는 rule_catalog.target.table_role과 ERWin table_role을 지정해야 합니다.")
+
+
+def _resolve_target_columns(rule: Dict[str, Any], target_table: Dict[str, Any]) -> List[str]:
+    target_rule = (rule or {}).get("target") or {}
+    column_roles = [str(role) for role in target_rule.get("column_roles", []) or [] if str(role).strip()]
+    if column_roles:
+        return _columns_by_roles(target_table, column_roles)
+
+    columns = _column_names(target_table)
+    if columns:
+        return columns
+
+    raise ValueError("target 컬럼을 결정하지 못했습니다. rule_catalog.target.column_roles 또는 ERWin target columns를 지정해야 합니다.")
+
+
+def _resolve_partition_column(rule: Dict[str, Any], target_table: Dict[str, Any], target_columns: List[str]) -> str:
+    target_rule = (rule or {}).get("target") or {}
+    role = str(target_rule.get("partition_column_role") or "").strip()
+    if role:
+        column = _find_column_by_role(target_table, role)
+        if not column:
+            raise ValueError(f"target partition column role을 찾지 못했습니다: {role}")
+        return column
+    return _infer_partition_column(rule, target_columns, str(target_rule.get("partition_param") or "base_ym"))
+
+
+def _select_alias_for_target_column(target_table: Dict[str, Any], target_column: str) -> str:
+    role = ""
+    for col in target_table.get("columns", []) or []:
+        if str(col.get("column_name", "")).upper() == target_column.upper():
+            role = str(col.get("role") or "").strip()
+            break
+    return AGGREGATION_RESULT_ALIAS_BY_ROLE.get(role, target_column.upper())
+
+
+def _requires_aggregation_path(
+    capabilities: Any,
+    values: Optional[Dict[str, Any]] = None,
+) -> bool:
+    caps = set(capabilities or [])
+    if {"aggregation", "group_by"}.issubset(caps):
+        return True
+
+    # LLM draft 또는 parser가 구조화한 batch_type도 함께 본다.
+    batch_type = str((values or {}).get("batch_type") or "").strip().lower()
+    if batch_type == "aggregation_to_table":
+        return True
+
+    return False
+
+
+def _capability_list(
+    user_request: str,
+    table: Optional[Dict[str, Any]],
+    erwin_meta: Dict[str, Any],
+    values: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    capabilities = set(infer_request_capabilities(user_request, table, erwin_meta))
+    for item in (values or {}).get("capabilities", []) or []:
+        if str(item).strip():
+            capabilities.add(str(item).strip())
+    return sorted(capabilities)
+
+
+
 def _parse_columns(value: str) -> List[str]:
     if not value:
         return []
@@ -345,15 +606,10 @@ def _base_date_column(
     """
     배치 기준일 컬럼을 결정한다.
 
-    우선순위:
-    1. 요청서에 명시된 기준일자 컬럼
-    2. rule defaults에 정의된 기준일자 컬럼
-    3. ERWIN 메타의 table_role / column role 기반 자동 추론
-    4. 최종 fallback
-
-    특정 테이블명을 직접 비교하지 않고 table_role과 column role을 사용한다.
-    따라서 전통시장 전용 하드코딩이 아니라 classification_master 계열
-    마스터 테이블 전체에 재사용 가능한 방식이다.
+    주의:
+    - classification_master의 APPLY_START_DT는 기준일자 컬럼이 아니라 유효시작일 컬럼이다.
+    - source metadata 호환을 위해 base_date_column에는 start column을 둘 수 있지만,
+      SQL 조건은 _build_conditions에서 effective_start/end 역할을 사용해 기간 조건으로 만든다.
     """
     raw = values.get("base_date_column") or ""
     match = re.search(r"\b([A-Za-z][A-Za-z0-9_]*)\b", raw)
@@ -366,21 +622,18 @@ def _base_date_column(
 
     table_role = _infer_table_role(table or {})
 
-    # 유효기간을 가진 마스터성 테이블은 적용시작일을 기준일 컬럼으로 표시한다.
     if table_role == "classification_master":
         return (
             _find_column_by_role(table, "effective_start_date")
             or "APPLY_START_DT"
         )
 
-    # 거래 원장성 테이블은 거래일자를 기준일 컬럼으로 표시한다.
     if table_role == "transaction_ledger":
         return (
             _find_column_by_role(table, "transaction_date")
             or "BASE_DATE"
         )
 
-    # 그 외 테이블은 월 기준 컬럼을 우선하고, 없으면 거래일자/BASE_DATE 순으로 fallback한다.
     return (
         _find_column_by_role(table, "base_month")
         or _find_column_by_role(table, "transaction_date")
@@ -403,26 +656,41 @@ def _render_sql_template(template_name: str, context: Dict[str, Any]) -> str:
     return _render_string(path.read_text(encoding="utf-8"), context).strip()
 
 
-def _build_conditions(rule: Optional[Dict[str, Any]], context: Dict[str, Any], values: Optional[Dict[str, Any]] = None) -> str:
-    # LLM/request에서 명시적으로 추출한 조건이 있으면 그것을 우선한다.
-    # 없을 때만 business rule의 기본 조건 템플릿을 사용한다.
+def _build_conditions(
+    rule: Optional[Dict[str, Any]],
+    context: Dict[str, Any],
+    values: Optional[Dict[str, Any]] = None,
+) -> str:
+    """WHERE 조건 생성.
+
+    우선순위:
+    1. 요청서/LLM이 명시한 조건을 안전하게 변환
+    2. classification_master/effective-dated table은 role 기반 유효기간 조건 생성
+    3. business rule condition 사용
+    4. 최후 fallback만 단일 기준일 equality 사용
+    """
     explicit_conditions = _extract_explicit_conditions(values or {}, context)
     if explicit_conditions:
         return "\n  AND ".join(explicit_conditions)
 
-    condition_defs = (rule or {}).get("conditions") or [{"template": "{{ base_date_column }} = :base_date"}]
+    table_role = str(context.get("table_role") or "").lower()
+    if table_role == "classification_master":
+        effective_conditions = _build_effective_date_conditions(context)
+        if effective_conditions:
+            return "\n  AND ".join(effective_conditions)
+
+    condition_defs = (rule or {}).get("conditions") or []
     rendered = [_render_string(str(item.get("template", "")), context).strip() for item in condition_defs]
     rendered = [x for x in rendered if x]
-    return "\n  AND ".join(rendered) if rendered else "1 = 1"
+    if rendered:
+        return "\n  AND ".join(rendered)
+
+    # 최후 fallback. 단, 유효기간 컬럼이 있는 테이블은 위에서 이미 처리되어야 한다.
+    return "{{ base_date_column }} = :base_date".replace("{{ base_date_column }}", str(context.get("base_date_column") or "BASE_DATE"))
+
 
 def _parameter_to_default_column(parameter_name: str) -> str:
-    """배치 파라미터명에서 기본 target 파티션 컬럼명을 추론한다.
-
-    특정 업무/테이블명이 아니라 배치 파라미터 역할 기반이다.
-    - base_ym   -> BASE_YM
-    - base_date -> BASE_DATE
-    - 그 외     -> 파라미터명을 대문자 컬럼명으로 변환
-    """
+    """배치 파라미터명에서 기본 target 파티션 컬럼명을 추론한다."""
     normalized = re.sub(r"[^0-9A-Za-z_]+", "_", str(parameter_name or "")).strip("_").lower()
     if normalized == "base_ym":
         return "BASE_YM"
@@ -432,7 +700,6 @@ def _parameter_to_default_column(parameter_name: str) -> str:
 
 
 def _infer_partition_param(parameters: List[Dict[str, Any]]) -> str:
-    """parameters 목록에서 재처리 기준 파라미터를 추론한다."""
     names = [str(item.get("name", "")).strip() for item in parameters or [] if str(item.get("name", "")).strip()]
     if not names:
         return ""
@@ -449,14 +716,6 @@ def _infer_partition_column(
     target_columns: List[str],
     partition_param: str,
 ) -> str:
-    """rule/target columns/parameter 기반으로 target 삭제 기준 컬럼을 추론한다.
-
-    우선순위:
-    1. rule.target.partition_column 또는 rule.target.base_column
-    2. parameter명 역할에서 유도한 컬럼명이 target_columns에 있으면 사용
-    3. target_columns 중 기준 컬럼 후보 사용
-    4. parameter명 기반 컬럼명 fallback
-    """
     target_rule = (rule or {}).get("target") or {}
 
     explicit = (
@@ -486,12 +745,6 @@ def _build_execution_strategy(
     target_columns: List[str],
     parameters: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """집계/적재 배치의 재실행 전략을 메타데이터로 만든다.
-
-    특정 테이블명 하드코딩 없이 rule target 설정과 parameter 역할을 사용한다.
-    rule에서 별도 execution_strategy가 오면 그 값을 우선하고,
-    없으면 load_strategy=delete_insert/replace_partition 계열을 replace_partition으로 변환한다.
-    """
     rule_target = (rule or {}).get("target") or {}
     rule_strategy = (
         (rule or {}).get("execution_strategy")
@@ -650,18 +903,32 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
         "\nGROUP BY\n    " + ",\n    ".join(group_by_parts)
     )
 
-    target_table = str((rule.get("target") or {}).get("table") or values.get("target_table") or "TODO_TARGET_TABLE").upper()
-    target_columns = list((rule.get("target") or {}).get("columns") or ["CUSTOMER_ID", "BASE_YM", "MERCHANT_TYPE", "TOTAL_AMT", "TXN_COUNT", "REG_DTM"])
-    insert_columns = [c for c in target_columns if c != "REG_DTM"]
+    target_rule = (rule or {}).get("target") or {}
+    target_table, target_table_meta = _resolve_target_table(rule, values, meta)
+    target_columns = _resolve_target_columns(rule, target_table_meta)
+
+    select_expressions: List[str] = []
+    for target_column in target_columns:
+        alias = _select_alias_for_target_column(target_table_meta, target_column)
+        if alias == "REG_DTM":
+            select_expressions.append(f"NOW() AS {target_column}")
+        else:
+            select_expressions.append(f"S.{alias} AS {target_column}")
+
     sql = (
         f"INSERT INTO {target_table} (\n    " + ",\n    ".join(target_columns) + "\n)\n"
-        "SELECT\n    " + ",\n    ".join([f"S.{c}" for c in insert_columns]) + ",\n    NOW() AS REG_DTM\n"
+        "SELECT\n    " + ",\n    ".join(select_expressions) + "\n"
         f"FROM (\n{select_sql}\n) S"
     )
 
     parameters = [{"name": "base_ym", "required": True, "description": "기준년월(YYYYMM)"}]
+    partition_column = _resolve_partition_column(rule, target_table_meta, target_columns)
+    target_rule_for_strategy = dict(target_rule)
+    target_rule_for_strategy["partition_column"] = partition_column
+    rule_for_strategy = dict(rule or {})
+    rule_for_strategy["target"] = target_rule_for_strategy
     execution_strategy = _build_execution_strategy(
-        rule=rule,
+        rule=rule_for_strategy,
         target_table=target_table,
         target_columns=target_columns,
         parameters=parameters,
@@ -672,8 +939,6 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
         "batch_id": _default_batch_id(base_table_name, "AGG"),
         "parameters": parameters,
         "execution_strategy": execution_strategy,
-
-        # source는 물리 테이블명이 아니라 업무 역할만 표현한다.
         "source": {
             "table": base_table_name,
             "table_role": _infer_table_role(base_table),
@@ -681,8 +946,6 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
             "join_table_role": "classification_master",
             "dynamic_inference": True,
         },
-
-        # 실제 ERWin 메타 추론 결과는 별도 영역에 둔다.
         "resolved": {
             "tables": {
                 "base": base_table_name,
@@ -695,10 +958,10 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
                 "cancel_flag": cancel_col,
             },
         },
-
         "target": {
             "table": target_table,
-            "load_strategy": "delete_insert",
+            "table_role": str((target_rule or {}).get("table_role") or _infer_table_role(target_table_meta)),
+            "load_strategy": target_rule.get("load_strategy") or "delete_insert",
             "execution_strategy": execution_strategy,
             "delete_sql": (
                 f"DELETE FROM {execution_strategy.get('target_table')} "
@@ -716,7 +979,6 @@ def _build_dynamic_aggregation_spec(user_request: str, values: Dict[str, str], m
     }
 
 
-
 def _build_dynamic_ledger_extract_spec(
     user_request: str,
     values: Dict[str, str],
@@ -727,8 +989,6 @@ def _build_dynamic_ledger_extract_spec(
     """
     transaction_ledger + classification_master 관계를 ERWIN 메타 기반으로 해석하여
     대상 거래 추출 SQL을 생성한다.
-
-    업무별 테이블명을 박지 않고 table_role, column role, relations를 사용한다.
     """
     base_alias = "L"
     base_table_name = str(base_table.get("table_name", "TODO_SOURCE_TABLE")).upper()
@@ -854,6 +1114,31 @@ def _build_dynamic_ledger_extract_spec(
     }
 
 
+def _source_date_metadata(table: Optional[Dict[str, Any]], base_date_column: str) -> Dict[str, Any]:
+    """source 메타데이터의 날짜 관련 설명을 생성한다."""
+    table_role = _infer_table_role(table or {})
+    effective_start_col = _find_column_by_role(table, "effective_start_date")
+    effective_end_col = _find_column_by_role(table, "effective_end_date")
+    use_col = _find_column_by_role(table, "use_flag")
+
+    if table_role == "classification_master" and effective_start_col and effective_end_col:
+        return {
+            "base_date_column_role": "effective_date_range",
+            "base_date_column": base_date_column,
+            "effective_date": {
+                "start_column": effective_start_col,
+                "end_column": effective_end_col,
+                "parameter": "base_date",
+                "use_flag_column": use_col,
+            },
+        }
+
+    return {
+        "base_date_column_role": "transaction_date",
+        "base_date_column": base_date_column,
+    }
+
+
 def build_batch_spec(user_request: str) -> Dict[str, Any]:
     """
     사용자 요청서/자연어를 batch_spec으로 변환한다.
@@ -877,7 +1162,6 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 request_schema=load_request_schema(),
             )
         except Exception as exc:
-            # LLM 초안 실패가 배치 생성 전체 실패가 되지 않도록 기존 rule/parser 경로로 fallback한다.
             llm_draft = {
                 "llm_error": f"{type(exc).__name__}: {exc}",
             }
@@ -885,12 +1169,33 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
     values = _merge_llm_draft_values(parser_values, llm_draft)
     table = _find_table(user_request, values, erwin_meta)
 
-    rule = select_business_rule(user_request, table, erwin_meta)
-    rule_type = str((rule or {}).get("rule_type") or (rule or {}).get("batch_type") or "")
+    capabilities = _capability_list(user_request, table, erwin_meta, values)
+    rule = select_business_rule(user_request, table, erwin_meta, capabilities=capabilities)
 
-    if rule_type in {"monthly_aggregation", "aggregation_to_table"} and table:
-        dynamic = _build_dynamic_aggregation_spec(user_request, values, erwin_meta, rule or {}, table)
-        batch_name = values.get("batch_name") or f"{table.get('table_kor_name', table.get('table_name'))} 월별 집계"
+    # 요청서에 명시된 batch_type/template_type을 우선한다.
+    # 예: ledger_extract_with_classification, aggregation_to_table
+    # 특정 업무명을 하드코딩하지 않고 처리 패턴명만 사용한다.
+    requested_rule_type = str(
+        values.get("template_type")
+        or values.get("batch_type")
+        or ""
+    ).strip().lower().replace("-", "_")
+
+    rule_type = requested_rule_type or str(
+        (rule or {}).get("rule_type")
+        or (rule or {}).get("batch_type")
+        or ""
+    ).strip().lower().replace("-", "_")
+
+    if not rule_type and _requires_aggregation_path(capabilities, values):
+        rule_type = "monthly_aggregation"
+
+    if rule_type in {"monthly_aggregation", "aggregation_to_table"}:
+        aggregation_table = table if _infer_table_role(table or {}) == "transaction_ledger" else _select_table_by_role(erwin_meta, "transaction_ledger")
+        if not aggregation_table:
+            raise ValueError("집계 배치 생성을 위한 transaction_ledger 역할 테이블을 찾지 못했습니다.")
+        dynamic = _build_dynamic_aggregation_spec(user_request, values, erwin_meta, rule or {}, aggregation_table)
+        batch_name = values.get("batch_name") or f"{aggregation_table.get('table_kor_name', aggregation_table.get('table_name'))} 월별 집계"
         resolved = dynamic.get("resolved") or {}
         return {
             "version": "1.0",
@@ -917,6 +1222,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "error": llm_draft.get("llm_error") if isinstance(llm_draft, dict) else None,
                 "draft_keys": sorted([str(key) for key in llm_draft.keys()]) if isinstance(llm_draft, dict) else [],
                 "notes": llm_draft.get("llm_notes", []) if isinstance(llm_draft, dict) else [],
+                "capabilities": capabilities,
             },
             "rule_source": {
                 "rule_id": (rule or {}).get("rule_id"),
@@ -927,10 +1233,6 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
         }
 
     if rule_type in {"ledger_extract", "ledger_extract_with_classification"}:
-        # 거래추출 배치는 단일 마스터 테이블이 아니라 거래 원장 테이블이 기준이다.
-        # _find_table()이 요청서의 참조 테이블명을 먼저 잡아 TB_BOOK_PERF_MERCHANT 같은
-        # classification_master를 반환할 수 있으므로, 여기서는 ERWIN table_role 기준으로
-        # transaction_ledger 테이블을 다시 선택한다.
         ledger_tables = [
             t for t in erwin_meta.get("tables", [])
             if _infer_table_role(t) == "transaction_ledger"
@@ -968,6 +1270,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "error": llm_draft.get("llm_error") if isinstance(llm_draft, dict) else None,
                 "draft_keys": sorted([str(key) for key in llm_draft.keys()]) if isinstance(llm_draft, dict) else [],
                 "notes": llm_draft.get("llm_notes", []) if isinstance(llm_draft, dict) else [],
+                "capabilities": capabilities,
             },
             "rule_source": {
                 "rule_id": (rule or {}).get("rule_id"),
@@ -991,11 +1294,16 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
     output_format = _output_format(values, user_request)
     output_file_prefix = _file_prefix(values, table_name)
     base_date_column = _base_date_column(values, rule, table)
+    table_role = _infer_table_role(table or {})
 
     context = {
         "table_name": table_name,
         "columns": ",\n    ".join(columns),
         "base_date_column": base_date_column,
+        "table_role": table_role,
+        "effective_start_column": _find_column_by_role(table, "effective_start_date"),
+        "effective_end_column": _find_column_by_role(table, "effective_end_date"),
+        "use_flag_column": _find_column_by_role(table, "use_flag"),
         "null_fn": _null_function(),
     }
     context["conditions"] = _build_conditions(rule, context, values)
@@ -1006,6 +1314,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
 
     batch_name = values.get("batch_name") or f"{table_kor_name} 파일 생성"
     batch_id = _default_batch_id(table_name)
+    source_date_meta = _source_date_metadata(table, base_date_column)
 
     return {
         "version": "1.0",
@@ -1018,10 +1327,9 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
         "source": {
             "table": table_name,
             "columns": columns,
-            "table_role": _infer_table_role(table or {}),
+            "table_role": table_role,
             "column_roles": columns if columns == ["*"] else [],
-            "base_date_column_role": "transaction_date",
-            "base_date_column": base_date_column,
+            **source_date_meta,
             "dynamic_inference": bool(table),
         },
         "target": {
@@ -1040,7 +1348,20 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
             "type": "erwin_meta",
             "path": str(ERWIN_METADATA_PATH),
             "resolved_tables": {"base": table_name} if table_name != "TODO_SOURCE_TABLE" else {},
-            "resolved_columns": {"base_date": base_date_column},
+            "resolved_columns": {
+                "base_date": base_date_column,
+                "effective_start": context.get("effective_start_column"),
+                "effective_end": context.get("effective_end_column"),
+                "use_flag": context.get("use_flag_column"),
+            },
+        },
+        "llm_spec_source": {
+            "enabled": bool(BATCH_SPEC_USE_LLM),
+            "used": bool(llm_draft and not llm_draft.get("llm_error")),
+            "error": llm_draft.get("llm_error") if isinstance(llm_draft, dict) else None,
+            "draft_keys": sorted([str(key) for key in llm_draft.keys()]) if isinstance(llm_draft, dict) else [],
+            "notes": llm_draft.get("llm_notes", []) if isinstance(llm_draft, dict) else [],
+                "capabilities": capabilities,
         },
         "rule_source": {
             "rule_id": (rule or {}).get("rule_id"),

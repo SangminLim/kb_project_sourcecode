@@ -1,0 +1,167 @@
+{
+  "valid": false,
+  "score": 0.69,
+  "summary": "소득공제 월별 통합 집계 배치의 SQL과 job.py가 생성되었으며, 배치 목적과 일치하는 월별 집계 Delete Insert 방식으로 TB_DEDUCTION_MONTHLY_SUMMARY에 적재된다.",
+  "interpretation": "배치는 TB_CARD_SALES_LEDGER의 매출 거래 중 CANCEL_YN='N', USE_YN='Y', SALES_DT가 각 가맹점 마스터의 APPLY_START_DT~APPLY_END_DT 범위에 해당하는 거래를 대상으로 한다. LEFT JOIN을 통해 TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT와 매칭하여 MERCHANT_TYPE을 결정하고, CUSTOMER_ID, BASE_YM, MERCHANT_TYPE별로 TOTAL_AMT와 TXN_COUNT를 집계한다. 집계 결과는 TB_DEDUCTION_MONTHLY_SUMMARY에서 BASE_YM=:base_ym 조건에 해당하는 데이터를 DELETE한 후 INSERT하여 갱신한다. job.py는 DB 접속, SQL 실행, 파라미터 처리 로직을 포함하며, test_job.py는 파일 존재와 SQL/파라미터 검증을 수행한다.",
+  "detected_batch_type": "aggregation_to_table",
+  "checks": [
+    {
+      "item": "batch_spec.json",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "query.sql",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "job.py",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "SQL 위험 패턴",
+      "result": "PASS",
+      "detail": "명백한 위험 SQL 패턴은 발견되지 않았습니다."
+    },
+    {
+      "item": "SQL 파라미터와 batch_spec 일치성",
+      "result": "PASS",
+      "detail": "SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_ym"
+    },
+    {
+      "item": "집계 SQL 의미 일치성",
+      "result": "PASS",
+      "detail": "집계 함수와 GROUP BY가 SQL에 포함되어 있습니다."
+    },
+    {
+      "item": "spec 테이블과 SQL 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
+    },
+    {
+      "item": "요청 목적 적합성",
+      "result": "PASS",
+      "detail": "배치명 '소득공제 월별 통합 집계 배치'와 배치 유형 '월별 집계 배치 Delete Insert 방식'이 일치하며, 고객별 월별 소득공제 대상 이용금액 집계 목적을 SQL의 SELECT/GROUP BY와 DELETE/INSERT 로직이 충족한다."
+    },
+    {
+      "item": "SQL 의미 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 source 테이블(TB_CARD_SALES_LEDGER), target 테이블(TB_DEDUCTION_MONTHLY_SUMMARY), resolved_columns(CUSTOMER_ID, BASE_YM, SALES_AMT, CANCEL_YN)가 SQL의 FROM, WHERE, SELECT 절에 정확히 매핑되었다."
+    },
+    {
+      "item": "파라미터 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 parameters에 정의된 base_ym 파라미터가 SQL의 WHERE A.BASE_YM = :base_ym 및 job.py의 파라미터 처리 로직에 사용되었다."
+    },
+    {
+      "item": "조인 조건 및 기간 매칭",
+      "result": "PASS",
+      "detail": "LEFT JOIN 시 SALES_DT BETWEEN APPLY_START_DT AND IFNULL(APPLY_END_DT, '99991231') 조건이 입력 사양과 일치하며, USE_YN='Y' 필터도 적용되었다."
+    },
+    {
+      "item": "집계 로직 및 중복 처리",
+      "result": "PASS",
+      "detail": "GROUP BY에 CUSTOMER_ID, BASE_YM, CASE로 결정된 MERCHANT_TYPE을 사용하고, SUM/SUM과 COUNT(*)로 집계 항목을 산출하며, DELETE 후 INSERT 방식으로 중복 적재 위험을 방지한다."
+    },
+    {
+      "item": "파일 출력 설정",
+      "result": "WARN",
+      "detail": "batch_spec의 target.output_format, output_file_pattern, output_dir, encoding이 null로 설정되어 있어 파일 출력 배치인지 테이블 적재 배치인지 명확하지 않다. 운영 관점에서 출력 경로 및 포맷 설정이 필요하다."
+    },
+    {
+      "item": "테스트 충분성",
+      "result": "WARN",
+      "detail": "test_job.py는 파일 존재와 SQL/파라미터 존재만 검증하며, SQL 구문, JOIN/GROUP BY 정확성, 집계 결과 검증, 성능 테스트, 데이터 품질 검증은 포함되지 않았다."
+    },
+    {
+      "item": "성능 위험",
+      "result": "WARN",
+      "detail": "TB_CARD_SALES_LEDGER의 BASE_YM=:base_ym 조건에 대한 Full Scan 가능성이 있으며, SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스가 없을 경우 대량 데이터 조회 시 성능 저하 위험이 있다."
+    },
+    {
+      "item": "데이터 품질 검증",
+      "result": "WARN",
+      "detail": "NOT NULL 컬럼(CUSTOMER_ID, BASE_YM) 검증은 있으나, 중복 거래, 금액 합계 정확성, 기준일자 경계 조건, MERCHANT_TYPE 매핑 정확성 등 추가 데이터 품질 검증이 필요하다."
+    },
+    {
+      "item": "재처리 위험",
+      "result": "WARN",
+      "detail": "Delete Insert 방식으로 멱등성을 확보했으나, 파일 덮어쓰기 또는 중복 적재 시 데이터 손실 가능성이 있으므로 재처리 시 로그 및 이력 관리 검토가 필요하다."
+    }
+  ],
+  "issues": [
+    "SQL 구문 오류 없음",
+    "파라미터 불일치 없음"
+  ],
+  "warnings": [
+    "파일 출력 설정 미정의",
+    "테스트 충분성 부족",
+    "성능 위험 (Full Scan 가능성)",
+    "데이터 품질 검증 부족",
+    "재처리 시 이력 관리 필요",
+    "필수 파일 누락 없음",
+    "query.sql 존재",
+    "JOIN ON/USING 누락 없음"
+  ],
+  "recommendations": [
+    "운영 반영 전 실행계획 및 데이터 검증을 확인하세요.",
+    "대량 데이터 기준 row count 및 중복 검증을 확인하세요.",
+    "TB_CARD_SALES_LEDGER의 BASE_YM, SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스 추가 검토",
+    "test_job.py에 SQL 구문 검증, 집계 결과 검증, 성능 테스트 로직 추가",
+    "batch_spec의 target.output_format, output_file_pattern, output_dir, encoding을 운영 환경에 맞게 명시",
+    "중복 거래 및 금액 합계 검증을 위한 데이터 품질 검증 절차 수립",
+    "재처리 시 이력 테이블 또는 로그 기록 로직 추가"
+  ],
+  "raw_llm_response": "{\"valid\": true, \"score\": 0.75, \"summary\": \"소득공제 월별 통합 집계 배치의 SQL과 job.py가 생성되었으며, 배치 목적과 일치하는 월별 집계 Delete Insert 방식으로 TB_DEDUCTION_MONTHLY_SUMMARY에 적재된다.\", \"interpretation\": \"배치는 TB_CARD_SALES_LEDGER의 매출 거래 중 CANCEL_YN='N', USE_YN='Y', SALES_DT가 각 가맹점 마스터의 APPLY_START_DT~APPLY_END_DT 범위에 해당하는 거래를 대상으로 한다. LEFT JOIN을 통해 TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT와 매칭하여 MERCHANT_TYPE을 결정하고, CUSTOMER_ID, BASE_YM, MERCHANT_TYPE별로 TOTAL_AMT와 TXN_COUNT를 집계한다. 집계 결과는 TB_DEDUCTION_MONTHLY_SUMMARY에서 BASE_YM=:base_ym 조건에 해당하는 데이터를 DELETE한 후 INSERT하여 갱신한다. job.py는 DB 접속, SQL 실행, 파라미터 처리 로직을 포함하며, test_job.py는 파일 존재와 SQL/파라미터 검증을 수행한다.\", \"detected_batch_type\": \"aggregation_to_table\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명 '소득공제 월별 통합 집계 배치'와 배치 유형 '월별 집계 배치 Delete Insert 방식'이 일치하며, 고객별 월별 소득공제 대상 이용금액 집계 목적을 SQL의 SELECT/GROUP BY와 DELETE/INSERT 로직이 충족한다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 source 테이블(TB_CARD_SALES_LEDGER), target 테이블(TB_DEDUCTION_MONTHLY_SUMMARY), resolved_columns(CUSTOMER_ID, BASE_YM, SALES_AMT, CANCEL_YN)가 SQL의 FROM, WHERE, SELECT 절에 정확히 매핑되었다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 parameters에 정의된 base_ym 파라미터가 SQL의 WHERE A.BASE_YM = :base_ym 및 job.py의 파라미터 처리 로직에 사용되었다.\"}, {\"item\": \"조인 조건 및 기간 매칭\", \"result\": \"PASS\", \"detail\": \"LEFT JOIN 시 SALES_DT BETWEEN APPLY_START_DT AND IFNULL(APPLY_END_DT, '99991231') 조건이 입력 사양과 일치하며, USE_YN='Y' 필터도 적용되었다.\"}, {\"item\": \"집계 로직 및 중복 처리\", \"result\": \"PASS\", \"detail\": \"GROUP BY에 CUSTOMER_ID, BASE_YM, CASE로 결정된 MERCHANT_TYPE을 사용하고, SUM/SUM과 COUNT(*)로 집계 항목을 산출하며, DELETE 후 INSERT 방식으로 중복 적재 위험을 방지한다.\"}, {\"item\": \"파일 출력 설정\", \"result\": \"WARN\", \"detail\": \"batch_spec의 target.output_format, output_file_pattern, output_dir, encoding이 null로 설정되어 있어 파일 출력 배치인지 테이블 적재 배치인지 명확하지 않다. 운영 관점에서 출력 경로 및 포맷 설정이 필요하다.\"}, {\"item\": \"테스트 충분성\", \"result\": \"WARN\", \"detail\": \"test_job.py는 파일 존재와 SQL/파라미터 존재만 검증하며, SQL 구문, JOIN/GROUP BY 정확성, 집계 결과 검증, 성능 테스트, 데이터 품질 검증은 포함되지 않았다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER의 BASE_YM=:base_ym 조건에 대한 Full Scan 가능성이 있으며, SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스가 없을 경우 대량 데이터 조회 시 성능 저하 위험이 있다.\"}, {\"item\": \"데이터 품질 검증\", \"result\": \"WARN\", \"detail\": \"NOT NULL 컬럼(CUSTOMER_ID, BASE_YM) 검증은 있으나, 중복 거래, 금액 합계 정확성, 기준일자 경계 조건, MERCHANT_TYPE 매핑 정확성 등 추가 데이터 품질 검증이 필요하다.\"}, {\"item\": \"재처리 위험\", \"result\": \"WARN\", \"detail\": \"Delete Insert 방식으로 멱등성을 확보했으나, 파일 덮어쓰기 또는 중복 적재 시 데이터 손실 가능성이 있으므로 재처리 시 로그 및 이력 관리 검토가 필요하다.\"}], \"issues\": [\"필수 파일 누락 없음\", \"query.sql 존재\", \"SQL 구문 오류 없음\", \"JOIN ON/USING 누락 없음\", \"파라미터 불일치 없음\"], \"warnings\": [\"파일 출력 설정 미정의\", \"테스트 충분성 부족\", \"성능 위험 (Full Scan 가능성)\", \"데이터 품질 검증 부족\", \"재처리 시 이력 관리 필요\"], \"recommendations\": [\"TB_CARD_SALES_LEDGER의 BASE_YM, SALES_DT, MERCHANT_ID, CANCEL_YN 컬럼에 인덱스 추가 검토\", \"test_job.py에 SQL 구문 검증, 집계 결과 검증, 성능 테스트 로직 추가\", \"batch_spec의 target.output_format, output_file_pattern, output_dir, encoding을 운영 환경에 맞게 명시\", \"중복 거래 및 금액 합계 검증을 위한 데이터 품질 검증 절차 수립\", \"재처리 시 이력 테이블 또는 로그 기록 로직 추가\"]}",
+  "score_breakdown": {
+    "policy_version": "practical-scoring-v3-nonblocking-warn",
+    "final_score": 0.69,
+    "rule_score": 1.0,
+    "llm_score": 0.75,
+    "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
+    "blocking_fail_checks": [],
+    "downgraded_fail_checks": [],
+    "score_policy": {
+      "policy_version": "practical-scoring-v3-nonblocking-warn",
+      "effective_rule_score": 1.0,
+      "effective_llm_score": 0.75,
+      "base_score_before_penalty": 0.863,
+      "warn_penalty": 0.026,
+      "risk_penalty": 0.055,
+      "pass_count": 12,
+      "warn_count": 5,
+      "fail_count_after_normalization": 0,
+      "has_blocking_fail": true,
+      "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
+    },
+    "risk_penalty": {
+      "total_penalty": 0.055,
+      "penalties": {
+        "join_complexity": 0.018000000000000002,
+        "aggregation_group_by": 0.01,
+        "aggregate_functions": 0.012,
+        "case_classification": 0.006,
+        "table_load": 0.006,
+        "delete_insert_reprocess_review": 0.004,
+        "condition_complexity": 0.006,
+        "performance_review": 0.008,
+        "test_coverage_gap": 0.008,
+        "reprocess_or_duplication_review": 0.008,
+        "data_quality_review": 0.008,
+        "warning_volume": 0.012
+      },
+      "signals": {
+        "join_count": 3,
+        "aggregate_count": 2,
+        "warning_count": 8,
+        "has_group_by": true,
+        "has_case": true,
+        "has_insert": true,
+        "has_delete_or_delete_insert": true,
+        "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
+      }
+    }
+  }
+}

@@ -1,34 +1,45 @@
 {
-  "version": "2.1",
-  "description": "테이블명 고정 없이 ERWin 메타의 역할/관계로 배치 패턴을 선택한다.",
+  "version": "4.0",
+  "description": "처리 패턴은 rule_catalog가 정의하고, 실제 물리 테이블/컬럼은 ERWin table_role/column role로 결정한다. 업무별 if문과 물리 테이블명 고정을 두지 않는다.",
   "rules": [
     {
       "rule_id": "monthly_aggregation_dynamic",
       "rule_type": "monthly_aggregation",
       "batch_type": "aggregation_to_table",
       "priority": 100,
-      "description": "거래 원장 역할 테이블을 기준으로 월별 집계 SQL을 생성한다. 조인 대상은 ERWin relations와 classification_master 역할로 추론한다.",
+      "description": "거래 원장 역할 테이블과 분류 마스터 relation을 기준으로 월별 집계 SQL을 생성한다.",
       "match": {
-        "required_any": [
-          "집계",
-          "월별",
-          "통합"
+        "required_table_roles": [
+          "transaction_ledger",
+          "classification_master"
         ],
-        "required_columns": [
-          "CUSTOMER_ID",
-          "MERCHANT_ID"
+        "required_capabilities": [
+          "aggregation",
+          "group_by"
+        ],
+        "capability_any": [
+          "classification_join",
+          "effective_date_matching",
+          "exclude_cancelled",
+          "base_month_parameter",
+          "replace_partition",
+          "aggregation_source",
+          "classification_relation_available"
         ]
       },
       "target": {
-        "table": "TB_DEDUCTION_MONTHLY_SUMMARY",
-        "columns": [
-          "CUSTOMER_ID",
-          "BASE_YM",
-          "MERCHANT_TYPE",
-          "TOTAL_AMT",
-          "TXN_COUNT",
-          "REG_DTM"
-        ]
+        "table_role": "monthly_summary",
+        "column_roles": [
+          "customer_id",
+          "base_month",
+          "classification_type",
+          "amount_sum",
+          "row_count",
+          "reg_datetime"
+        ],
+        "load_strategy": "delete_insert",
+        "partition_column_role": "base_month",
+        "partition_param": "base_ym"
       }
     },
     {
@@ -38,16 +49,21 @@
       "priority": 80,
       "description": "거래 원장과 분류 마스터를 ERWIN relation 기반으로 조인하여 대상 거래를 추출한다.",
       "match": {
-        "required_any": [
-          "대상 거래",
-          "거래 추출",
-          "가맹점 유형",
-          "MERCHANT_TYPE",
-          "참조 테이블"
-        ],
         "required_table_roles": [
           "transaction_ledger",
           "classification_master"
+        ],
+        "required_capabilities": [
+          "classification_join",
+          "classification_relation_available"
+        ],
+        "capability_any": [
+          "file_export",
+          "effective_date_matching"
+        ],
+        "exclude_capabilities": [
+          "aggregation",
+          "group_by"
         ]
       },
       "template_type": "ledger_extract_with_classification",
@@ -60,20 +76,13 @@
       "priority": 10,
       "description": "단일 테이블 조건 조회 후 파일로 생성한다.",
       "match": {
-        "required_any": [
-          "파일",
-          "CSV",
-          "목록",
-          "추출",
-          "생성"
+        "capability_any": [
+          "file_export"
         ],
-        "exclude_any": [
-          "JOIN",
-          "참조 테이블",
-          "가맹점 유형",
-          "MERCHANT_TYPE",
-          "대상 거래",
-          "거래 추출"
+        "exclude_capabilities": [
+          "aggregation",
+          "group_by",
+          "classification_join"
         ]
       },
       "sql_template": "generic_export.sql.j2",

@@ -138,6 +138,7 @@ def _build_prompt(
 확신할 수 없는 값은 빈 문자열 또는 빈 배열로 둔다.
 SQL 전체를 직접 만들지 말고, SQL 생성을 위한 구조화된 spec 초안만 만든다.
 조건식에는 배치 기준일 바인드 변수를 :base_date 또는 :base_ym 형태로 표현한다.
+요청서에서 필요한 처리 능력은 capabilities 배열에 일반화해서 넣는다. 특정 업무명 대신 aggregation, group_by, classification_join, effective_date_matching, exclude_cancelled, use_flag_filter, replace_partition, file_export 같은 처리 능력으로 표현한다.
 """.strip()
 
     user_prompt = f"""
@@ -148,11 +149,22 @@ SQL 전체를 직접 만들지 말고, SQL 생성을 위한 구조화된 spec �
   "schedule_type": "daily|monthly|manual|string",
   "source_table": "string",
   "target_table": "string",
+  "target_role": "monthly_summary|file|string",
   "output_format": "csv|txt|xlsx|string",
   "output_file": "string",
   "output_file_prefix": "string",
   "base_date_column": "string",
   "base_parameter": "base_date|base_ym|string",
+  "capabilities": [
+    "aggregation",
+    "group_by",
+    "classification_join",
+    "effective_date_matching",
+    "exclude_cancelled",
+    "use_flag_filter",
+    "replace_partition",
+    "file_export"
+  ],
   "output_columns": ["COLUMN_NAME"],
   "conditions": ["safe SQL WHERE condition fragment"],
   "joins": [
@@ -239,11 +251,29 @@ def normalize_llm_batch_spec_draft(payload: Mapping[str, Any]) -> Dict[str, Any]
     draft["schedule_type"] = schedule_type
     draft["source_table"] = _upper_identifier(payload.get("source_table"))
     draft["target_table"] = _upper_identifier(payload.get("target_table"))
+    draft["target_role"] = _normalize_text(payload.get("target_role"))
     draft["output_format"] = output_format
     draft["output_file"] = _normalize_text(payload.get("output_file"))
     draft["output_file_prefix"] = _normalize_text(payload.get("output_file_prefix"))
     draft["base_date_column"] = _upper_identifier(payload.get("base_date_column"))
     draft["base_parameter"] = _normalize_text(payload.get("base_parameter")) or "base_date"
+
+    allowed_capabilities = {
+        "aggregation",
+        "group_by",
+        "classification_join",
+        "effective_date_matching",
+        "exclude_cancelled",
+        "use_flag_filter",
+        "replace_partition",
+        "file_export",
+    }
+    capabilities = []
+    for item in _normalize_list(payload.get("capabilities")):
+        normalized_capability = _normalize_text(item).lower()
+        if normalized_capability in allowed_capabilities and normalized_capability not in capabilities:
+            capabilities.append(normalized_capability)
+    draft["capabilities"] = capabilities
 
     columns = [_upper_identifier(item) for item in _normalize_list(payload.get("output_columns") or payload.get("columns"))]
     draft["output_columns"] = [item for item in columns if item]

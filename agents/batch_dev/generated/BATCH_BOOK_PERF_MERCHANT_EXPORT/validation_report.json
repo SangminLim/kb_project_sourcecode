@@ -1,0 +1,152 @@
+{
+  "valid": true,
+  "score": 0.88,
+  "summary": "도서공연 가맹점 파일 생성 배치가 정상적으로 생성되었으며, SQL과 job.py 실행 단서가 배치 목적에 부합하고 파일 출력 설정이 운영 관점에서 적절함 운영 반영 전 검토사항이 있습니다.",
+  "interpretation": "이 배치는 TB_BOOK_PERF_MERCHANT 테이블에서 USE_YN='Y'인 도서공연 소득공제 대상 가맹점 정보를 추출하여 CSV 파일로 출력하는 일 배치입니다. 기준일자(base_date)는 APPLY_START_DT와 APPLY_END_DT 사이의 유효 기간 내에 있는 데이터만 필터링하며, APPLY_END_DT가 NULL인 경우도 포함하여 처리합니다. 출력 파일은 book_perf_merchant_YYYYMMDD.csv 형식으로 UTF-8-sig 인코딩을 사용하여 ./output 디렉토리에 저장됩니다. job.py는 DB 접속, SQL 실행, CSV 파일 생성 로직을 포함하고 있으며, 테스트 파일은 생성 산출물 존재 여부만 검증합니다.",
+  "detected_batch_type": "db_to_file",
+  "checks": [
+    {
+      "item": "batch_spec.json",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "query.sql",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "job.py",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "SQL 위험 패턴",
+      "result": "PASS",
+      "detail": "명백한 위험 SQL 패턴은 발견되지 않았습니다."
+    },
+    {
+      "item": "SQL 파라미터와 batch_spec 일치성",
+      "result": "PASS",
+      "detail": "SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_date"
+    },
+    {
+      "item": "출력 형식",
+      "result": "PASS",
+      "detail": "출력 형식이 정의되어 있습니다: csv"
+    },
+    {
+      "item": "출력 파일명 패턴",
+      "result": "PASS",
+      "detail": "파일명 패턴이 정의되어 있습니다: book_perf_merchant_{base_date}.csv"
+    },
+    {
+      "item": "spec 테이블과 SQL 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
+    },
+    {
+      "item": "요청 목적 적합성",
+      "result": "PASS",
+      "detail": "배치명 '도서공연 가맹점 파일 생성'과 출력 목적 '소득공제 대상 도서공연 가맹점 정보 추출'이 일치함"
+    },
+    {
+      "item": "배치 유형 일치성",
+      "result": "PASS",
+      "detail": "batch_type이 'db_to_file'로 지정되어 있고, 실제 SQL은 SELECT 조회만 수행하며 파일 생성 배치에 적합함"
+    },
+    {
+      "item": "SQL 의미 일치성",
+      "result": "PASS",
+      "detail": "FROM TB_BOOK_PERF_MERCHANT, WHERE USE_YN='Y', APPLY_START_DT <= :base_date, (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date) 조건이 배치 목적과 정확히 일치함"
+    },
+    {
+      "item": "파라미터 일치성",
+      "result": "PASS",
+      "detail": "parameters에 base_date(YYYYMMDD)가 필수 파라미터로 정의되어 있고, SQL에서 :base_date로 사용됨"
+    },
+    {
+      "item": "파일 출력 설정 적절성",
+      "result": "PASS",
+      "detail": "output_format='csv', output_file_pattern='book_perf_merchant_{base_date}.csv', output_dir='./output', encoding='utf-8-sig'가 운영 관점에서 적절함"
+    },
+    {
+      "item": "job.py 실행 단서",
+      "result": "PASS",
+      "detail": "CSV 출력 로직, DB 접속/SQL 실행 로직, 파라미터 처리 단서가 포함되어 있음"
+    },
+    {
+      "item": "테스트 충분성",
+      "result": "WARN",
+      "detail": "test_job.py는 생성 산출물 존재 여부만 검증하며, SQL/파일포맷/파라미터까지 검증하지 않음"
+    },
+    {
+      "item": "성능 위험",
+      "result": "WARN",
+      "detail": "APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스가 없을 경우 Full Scan 가능성 있음"
+    },
+    {
+      "item": "데이터 품질 검증",
+      "result": "WARN",
+      "detail": "NOT NULL 컬럼(MERCHANT_ID, APPLY_START_DT) 검증 로직이 있으나, 중복/row count 검증은 없음"
+    }
+  ],
+  "issues": [],
+  "warnings": [
+    "테스트 파일이 생성 산출물 존재 여부만 검증하므로 SQL/파일포맷/파라미터 검증 로직 추가 필요",
+    "APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스 확인 필요",
+    "중복 데이터 및 row count 검증 로직 추가 필요"
+  ],
+  "recommendations": [
+    "운영 반영 전 실행계획 및 데이터 검증을 확인하세요.",
+    "대량 데이터 기준 row count 및 중복 검증을 확인하세요.",
+    "test_job.py에 SQL/파일포맷/파라미터 검증 로직 추가",
+    "APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스 적용 여부 확인",
+    "중복 데이터 및 row count 검증 로직 추가",
+    "파일 덮어쓰기 방지를 위한 파일명 중복 체크 로직 추가"
+  ],
+  "raw_llm_response": "{\"valid\": true, \"score\": 0.85, \"summary\": \"도서공연 가맹점 파일 생성 배치가 정상적으로 생성되었으며, SQL과 job.py 실행 단서가 배치 목적에 부합하고 파일 출력 설정이 운영 관점에서 적절함\", \"interpretation\": \"이 배치는 TB_BOOK_PERF_MERCHANT 테이블에서 USE_YN='Y'인 도서공연 소득공제 대상 가맹점 정보를 추출하여 CSV 파일로 출력하는 일 배치입니다. 기준일자(base_date)는 APPLY_START_DT와 APPLY_END_DT 사이의 유효 기간 내에 있는 데이터만 필터링하며, APPLY_END_DT가 NULL인 경우도 포함하여 처리합니다. 출력 파일은 book_perf_merchant_YYYYMMDD.csv 형식으로 UTF-8-sig 인코딩을 사용하여 ./output 디렉토리에 저장됩니다. job.py는 DB 접속, SQL 실행, CSV 파일 생성 로직을 포함하고 있으며, 테스트 파일은 생성 산출물 존재 여부만 검증합니다.\", \"detected_batch_type\": \"db_to_file\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명 '도서공연 가맹점 파일 생성'과 출력 목적 '소득공제 대상 도서공연 가맹점 정보 추출'이 일치함\"}, {\"item\": \"배치 유형 일치성\", \"result\": \"PASS\", \"detail\": \"batch_type이 'db_to_file'로 지정되어 있고, 실제 SQL은 SELECT 조회만 수행하며 파일 생성 배치에 적합함\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"FROM TB_BOOK_PERF_MERCHANT, WHERE USE_YN='Y', APPLY_START_DT <= :base_date, (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date) 조건이 배치 목적과 정확히 일치함\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"parameters에 base_date(YYYYMMDD)가 필수 파라미터로 정의되어 있고, SQL에서 :base_date로 사용됨\"}, {\"item\": \"파일 출력 설정 적절성\", \"result\": \"PASS\", \"detail\": \"output_format='csv', output_file_pattern='book_perf_merchant_{base_date}.csv', output_dir='./output', encoding='utf-8-sig'가 운영 관점에서 적절함\"}, {\"item\": \"job.py 실행 단서\", \"result\": \"PASS\", \"detail\": \"CSV 출력 로직, DB 접속/SQL 실행 로직, 파라미터 처리 단서가 포함되어 있음\"}, {\"item\": \"테스트 충분성\", \"result\": \"WARN\", \"detail\": \"test_job.py는 생성 산출물 존재 여부만 검증하며, SQL/파일포맷/파라미터까지 검증하지 않음\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스가 없을 경우 Full Scan 가능성 있음\"}, {\"item\": \"데이터 품질 검증\", \"result\": \"WARN\", \"detail\": \"NOT NULL 컬럼(MERCHANT_ID, APPLY_START_DT) 검증 로직이 있으나, 중복/row count 검증은 없음\"}], \"issues\": [], \"warnings\": [\"테스트 파일이 생성 산출물 존재 여부만 검증하므로 SQL/파일포맷/파라미터 검증 로직 추가 필요\", \"APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스 확인 필요\", \"중복 데이터 및 row count 검증 로직 추가 필요\"], \"recommendations\": [\"test_job.py에 SQL/파일포맷/파라미터 검증 로직 추가\", \"APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스 적용 여부 확인\", \"중복 데이터 및 row count 검증 로직 추가\", \"파일 덮어쓰기 방지를 위한 파일명 중복 체크 로직 추가\"]}",
+  "score_breakdown": {
+    "policy_version": "practical-scoring-v3-nonblocking-warn",
+    "final_score": 0.88,
+    "rule_score": 1.0,
+    "llm_score": 0.85,
+    "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
+    "blocking_fail_checks": [],
+    "downgraded_fail_checks": [],
+    "score_policy": {
+      "policy_version": "practical-scoring-v3-nonblocking-warn",
+      "effective_rule_score": 1.0,
+      "effective_llm_score": 0.85,
+      "base_score_before_penalty": 0.917,
+      "warn_penalty": 0.012,
+      "risk_penalty": 0.025,
+      "pass_count": 14,
+      "warn_count": 3,
+      "fail_count_after_normalization": 0,
+      "has_blocking_fail": false,
+      "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
+    },
+    "risk_penalty": {
+      "total_penalty": 0.025,
+      "penalties": {
+        "condition_complexity": 0.006,
+        "performance_review": 0.008,
+        "test_coverage_gap": 0.008,
+        "reprocess_or_duplication_review": 0.008,
+        "data_quality_review": 0.008,
+        "warning_volume": 0.0045000000000000005
+      },
+      "signals": {
+        "join_count": 0,
+        "aggregate_count": 0,
+        "warning_count": 3,
+        "has_group_by": false,
+        "has_case": false,
+        "has_insert": false,
+        "has_delete_or_delete_insert": false,
+        "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
+      }
+    }
+  }
+}
