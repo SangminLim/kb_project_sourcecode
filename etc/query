@@ -1,0 +1,63 @@
+INSERT INTO TB_BATCH_INCIDENT (
+    batch_name,
+    status,
+    severity,
+    error_code,
+    error_message,
+    start_time,
+    end_time,
+    customer_impact_yn,
+    downstream_job_count
+) VALUES
+(
+    'BATCH_01_CARD_APPROVAL_LOAD',
+    'FAIL',
+    'HIGH',
+    'ERR101',
+    '카드 승인 데이터 적재 실패',
+    DATE_SUB(NOW(), INTERVAL 45 MINUTE),
+    NULL,
+    'Y',
+    3
+),
+(
+    'BATCH_02_CARD_PURCHASE_LOAD',
+    'FAIL',
+    'MEDIUM',
+    'ERR102',
+    '매입 데이터 처리 오류',
+    DATE_SUB(NOW(), INTERVAL 15 MINUTE),
+    NULL,
+    'N',
+    1
+);
+
+INSERT INTO TB_BATCH_ACTION_HISTORY (
+    batch_name,
+    error_code,
+    action_detail,
+    action_owner,
+    created_at
+) VALUES
+(
+    'BATCH_01_CARD_APPROVAL_LOAD',
+    'ERR101',
+    '원천 승인 파일 수신 여부를 확인하고, 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 배치를 재실행한다.',
+    '승인계 운영담당자',
+    NOW()
+),
+(
+    'BATCH_02_CARD_PURCHASE_LOAD',
+    'ERR102',
+    '매입 원천 데이터의 전문 포맷 오류 여부를 확인하고, 오류 레코드를 분리한 뒤 정상 데이터 기준으로 재처리한다.',
+    '매입계 운영담당자',
+    NOW()
+);
+
+
+UPDATE testDB.TB_BATCH_INCIDENT
+SET start_time = DATE_SUB(NOW(), INTERVAL 45 MINUTE),
+    end_time = NULL,
+    severity = 'HIGH'
+WHERE batch_name = 'BATCH_01_CARD_APPROVAL_LOAD'
+  AND error_code = 'ERR101';

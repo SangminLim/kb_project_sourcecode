@@ -8,7 +8,7 @@ from .intent import (
     apply_dictionary_rewrite, detect_intent, detect_previous_user_intent, detect_system_id,
     detect_system_id_with_history, is_confident_intent_hint, is_followup_question,
 )
-from .llm_client import get_langchain_feature_flags, get_llm_engine_name, ollama_generate, _env_flag, _use_langchain
+from .llm_client import get_langchain_feature_flags, ollama_generate, _env_flag, _use_langchain
 from .models import AgentResult, AgentWorkflowState, resolve_response_route
 from .prompts import build_answer_prompt
 from .response_builder import (
@@ -277,16 +277,7 @@ class HandoverAgent:
         }
 
     def _graph_after_guard(self, state: AgentWorkflowState) -> str:
-        if state.get("result"):
-            return "end"
-
-        query_meta = state.get("query_meta") or {}
-        realtime_mode = str(query_meta.get("realtime_mode") or "")
-        post_process = str(query_meta.get("post_process") or "")
-        if state.get("intent") == "incident_status" or realtime_mode == "incident_status" or post_process == "incident_reasoning":
-            return "incident"
-
-        return "retrieve"
+        return "end" if state.get("result") else "retrieve"
 
     def _graph_retrieve_node(self, state: AgentWorkflowState) -> AgentWorkflowState:
         debug_logs = list(state.get("debug_logs", []))

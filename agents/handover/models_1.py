@@ -55,16 +55,6 @@ class AgentWorkflowState(TypedDict, total=False):
     metadatas: List[Dict[str, Any]]
     source_rows: List[Dict[str, Any]]
 
-    # Realtime incident reasoning extension.
-    # rows 계열 필드는 화면/DB 실행 계층이 조회 결과를 주입할 때 사용한다.
-    rows: List[Dict[str, Any]]
-    realtime_rows: List[Dict[str, Any]]
-    query_result_rows: List[Dict[str, Any]]
-    incident_rows: List[Dict[str, Any]]
-    incident_reasoned_rows: List[Dict[str, Any]]
-    incident_summary: str
-    incident_policy: Dict[str, Any]
-
     result: AgentResult
 
 

@@ -15,21 +15,7 @@ SELECT
     i.downstream_job_count AS 후행배치수,
     a.action_detail AS 조치내용,
     a.action_owner AS 담당자
-FROM (
-    SELECT *
-    FROM (
-        SELECT
-            i.*,
-            ROW_NUMBER() OVER (
-                PARTITION BY i.batch_name, i.error_code
-                ORDER BY i.start_time DESC
-            ) AS rn
-        FROM {schema}.TB_BATCH_INCIDENT i
-        WHERE DATE(i.start_time) = CURRENT_DATE
-          AND i.status = :status
-    ) t
-    WHERE rn = 1
-) i
+FROM {schema}.TB_BATCH_INCIDENT i
 LEFT JOIN (
     SELECT *
     FROM (
@@ -45,5 +31,7 @@ LEFT JOIN (
 ) a
     ON i.batch_name = a.batch_name
    AND i.error_code = a.error_code
+WHERE DATE(i.start_time) = CURRENT_DATE
+  AND i.status = :status
 ORDER BY i.start_time DESC
 LIMIT :limit_count;

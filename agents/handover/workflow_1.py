@@ -10,7 +10,6 @@ except Exception:
     END = "__end__"
 
 from .models import AgentResult, AgentWorkflowState
-from .incident_reasoning import incident_prepare_node, incident_reason_node, incident_respond_node
 
 
 def build_handover_workflow(agent: Any):
@@ -30,9 +29,6 @@ def build_handover_workflow(agent: Any):
     workflow.add_node("guard", agent._graph_guard_node)
     workflow.add_node("retrieve", agent._graph_retrieve_node)
     workflow.add_node("respond", agent._graph_respond_node)
-    workflow.add_node("incident_prepare", lambda state: incident_prepare_node(agent, state))
-    workflow.add_node("incident_reason", lambda state: incident_reason_node(agent, state))
-    workflow.add_node("incident_respond", lambda state: incident_respond_node(agent, state))
 
     workflow.add_edge(START, "prepare")
     workflow.add_edge("prepare", "rewrite")
@@ -44,16 +40,12 @@ def build_handover_workflow(agent: Any):
         agent._graph_after_guard,
         {
             "end": END,
-            "incident": "incident_prepare",
             "retrieve": "retrieve",
         },
     )
 
     workflow.add_edge("retrieve", "respond")
     workflow.add_edge("respond", END)
-    workflow.add_edge("incident_prepare", "incident_reason")
-    workflow.add_edge("incident_reason", "incident_respond")
-    workflow.add_edge("incident_respond", END)
 
     return workflow.compile()
 
