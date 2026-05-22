@@ -116,10 +116,95 @@ def render_incident_reasoning_panel(result: Any) -> None:
     # debug_logs는 평가용 근거 모드에서만 보여준다.
     if getattr(st.session_state, "evaluation_mode", False):
         debug_logs = _as_list(payload.get("debug_logs")) + _as_list(getattr(result, "debug_logs", []))
-        incident_logs = [str(log) for log in debug_logs if str(log).startswith("[INCIDENT")]
-        if incident_logs:
-            with st.expander("🛠 Incident Reasoning Logs"):
-                for log in incident_logs:
+        planner_logs = [
+            str(log)
+            for log in debug_logs
+            if str(log).startswith("[PLAN")
+            or str(log).startswith("[INCIDENT")
+            or str(log).startswith("[BILLING PLAN")
+            or str(log).startswith("[BILLING")
+        ]
+        if planner_logs:
+            with st.expander("🛠 Planner / Reasoning Logs"):
+                for log in planner_logs:
+                    st.text(log)
+
+
+def _get_billing_payload(result: Any) -> Dict[str, Any]:
+    """청구 그래프/요약 reasoning 결과를 realtime_payload/structured_data에서 안전하게 가져온다."""
+    realtime_payload = getattr(result, "realtime_payload", None) or {}
+    structured_data = getattr(result, "structured_data", None) or {}
+
+    if isinstance(realtime_payload, dict) and realtime_payload.get("billing_reasoning_results"):
+        return realtime_payload
+
+    if isinstance(structured_data, dict) and structured_data.get("billing_reasoning_results"):
+        return structured_data
+
+    if isinstance(structured_data, dict):
+        billing_reasoning = structured_data.get("billing_reasoning") or {}
+        if isinstance(billing_reasoning, dict) and billing_reasoning.get("billing_reasoning_results"):
+            return billing_reasoning
+
+    return {}
+
+
+def render_billing_reasoning_panel(result: Any) -> None:
+    """청구 그래프/요약 multi reasoning step 결과를 화면에 표시한다.
+
+    표시 조건은 query_id가 아니라 post_process, realtime_mode, payload 결과를 기준으로 한다.
+    """
+    query_meta = getattr(result, "query_meta", None) or {}
+    realtime_mode = str(getattr(result, "realtime_mode", "") or "")
+    post_process = str(query_meta.get("post_process") or "")
+    payload = _get_billing_payload(result)
+    reasoning_results = _as_list(payload.get("billing_reasoning_results"))
+
+    is_billing_result = (
+        post_process == "billing_graph_reasoning"
+        or "billing" in realtime_mode.lower()
+        or bool(reasoning_results)
+    )
+    if not is_billing_result:
+        return
+
+    if reasoning_results:
+        st.markdown("##### 🧠 Billing Multi Reasoning Step")
+
+        for idx, item in enumerate(reasoning_results, start=1):
+            if not isinstance(item, dict):
+                continue
+
+            title = (
+                item.get("title")
+                or item.get("step_label")
+                or item.get("step")
+                or f"청구 reasoning {idx}"
+            )
+            status = item.get("status") or "-"
+            details = [str(detail) for detail in _as_list(item.get("details")) if str(detail).strip()]
+
+            with st.container(border=True):
+                st.markdown(f"**[{idx}] {title}**")
+                st.markdown(f"- 상태: {status}")
+                if details:
+                    st.markdown("- 판단근거")
+                    for detail in details:
+                        st.markdown(f"  - {detail}")
+    elif post_process == "billing_graph_reasoning" or "billing" in realtime_mode.lower():
+        st.caption("Billing multi reasoning 결과가 아직 payload에 없습니다. realtime_payload.py에서 billing_reasoning_results를 넣어야 표시됩니다.")
+
+    if getattr(st.session_state, "evaluation_mode", False):
+        debug_logs = _as_list(payload.get("debug_logs")) + _as_list(getattr(result, "debug_logs", []))
+        billing_logs = [
+            str(log)
+            for log in debug_logs
+            if str(log).startswith("[BILLING")
+            or (str(log).startswith("[PLAN") and "billing" in str(log).lower())
+        ]
+        if billing_logs:
+            with st.expander("🛠 Billing Planner / Reasoning Logs"):
+                for log in billing_logs:
                     st.text(log)
 
 
@@ -142,6 +227,7 @@ def render_agent_result(result: Any) -> None:
         elif result.render_type == "chart" and result.query_meta:
             render_chart_summary(result)
             render_chart(result.query_meta, getattr(result, "realtime_payload", None), getattr(result, "message_id", None))
+            render_billing_reasoning_panel(result)
         elif result.render_type == "table" and result.query_meta:
             render_table_summary(result)
             render_table(result.query_meta, getattr(result, "realtime_mode", None), getattr(result, "realtime_payload", None))
@@ -198,6 +284,7 @@ def render_history_messages() -> None:
                 elif result.render_type == "chart" and result.query_meta:
                     render_chart_summary(result)
                     render_chart(result.query_meta, result.realtime_payload, result.message_id)
+                    render_billing_reasoning_panel(result)
                 elif result.render_type == "table" and result.query_meta:
                     render_table_summary(result)
                     render_table(result.query_meta, result.realtime_mode, result.realtime_payload)

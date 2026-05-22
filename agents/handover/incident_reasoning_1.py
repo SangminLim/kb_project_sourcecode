@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .models import AgentResult, AgentWorkflowState
-from .response_builder import build_table_answer
 
 
 def _as_list(value: Any, default: Optional[List[Any]] = None) -> List[Any]:
@@ -15,31 +14,6 @@ def _as_list(value: Any, default: Optional[List[Any]] = None) -> List[Any]:
     if isinstance(value, tuple):
         return list(value)
     return [value]
-
-
-DEFAULT_INCIDENT_PLANNER_POLICY: Dict[str, Any] = {
-    "enabled": True,
-    "default_steps": ["prepare_realtime_query", "status_reasoning", "summarize_table"],
-    "step_rules": [
-        {
-            "step": "action_guide",
-            "include_when_any": ["조치", "조치방법", "해결", "원인", "담당", "대응"],
-            "reason": "사용자가 원인/조치/담당자 확인을 요청함",
-        },
-        {
-            "step": "impact_analysis",
-            "include_when_any": ["영향", "고객영향", "후속", "연계", "후행", "영향도"],
-            "reason": "사용자가 영향도 또는 후속 배치 확인을 요청함",
-        },
-    ],
-    "step_labels": {
-        "prepare_realtime_query": "장애현황 조회 준비",
-        "status_reasoning": "상태/우선순위 판단",
-        "action_guide": "조치 가이드 보강",
-        "impact_analysis": "영향도 판단 보강",
-        "summarize_table": "표 요약 답변 생성",
-    },
-}
 
 
 DEFAULT_INCIDENT_REASONING_POLICY: Dict[str, Any] = {
@@ -74,94 +48,6 @@ DEFAULT_INCIDENT_REASONING_POLICY: Dict[str, Any] = {
         "recommended_action": "권장조치",
     },
 }
-
-
-def merge_incident_planner_policy(query_meta: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
-    """장애 workflow 실행 계획 정책을 병합한다.
-
-    기본값은 안전한 운영 절차이고, 실제 업무별 키워드/단계는
-    realtime_queries[].planner_policy에서 덮어쓸 수 있다.
-    """
-    policy: Dict[str, Any] = dict(DEFAULT_INCIDENT_PLANNER_POLICY)
-    policy["default_steps"] = list(DEFAULT_INCIDENT_PLANNER_POLICY.get("default_steps", []))
-    policy["step_rules"] = [dict(rule) for rule in DEFAULT_INCIDENT_PLANNER_POLICY.get("step_rules", [])]
-    policy["step_labels"] = dict(DEFAULT_INCIDENT_PLANNER_POLICY.get("step_labels", {}))
-
-    if not query_meta:
-        return policy
-
-    override = query_meta.get("planner_policy") if isinstance(query_meta, Mapping) else None
-    if not isinstance(override, Mapping):
-        return policy
-
-    for key, value in override.items():
-        if key == "step_labels" and isinstance(value, Mapping):
-            merged_labels = dict(policy.get("step_labels", {}))
-            merged_labels.update(dict(value))
-            policy[key] = merged_labels
-        elif key == "step_rules" and isinstance(value, list):
-            policy[key] = [dict(rule) for rule in value if isinstance(rule, Mapping)]
-        elif key == "default_steps" and isinstance(value, list):
-            policy[key] = [str(step) for step in value if str(step).strip()]
-        else:
-            policy[key] = value
-    return policy
-
-
-def _contains_any_keyword(text: str, keywords: Sequence[Any]) -> bool:
-    normalized = _text(text).lower()
-    return any(_text(keyword).lower() in normalized for keyword in keywords if _text(keyword))
-
-
-def build_incident_plan(question: str, query_meta: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
-    """질문과 설정 기반으로 장애현황 workflow 실행 계획을 만든다.
-
-    LLM이 임의로 도구를 고르는 구조가 아니라, 운영 설정 기반의 제한형 planner다.
-    그래서 재현성과 운영 안정성을 유지하면서도 질문에 따라 조치/영향도 단계를 확장할 수 있다.
-    """
-    policy = merge_incident_planner_policy(query_meta)
-    default_steps = [str(step) for step in policy.get("default_steps", []) if str(step).strip()]
-    steps: List[str] = list(dict.fromkeys(default_steps))
-    reasons: List[str] = []
-
-    if not policy.get("enabled", True):
-        return {
-            "enabled": False,
-            "steps": steps,
-            "step_labels": policy.get("step_labels", {}),
-            "reasons": ["planner_policy.enabled=false"],
-        }
-
-    for rule in policy.get("step_rules", []) or []:
-        if not isinstance(rule, Mapping):
-            continue
-        step = _text(rule.get("step"))
-        if not step:
-            continue
-        keywords = _as_list(rule.get("include_when_any"))
-        include_by_default = bool(rule.get("enabled_by_default", False))
-        include_by_keyword = _contains_any_keyword(question, keywords)
-        if include_by_default or include_by_keyword:
-            if step not in steps:
-                # 답변 생성은 항상 마지막에 둔다.
-                if "summarize_table" in steps:
-                    steps.insert(max(0, len(steps) - 1), step)
-                else:
-                    steps.append(step)
-            reason = _text(rule.get("reason")) or f"{step} 조건 충족"
-            reasons.append(reason)
-
-    if "prepare_realtime_query" not in steps:
-        steps.insert(0, "prepare_realtime_query")
-    if "summarize_table" not in steps:
-        steps.append("summarize_table")
-
-    return {
-        "enabled": True,
-        "steps": steps,
-        "step_labels": policy.get("step_labels", {}),
-        "reasons": reasons or ["기본 장애현황 조회 절차 적용"],
-    }
 
 
 def merge_incident_policy(query_meta: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
@@ -402,45 +288,6 @@ def _extract_incident_rows(state: AgentWorkflowState) -> List[Mapping[str, Any]]
     return []
 
 
-def incident_planner_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflowState:
-    debug_logs = list(state.get("debug_logs", []))
-    debug_logs.append("[LG-I 0] node = incident_planner")
-
-    query_meta = dict(state.get("query_meta") or {})
-    question = (
-        state.get("rewritten_question")
-        or state.get("normalized_question")
-        or state.get("question", "")
-    )
-    plan = build_incident_plan(str(question), query_meta)
-
-    query_meta["execution_plan"] = plan
-
-    planned_steps = plan.get("steps", [])
-    planner_reasons = plan.get("reasons", [])
-    requires_reasoning = any(
-        step in planned_steps
-        for step in ["status_reasoning", "impact_analysis", "action_guide"]
-    )
-    requires_action_summary = "action_guide" in planned_steps
-    requires_impact_analysis = "impact_analysis" in planned_steps
-
-    debug_logs.append(f"[PLAN 1] detected_request = {state.get('intent', 'incident_status')}")
-    debug_logs.append(f"[PLAN 2] selected_steps = {planned_steps}")
-    debug_logs.append(f"[PLAN 3] requires_reasoning = {requires_reasoning}")
-    debug_logs.append(f"[PLAN 4] requires_action_summary = {requires_action_summary}")
-    debug_logs.append(f"[PLAN 5] requires_impact_analysis = {requires_impact_analysis}")
-    debug_logs.append(f"[PLAN 6] planner_reasons = {planner_reasons}")
-    debug_logs.append("[PLAN 7] selected_workflow = incident_reasoning_flow")
-
-    return {
-        **state,
-        "query_meta": query_meta,
-        "incident_plan": plan,
-        "debug_logs": debug_logs,
-    }
-
-
 def incident_prepare_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflowState:
     debug_logs = list(state.get("debug_logs", []))
     debug_logs.append("[LG-I 1] node = incident_prepare")
@@ -454,36 +301,15 @@ def incident_reason_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflow
     debug_logs = list(state.get("debug_logs", []))
     debug_logs.append("[LG-I 2] node = incident_reason")
     rows = _extract_incident_rows(state)
-
-    # Streamlit realtime renderer가 DB/샘플 rows를 별도 계층에서 주입하는 구조에서는
-    # LangGraph state에 rows가 없을 수 있다. 이 경우 그래프는 실행계획만 query_meta에 싣고,
-    # 실제 표/요약/멀티 reasoning 렌더링은 기존 realtime renderer에 위임한다.
     if not rows:
-        debug_logs.append("[PLAN 8] row_reasoning = delegated_to_realtime_renderer")
-        return {
-            **state,
-            "incident_rows": [],
-            "incident_reasoned_rows": [],
-            "incident_summary": "",
-            "debug_logs": debug_logs,
-        }
+        debug_logs.append("[INCIDENT 1] rows = empty_or_not_yet_loaded")
+        return {**state, "incident_rows": [], "incident_reasoned_rows": [], "incident_summary": "", "debug_logs": debug_logs}
 
-    plan = state.get("incident_plan") or (state.get("query_meta") or {}).get("execution_plan") or {}
-    planned_steps = set(_as_list(plan.get("steps"))) if isinstance(plan, Mapping) else set()
-    if "status_reasoning" in planned_steps or "impact_analysis" in planned_steps or "action_guide" in planned_steps:
-        reasoned_rows = apply_incident_reasoning(rows, state.get("query_meta") or {})
-        summary = summarize_incident_rows(reasoned_rows, state.get("query_meta") or {})
-        debug_logs.append("[INCIDENT 2] status_reasoning = applied")
-        if "impact_analysis" in planned_steps:
-            debug_logs.append("[INCIDENT 2-1] impact_analysis = included_by_plan")
-        if "action_guide" in planned_steps:
-            debug_logs.append("[INCIDENT 2-2] action_guide = included_by_plan")
-    else:
-        reasoned_rows = [dict(row) for row in rows]
-        summary = summarize_incident_rows(reasoned_rows, state.get("query_meta") or {})
-        debug_logs.append("[INCIDENT 2] status_reasoning = skipped_by_plan")
+    reasoned_rows = apply_incident_reasoning(rows, state.get("query_meta") or {})
+    summary = summarize_incident_rows(reasoned_rows, state.get("query_meta") or {})
     debug_logs.append(f"[INCIDENT 1] rows = {len(rows)}")
-    debug_logs.append("[INCIDENT 3] priority_ranking = applied_when_planned")
+    debug_logs.append("[INCIDENT 2] status_reasoning = applied")
+    debug_logs.append("[INCIDENT 3] priority_ranking = applied")
     return {
         **state,
         "incident_rows": [dict(row) for row in rows],
@@ -499,15 +325,12 @@ def incident_respond_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflo
 
     query_meta = dict(state.get("query_meta") or {})
     reasoned_rows = state.get("incident_reasoned_rows") or []
-
-    # 중복 응답 방지:
-    # LangGraph incident planner는 execution_plan/post_process/reasoning_policy를 query_meta에 싣는 역할만 한다.
-    # 실제 장애현황 표, 요약, Multi Reasoning Step은 기존 realtime renderer가 담당하므로
-    # 여기서 별도 summary/plan_text를 answer에 붙이지 않는다.
+    summary = str(state.get("incident_summary") or "").strip()
     if reasoned_rows:
         query_meta["rows"] = reasoned_rows
-
-    answer = build_table_answer(query_meta)
+        answer = summary or summarize_incident_rows(reasoned_rows, query_meta)
+    else:
+        answer = str(query_meta.get("title") or "장애현황") + "을 표 형태로 조회하고, 조회 결과에 상태판단/영향도/우선순위를 후처리하도록 준비했습니다."
 
     result = AgentResult(
         original_question=state.get("question", ""),

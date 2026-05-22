@@ -64,6 +64,10 @@ class AgentWorkflowState(TypedDict, total=False):
     incident_reasoned_rows: List[Dict[str, Any]]
     incident_summary: str
     incident_policy: Dict[str, Any]
+    incident_plan: Dict[str, Any]
+
+    # Realtime billing graph reasoning extension.
+    billing_plan: Dict[str, Any]
 
     result: AgentResult
 

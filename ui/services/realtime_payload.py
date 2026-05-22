@@ -259,15 +259,198 @@ def _build_incident_reasoning_results(df: pd.DataFrame, policy: Dict[str, Any]) 
     return results, debug_logs
 
 
+def _build_billing_reasoning_results(
+    df: pd.DataFrame,
+    query_meta: Dict[str, Any],
+    policy: Dict[str, Any],
+) -> tuple[list[Dict[str, Any]], list[str]]:
+    """청구 월별 금액 차트/요약에 대한 rule 기반 multi reasoning 결과를 만든다.
+
+    원칙:
+    - query_id를 기준으로 분기하지 않는다.
+    - x_field/y_field는 query_meta에서 읽고, 없으면 DataFrame 컬럼을 보수적으로 사용한다.
+    - threshold/표시 정책은 realtime policy 또는 query_meta.reasoning_policy로 조정 가능하게 둔다.
+    """
+    debug_logs: list[str] = []
+    debug_logs.append(f"[BILLING 1] source_rows = {len(df)}")
+
+    plan = (query_meta or {}).get("execution_plan") or {}
+    planned_steps = plan.get("steps", []) if isinstance(plan, dict) else []
+    debug_logs.append(f"[BILLING 2] planned_steps = {planned_steps}")
+
+    if df.empty:
+        debug_logs.append("[BILLING 3] skipped = empty_dataframe")
+        return [], debug_logs
+
+    reasoning_policy = {}
+    if isinstance((query_meta or {}).get("reasoning_policy"), dict):
+        reasoning_policy.update((query_meta or {}).get("reasoning_policy") or {})
+    if isinstance(policy, dict):
+        reasoning_policy = {**policy, **reasoning_policy}
+
+    configured_x = str((query_meta or {}).get("x_field") or "").strip()
+    configured_y = str((query_meta or {}).get("y_field") or "").strip()
+
+    x_field = configured_x if configured_x in df.columns else None
+    y_field = configured_y if configured_y in df.columns else None
+
+    if x_field is None and len(df.columns) >= 1:
+        x_field = str(df.columns[0])
+    if y_field is None and len(df.columns) >= 2:
+        y_field = str(df.columns[1])
+
+    debug_logs.append("[BILLING 3] column_mapping = " + str({
+        "x_field": x_field,
+        "y_field": y_field,
+        "configured_x_field": configured_x,
+        "configured_y_field": configured_y,
+    }))
+
+    if not x_field or not y_field or x_field not in df.columns or y_field not in df.columns:
+        return [
+            {
+                "step": "validate_chart_fields",
+                "title": "차트 컬럼 검증",
+                "status": "확인 필요",
+                "details": [
+                    f"x_field={configured_x or '(미지정)'}",
+                    f"y_field={configured_y or '(미지정)'}",
+                    "DataFrame에서 차트 생성에 필요한 컬럼을 찾지 못했습니다.",
+                ],
+            }
+        ], debug_logs + ["[BILLING 4] validation = failed"]
+
+    work_df = df[[x_field, y_field]].copy()
+    work_df[y_field] = pd.to_numeric(work_df[y_field], errors="coerce").fillna(0)
+    work_df = work_df.sort_values(by=x_field).reset_index(drop=True)
+
+    row_count = int(len(work_df))
+    total_amount = float(work_df[y_field].sum())
+    max_row = work_df.loc[work_df[y_field].idxmax()]
+    min_row = work_df.loc[work_df[y_field].idxmin()]
+    latest_row = work_df.iloc[-1]
+    prev_row = work_df.iloc[-2] if row_count >= 2 else None
+
+    change_rate_pct = None
+    change_direction = "단일 구간"
+    if prev_row is not None and float(prev_row[y_field]) != 0:
+        change_rate_pct = round(
+            ((float(latest_row[y_field]) - float(prev_row[y_field])) / float(prev_row[y_field])) * 100,
+            2,
+        )
+        if change_rate_pct > 0:
+            change_direction = "증가"
+        elif change_rate_pct < 0:
+            change_direction = "감소"
+        else:
+            change_direction = "동일"
+
+    try:
+        threshold = float(reasoning_policy.get("billing_change_threshold_pct", 10))
+    except Exception:
+        threshold = 10.0
+
+    volatility_note = "증감률 판단 생략"
+    if change_rate_pct is not None:
+        if abs(float(change_rate_pct)) >= threshold:
+            volatility_note = f"전월 대비 변동률 {change_rate_pct}%가 기준 {threshold}% 이상입니다."
+        else:
+            volatility_note = f"전월 대비 변동률 {change_rate_pct}%가 기준 {threshold}% 미만입니다."
+
+    results = [
+        {
+            "step": "prepare_realtime_query",
+            "title": "청구 데이터 조회 준비",
+            "status": "완료",
+            "details": [
+                f"조회 대상: {(query_meta or {}).get('title') or (query_meta or {}).get('query_id') or '청구 데이터'}",
+                f"렌더링 유형: {(query_meta or {}).get('render_type') or 'chart'}",
+            ],
+        },
+        {
+            "step": "validate_chart_fields",
+            "title": "차트 컬럼 검증",
+            "status": "완료",
+            "details": [
+                f"x_field={x_field}",
+                f"y_field={y_field}",
+                f"조회 행 수={row_count}건",
+            ],
+        },
+        {
+            "step": "fetch_monthly_billing",
+            "title": "월별 청구 금액 조회",
+            "status": "완료",
+            "details": [
+                f"총 {row_count}개 구간",
+                f"총액={total_amount:,.0f}",
+                f"최고 구간={max_row[x_field]} / {float(max_row[y_field]):,.0f}",
+                f"최저 구간={min_row[x_field]} / {float(min_row[y_field]):,.0f}",
+            ],
+        },
+        {
+            "step": "build_chart",
+            "title": "월별 금액 그래프 생성",
+            "status": "완료",
+            "details": [
+                f"차트 유형={(query_meta or {}).get('chart_type') or 'bar'}",
+                f"X축={x_field}",
+                f"Y축={y_field}",
+            ],
+        },
+        {
+            "step": "summarize_trend",
+            "title": "증감 흐름 요약",
+            "status": "완료",
+            "details": [
+                f"최근 구간={latest_row[x_field]} / {float(latest_row[y_field]):,.0f}",
+                f"전월 대비 증감률={change_rate_pct if change_rate_pct is not None else '계산 불가'}",
+                f"흐름 판단={change_direction}",
+                volatility_note,
+            ],
+        },
+    ]
+
+    debug_logs.append(f"[BILLING 4] reasoning_results = {len(results)}")
+    debug_logs.append(f"[BILLING 5] trend_direction = {change_direction}")
+    debug_logs.append("[BILLING 6] chart_reasoning = completed")
+    return results, debug_logs
+
+
 def _should_build_incident_reasoning(query_meta: Dict[str, Any], realtime_mode: Optional[str], policy: Dict[str, Any]) -> bool:
-    query_id = str((query_meta or {}).get("query_id") or "").strip()
-    mode = str(realtime_mode or (query_meta or {}).get("realtime_mode") or "").strip()
+    post_process = str((query_meta or {}).get("post_process") or "").strip()
+    mode = str(realtime_mode or (query_meta or {}).get("realtime_mode") or "").strip().lower()
     summary_type = str(policy.get("summary_type") or policy.get("summary_handler") or "").strip()
     return (
-        query_id == "today_incidents"
-        or mode == "incident_table_with_summary"
+        post_process == "incident_reasoning"
+        or "incident" in mode
         or summary_type == "incident_summary"
     )
+
+
+def _should_build_billing_plan_logs(query_meta: Dict[str, Any], realtime_mode: Optional[str], policy: Dict[str, Any]) -> bool:
+    post_process = str((query_meta or {}).get("post_process") or "").strip()
+    mode = str(realtime_mode or (query_meta or {}).get("realtime_mode") or "").strip().lower()
+    summary_type = str(policy.get("summary_type") or policy.get("summary_handler") or "").strip()
+    return (
+        post_process == "billing_graph_reasoning"
+        or "billing" in mode
+        or summary_type == "timeseries_amount_summary"
+    )
+
+
+def _build_plan_debug_logs(query_meta: Dict[str, Any], target_domain: str) -> list[str]:
+    plan = (query_meta or {}).get("execution_plan") or {}
+    post_process = str((query_meta or {}).get("post_process") or "")
+    steps = plan.get("steps", []) if isinstance(plan, dict) else []
+    reasons = plan.get("reasons", []) if isinstance(plan, dict) else []
+    return [
+        f"[PLAN 1] execution_plan_loaded = {bool(plan)}",
+        f"[PLAN 2] selected_steps = {steps}",
+        f"[PLAN 3] post_process = {post_process}",
+        f"[PLAN 4] target_domain = {target_domain}",
+        f"[PLAN 5] planner_reasons = {reasons}",
+    ]
 
 
 def build_realtime_payload(
@@ -287,6 +470,7 @@ def build_realtime_payload(
         "empty_message": None,
         "error": None,
         "reasoning_results": None,
+        "billing_reasoning_results": None,
         "debug_logs": [],
     }
 
@@ -305,7 +489,16 @@ def build_realtime_payload(
     if _should_build_incident_reasoning(query_meta, realtime_mode, policy):
         reasoning_results, incident_debug_logs = _build_incident_reasoning_results(df, policy)
         payload["reasoning_results"] = reasoning_results
-        payload["debug_logs"] = incident_debug_logs
+        payload["debug_logs"] = _build_plan_debug_logs(query_meta, "incident") + incident_debug_logs
+
+    if _should_build_billing_plan_logs(query_meta, realtime_mode, policy):
+        billing_reasoning_results, billing_debug_logs = _build_billing_reasoning_results(df, query_meta, policy)
+        payload["billing_reasoning_results"] = billing_reasoning_results
+        payload["debug_logs"] = (
+            _build_plan_debug_logs(query_meta, "billing")
+            + billing_debug_logs
+            + list(payload.get("debug_logs") or [])
+        )
 
     if df.empty:
         payload["empty_message"] = str(policy.get("empty_message") or "조회 결과가 없습니다.")
@@ -313,6 +506,10 @@ def build_realtime_payload(
 
     try:
         payload["summary"] = generate_realtime_summary(query_meta, df, policy)
+        if _should_build_billing_plan_logs(query_meta, realtime_mode, policy):
+            payload["debug_logs"] = list(payload.get("debug_logs") or []) + [
+                "[BILLING 7] trend_summary = generated" if payload.get("summary") else "[BILLING 7] trend_summary = skipped"
+            ]
     except Exception as exc:
         logger.exception(
             "Realtime summary generation failed: query_id=%s",

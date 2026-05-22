@@ -276,15 +276,80 @@ class HandoverAgent:
             "debug_logs": debug_logs,
         }
 
+    def _is_incident_post_process(self, query_meta: Optional[Dict[str, Any]]) -> bool:
+        """realtime query 설정을 기준으로 incident 후처리 대상인지 판단한다.
+
+        개별 intent/query_id를 코드에 박지 않는다.
+        우선순위:
+        1) JSON의 post_process가 명시되어 있으면 그 값을 따른다.
+        2) planner_policy/reasoning_policy가 있으면 incident 후처리 대상으로 본다.
+        3) realtime_mode 명명 규칙에 incident가 포함되면 incident_reasoning으로 승격한다.
+        """
+        if not isinstance(query_meta, dict):
+            return False
+
+        post_process = str(query_meta.get("post_process") or "").strip()
+        if post_process:
+            return post_process == "incident_reasoning"
+
+        if isinstance(query_meta.get("planner_policy"), dict) or isinstance(query_meta.get("reasoning_policy"), dict):
+            query_meta.setdefault("post_process", "incident_reasoning")
+            return True
+
+        realtime_mode = str(query_meta.get("realtime_mode") or "").strip().lower()
+        if "incident" in realtime_mode:
+            query_meta.setdefault("post_process", "incident_reasoning")
+            return True
+
+        return False
+
+    def _is_billing_post_process(self, query_meta: Optional[Dict[str, Any]]) -> bool:
+        """realtime query 설정을 기준으로 청구 그래프/요약 후처리 대상인지 판단한다.
+
+        개별 query_id를 코드에 박지 않고, JSON 메타데이터의 post_process,
+        planner_policy, realtime_mode, data_source/차트 필드 정보를 기준으로 제한형 planner 적용 여부를 판단한다.
+        """
+        if not isinstance(query_meta, dict):
+            return False
+
+        post_process = str(query_meta.get("post_process") or "").strip()
+        if post_process:
+            return post_process == "billing_graph_reasoning"
+
+        realtime_mode = str(query_meta.get("realtime_mode") or "").strip().lower()
+        if "billing" in realtime_mode:
+            query_meta.setdefault("post_process", "billing_graph_reasoning")
+            return True
+
+        data_source = query_meta.get("data_source") if isinstance(query_meta.get("data_source"), dict) else {}
+        metadata_text = " ".join(
+            [
+                str(query_meta.get("title") or ""),
+                str(query_meta.get("series_name") or ""),
+                str(query_meta.get("x_field") or ""),
+                str(query_meta.get("y_field") or ""),
+                str(data_source.get("query_purpose") or ""),
+                str(data_source.get("table") or ""),
+            ]
+        ).lower()
+
+        has_chart_shape = bool(query_meta.get("x_field") and query_meta.get("y_field"))
+        looks_like_billing = any(token in metadata_text for token in ("billing", "청구", "이용내역서"))
+        if has_chart_shape and looks_like_billing:
+            query_meta.setdefault("post_process", "billing_graph_reasoning")
+            return True
+
+        return False
+
     def _graph_after_guard(self, state: AgentWorkflowState) -> str:
         if state.get("result"):
             return "end"
 
         query_meta = state.get("query_meta") or {}
-        realtime_mode = str(query_meta.get("realtime_mode") or "")
-        post_process = str(query_meta.get("post_process") or "")
-        if state.get("intent") == "incident_status" or realtime_mode == "incident_status" or post_process == "incident_reasoning":
+        if self._is_incident_post_process(query_meta):
             return "incident"
+        if self._is_billing_post_process(query_meta):
+            return "billing"
 
         return "retrieve"
 
