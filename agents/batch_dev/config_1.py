@@ -172,32 +172,3 @@ BATCH_DEV_LANGGRAPH_ENABLED = os.getenv(
     "false",
 ).strip().lower() in {"1", "true", "yes", "y"}
 
-
-
-# LangSmith tracing for batch development workflow.
-# LangSmith 미설치/미설정 상태에서도 서비스가 죽지 않도록 workflow.py에서 optional config로만 사용한다.
-BATCH_DEV_LANGSMITH_ENABLED = os.getenv(
-    "BATCH_DEV_LANGSMITH_ENABLED",
-    os.getenv("LANGCHAIN_TRACING_V2", "false"),
-).strip().lower() in {"1", "true", "yes", "y"}
-
-BATCH_DEV_LANGSMITH_RUN_NAME = os.getenv(
-    "BATCH_DEV_LANGSMITH_RUN_NAME",
-    "batch_dev_workflow",
-)
-
-BATCH_DEV_LANGSMITH_TAGS = [
-    item.strip()
-    for item in os.getenv(
-        "BATCH_DEV_LANGSMITH_TAGS",
-        "batch_dev,langgraph,batch_generation",
-    ).split(",")
-    if item.strip()
-]
-
-# 기본값 false: 현업 요청서 원문 일부가 LangSmith metadata에 남지 않도록 보수적으로 둔다.
-# 필요할 때만 true로 켜면 request_preview가 metadata에 추가된다.
-BATCH_DEV_LANGSMITH_INCLUDE_REQUEST_PREVIEW = os.getenv(
-    "BATCH_DEV_LANGSMITH_INCLUDE_REQUEST_PREVIEW",
-    "false",
-).strip().lower() in {"1", "true", "yes", "y"}

@@ -12,14 +12,7 @@ except Exception:
     END = "__end__"
 
 from .generator.code_generator import generate_code
-from .config import (
-    BATCH_DEV_LANGSMITH_ENABLED,
-    BATCH_DEV_LANGSMITH_INCLUDE_REQUEST_PREVIEW,
-    BATCH_DEV_LANGSMITH_RUN_NAME,
-    BATCH_DEV_LANGSMITH_TAGS,
-    BATCH_SQL_IMPROVEMENT_ENABLED,
-    ERWIN_METADATA_PATH,
-)
+from .config import BATCH_SQL_IMPROVEMENT_ENABLED, ERWIN_METADATA_PATH
 from .validation.llm_batch_validator import validate_batch_generation
 from .models import BatchDevResult
 from .spec.spec_builder import build_batch_spec
@@ -274,33 +267,6 @@ def _finalize_node(state: BatchDevWorkflowState) -> BatchDevWorkflowState:
     return {**state, "result": result, "debug_logs": debug_logs}
 
 
-def _build_langsmith_config(request_text: str) -> Optional[Dict[str, Any]]:
-    """LangGraph invoke에 넘길 LangSmith trace config를 만든다.
-
-    원칙:
-    - LangSmith 패키지를 직접 import하지 않는다. 설치/미설치와 무관하게 안전하다.
-    - 실제 tracing 활성화는 .env의 LANGCHAIN_TRACING_V2/LANGCHAIN_API_KEY와 LangChain/LangGraph가 처리한다.
-    - 현업 요청서 원문은 기본적으로 metadata에 싣지 않고 길이만 기록한다.
-    """
-    if not BATCH_DEV_LANGSMITH_ENABLED:
-        return None
-
-    request_text = str(request_text or "")
-    metadata: Dict[str, Any] = {
-        "workflow": "batch_development",
-        "entrypoint": "agents.batch_dev.workflow.run_batch_dev_graph",
-        "request_length": len(request_text),
-    }
-    if BATCH_DEV_LANGSMITH_INCLUDE_REQUEST_PREVIEW:
-        metadata["request_preview"] = request_text[:500]
-
-    return {
-        "run_name": BATCH_DEV_LANGSMITH_RUN_NAME,
-        "tags": list(BATCH_DEV_LANGSMITH_TAGS),
-        "metadata": metadata,
-    }
-
-
 def run_batch_dev_graph(request_text: str) -> BatchDevResult:
     """LangGraph 기반 배치 개발 workflow 실행.
 
@@ -331,19 +297,14 @@ def run_batch_dev_graph(request_text: str) -> BatchDevResult:
     workflow.add_edge("finalize", END)
 
     compiled = workflow.compile()
-    initial_state: BatchDevWorkflowState = {
-        "request_text": request_text,
-        "warnings": [],
-        "errors": [],
-        "debug_logs": ["[BATCH_LG 0] workflow = batch_dev"],
-    }
-    langsmith_config = _build_langsmith_config(request_text)
-    if langsmith_config:
-        initial_state["debug_logs"].append("[BATCH_LG 0-1] langsmith_trace = enabled")
-        final_state = compiled.invoke(initial_state, config=langsmith_config)
-    else:
-        initial_state["debug_logs"].append("[BATCH_LG 0-1] langsmith_trace = disabled")
-        final_state = compiled.invoke(initial_state)
+    final_state = compiled.invoke(
+        {
+            "request_text": request_text,
+            "warnings": [],
+            "errors": [],
+            "debug_logs": ["[BATCH_LG 0] workflow = batch_dev"],
+        }
+    )
 
     result = final_state.get("result")
     if not result:

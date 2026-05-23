@@ -43,27 +43,27 @@
     {
       "item": "요청 목적 적합성",
       "result": "PASS",
-      "detail": "배치명, 기준 테이블, 참조 테이블, 집계 기준, 출력 컬럼이 원본 요청과 일치한다."
+      "detail": "배치명 '소득공제 월별 통합 집계 배치'와 배치 유형 '월별 집계 배치 Delete Insert 방식'이 일치하며, 고객별 월별 소득공제 대상 이용금액 집계 목적을 명확히 반영한다."
     },
     {
       "item": "SQL 의미 일치성",
       "result": "PASS",
-      "detail": "DELETE와 INSERT를 사용한 Delete Insert 방식, BASE_YM 파라미터 사용, CANCEL_YN='N', USE_YN='Y', SALES_DT 유효기간 매칭, 가맹점 유형별 CASE 처리, SUM/COUNT 집계가 배치 목적과 일치한다."
+      "detail": "batch_spec의 source, target, parameters와 SQL의 DELETE/INSERT, WHERE 조건(:base_ym, BASE_YM, CANCEL_YN='N')이 의미적으로 연결된다."
     },
     {
       "item": "파라미터 일치성",
       "result": "PASS",
-      "detail": "batch_spec의 parameters에 base_ym이 필수 true로 정의되어 있고 SQL에서 :base_ym으로 사용되었다."
+      "detail": "job.py 실행 단서에서 :base_ym 파라미터가 DELETE와 INSERT SQL에 모두 사용되며, test_job.py에서 :BASE_YM 존재 여부를 검증한다."
     },
     {
       "item": "운영 재처리 위험",
       "result": "WARN",
-      "detail": "DELETE 후 INSERT 방식으로 멱등성 보장되나, 대량 데이터 처리 시 성능 및 롤백 전략 검토가 필요하다."
+      "detail": "DELETE 후 INSERT 방식으로 멱등성이 보장되지 않으며, 재처리 시 중복 적재 또는 데이터 손실 위험이 있다. 테스트 부족 및 데이터 품질 검증(행 수, 중복) 검토가 필요하다."
     },
     {
       "item": "성능 위험",
       "result": "WARN",
-      "detail": "TB_CARD_SALES_LEDGER의 BASE_YM 컬럼에 인덱스가 없을 경우 Full Scan 가능성, 다중 LEFT JOIN으로 인한 조인 성능 검토 필요."
+      "detail": "TB_CARD_SALES_LEDGER의 BASE_YM 기준 전체 스캔 가능성이 있으며, SALES_DT와 MERCHANT_ID에 대한 인덱스 확인이 필요하다. 대량 데이터 조회 시 성능 저하 우려."
     }
   ],
   "issues": [],
@@ -79,7 +79,7 @@
     "금액 합계 검증 확인",
     "row count 및 중복 검증 확인"
   ],
-  "raw_llm_response": "{\"valid\": true, \"score\": 0.75, \"summary\": \"소득공제 월별 통합 집계 배치가 Delete Insert 방식으로 TB_DEDUCTION_MONTHLY_SUMMARY에 적재되도록 SQL과 job.py가 생성되었다.\", \"interpretation\": \"TB_CARD_SALES_LEDGER에서 BASE_YM 기준 CANCEL_YN='N', USE_YN='Y', SALES_DT 유효기간을 매칭하여 가맹점 유형별로 금액 및 건수를 집계하고 TB_DEDUCTION_MONTHLY_SUMMARY에 Delete Insert 방식으로 적재한다.\", \"detected_batch_type\": \"aggregation_to_table\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명, 기준 테이블, 참조 테이블, 집계 기준, 출력 컬럼이 원본 요청과 일치한다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"DELETE와 INSERT를 사용한 Delete Insert 방식, BASE_YM 파라미터 사용, CANCEL_YN='N', USE_YN='Y', SALES_DT 유효기간 매칭, 가맹점 유형별 CASE 처리, SUM/COUNT 집계가 배치 목적과 일치한다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 parameters에 base_ym이 필수 true로 정의되어 있고 SQL에서 :base_ym으로 사용되었다.\"}, {\"item\": \"운영 재처리 위험\", \"result\": \"WARN\", \"detail\": \"DELETE 후 INSERT 방식으로 멱등성 보장되나, 대량 데이터 처리 시 성능 및 롤백 전략 검토가 필요하다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER의 BASE_YM 컬럼에 인덱스가 없을 경우 Full Scan 가능성, 다중 LEFT JOIN으로 인한 조인 성능 검토 필요.\"}], \"issues\": [], \"warnings\": [\"TB_CARD_SALES_LEDGER.BASE_YM 컬럼에 인덱스가 없을 경우 대량 데이터 조회 시 Full Scan 위험\", \"DELETE 후 INSERT 방식으로 멱등성은 보장되나, 재처리 시 중복 적재 방지를 위한 추가 검증 로직 필요\"], \"recommendations\": [\"TB_CARD_SALES_LEDGER.BASE_YM 컬럼에 인덱스 추가 검토\", \"대량 데이터 처리 시 배치 분할 또는 배치 시간 조정 검토\", \"재처리 시 중복 적재 방지를 위한 사전 체크 로직 추가\"]}",
+  "raw_llm_response": "{\"valid\": true, \"score\": 0.75, \"summary\": \"소득공제 월별 통합 집계 배치가 Delete Insert 방식으로 TB_DEDUCTION_MONTHLY_SUMMARY에 적재되며, 다중 JOIN과 집계 로직이 포함된 SQL과 job.py 실행 단서가 제공되었다.\", \"interpretation\": \"TB_CARD_SALES_LEDGER에서 BASE_YM 기준 CANCEL_YN='N' 및 USE_YN='Y'인 거래를 추출하고, 3개 참조 테이블과 LEFT JOIN하여 MERCHANT_TYPE을 CASE로 구분한 후 고객별/월별/유형별로 TOTAL_AMT와 TXN_COUNT를 집계한다.\", \"detected_batch_type\": \"aggregation_to_table\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명 '소득공제 월별 통합 집계 배치'와 배치 유형 '월별 집계 배치 Delete Insert 방식'이 일치하며, 고객별 월별 소득공제 대상 이용금액 집계 목적을 명확히 반영한다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 source, target, parameters와 SQL의 DELETE/INSERT, WHERE 조건(:base_ym, BASE_YM, CANCEL_YN='N')이 의미적으로 연결된다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"job.py 실행 단서에서 :base_ym 파라미터가 DELETE와 INSERT SQL에 모두 사용되며, test_job.py에서 :BASE_YM 존재 여부를 검증한다.\"}, {\"item\": \"운영 재처리 위험\", \"result\": \"WARN\", \"detail\": \"DELETE 후 INSERT 방식으로 멱등성이 보장되지 않으며, 재처리 시 중복 적재 또는 데이터 손실 위험이 있다. 테스트 부족 및 데이터 품질 검증(행 수, 중복) 검토가 필요하다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER의 BASE_YM 기준 전체 스캔 가능성이 있으며, SALES_DT와 MERCHANT_ID에 대한 인덱스 확인이 필요하다. 대량 데이터 조회 시 성능 저하 우려.\"}], \"issues\": [\"Delete Insert 방식의 멱등성 미보장으로 재처리 시 데이터 손실 또는 중복 적재 위험 존재\", \"TB_CARD_SALES_LEDGER의 BASE_YM 기준 Full Scan 가능성으로 인덱스 최적화 필요\"], \"warnings\": [\"재처리 시 중복 적재 및 데이터 손실 방지를 위한 멱등성 로직 검토 필요\", \"SALES_DT와 MERCHANT_ID 컬럼에 대한 인덱스 확인 및 성능 테스트 수행 권장\"], \"recommendations\": [\"DELETE 대신 MERGE 또는 UPSERT 방식으로 변경하여 멱등성 확보\", \"TB_CARD_SALES_LEDGER에 BASE_YM, SALES_DT, MERCHANT_ID 복합 인덱스 추가 검토\"]}",
   "score_breakdown": {
     "policy_version": "practical-scoring-v3-nonblocking-warn",
     "final_score": 0.82,
@@ -112,6 +112,7 @@
         "delete_insert_reprocess_review": 0.004,
         "condition_complexity": 0.006,
         "performance_review": 0.008,
+        "test_coverage_gap": 0.008,
         "reprocess_or_duplication_review": 0.008,
         "data_quality_review": 0.008,
         "warning_volume": 0.006

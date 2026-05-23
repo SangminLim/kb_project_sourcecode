@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List
 
 try:
@@ -13,26 +12,6 @@ except Exception:
 from .models import AgentResult, AgentWorkflowState
 from .incident_reasoning import incident_planner_node, incident_prepare_node, incident_reason_node, incident_respond_node
 from .billing_reasoning import billing_planner_node, billing_prepare_node, billing_respond_node
-
-
-def _langsmith_config(question: str, top_k: int) -> Dict[str, Any]:
-    """LangGraph invoke에 전달할 LangSmith runnable config를 만든다."""
-    tracing_enabled = os.getenv("LANGSMITH_TRACING", os.getenv("LANGCHAIN_TRACING_V2", "false")).strip().lower() in {"1", "true", "yes", "y"}
-    if not tracing_enabled:
-        return {}
-    return {
-        "run_name": os.getenv("LANGSMITH_HANDOVER_RUN_NAME", "handover_agent_inner_graph"),
-        "tags": [
-            "handover-agent",
-            "inner-langgraph",
-            os.getenv("APP_ENV", "local"),
-        ],
-        "metadata": {
-            "question": question,
-            "top_k": top_k,
-            "workflow": "agents.handover.workflow",
-        },
-    }
 
 
 def build_handover_workflow(agent: Any):
@@ -106,7 +85,7 @@ def run_handover_graph(
         "debug_logs": [],
     }
 
-    final_state = compiled.invoke(initial_state, config=_langsmith_config(question, top_k))
+    final_state = compiled.invoke(initial_state)
 
     result = final_state.get("result")
 

@@ -68,32 +68,20 @@ class BatchDevAgent:
             if batch_spec.get("source", {}).get("dynamic_inference"):
                 warnings.append("ERWin 메타의 table_role/column role/relations 기반으로 테이블과 조인을 추론했습니다. 운영 반영 전 SQL 정합성 검토가 필요합니다.")
 
-            result = BatchDevResult(
+            return BatchDevResult(
                 batch_spec=batch_spec,
                 created_files=created_files,
                 warnings=warnings,
                 errors=errors,
                 message=f"배치 소스가 생성되었습니다: {Path(created_files[0]).parent if created_files else ''}",
             )
-            setattr(result, "debug_logs", [
-                "[BATCH_LINEAR 1] workflow = linear_fallback_or_disabled",
-                f"[BATCH_LINEAR 2] batch_id = {batch_spec.get('batch_id')}",
-                f"[BATCH_LINEAR 3] batch_type = {batch_spec.get('batch_type')}",
-                f"[BATCH_LINEAR 4] created_file_count = {len(created_files)}",
-            ])
-            return result
 
         except Exception as e:
             errors.append(f"{type(e).__name__}: {e}")
-            result = BatchDevResult(
+            return BatchDevResult(
                 batch_spec=batch_spec,
                 created_files=created_files,
                 warnings=warnings,
                 errors=errors,
                 message="배치 개발 요청을 처리하지 못했습니다. 오류를 확인하세요.",
             )
-            setattr(result, "debug_logs", [
-                "[BATCH_LINEAR 1] workflow = linear_fallback_or_disabled",
-                f"[BATCH_LINEAR 2] error = {errors[-1] if errors else ''}",
-            ])
-            return result

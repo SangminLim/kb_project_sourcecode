@@ -569,27 +569,6 @@ def graph_general_fallback_node(state: HandoverGraphState) -> HandoverGraphState
     }
 
 
-
-def _langsmith_graph_config(user_question: str, force_sql_analysis: bool) -> Dict[str, Any]:
-    """Streamlit 최상위 LangGraph run에 LangSmith metadata를 붙인다."""
-    tracing_enabled = os.getenv("LANGSMITH_TRACING", os.getenv("LANGCHAIN_TRACING_V2", "false")).strip().lower() in {"1", "true", "yes", "y"}
-    if not tracing_enabled:
-        return {}
-    return {
-        "run_name": os.getenv("LANGSMITH_STREAMLIT_RUN_NAME", "handover_streamlit_graph"),
-        "tags": [
-            "handover-agent",
-            "streamlit-entry",
-            os.getenv("APP_ENV", "local"),
-        ],
-        "metadata": {
-            "question": user_question,
-            "force_sql_analysis": force_sql_analysis,
-            "workflow": "ui.workflow.handover_graph",
-        },
-    }
-
-
 def build_handover_graph() -> Any:
     """업무 인수인계 질문 처리 그래프를 생성한다.
 
@@ -701,8 +680,7 @@ def run_handover_graph(
             "chat_history": chat_history,
             "force_sql_analysis": force_sql_analysis,
             "graph_trace": [],
-        },
-        config=_langsmith_graph_config(user_question, force_sql_analysis),
+        }
     )
     result = state.get("result")
     if result is None:

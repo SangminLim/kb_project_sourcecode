@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
+
+try:
+    from langsmith import traceable as _langsmith_traceable
+except Exception:
+    _langsmith_traceable = None
 
 try:
     from langchain_openai import ChatOpenAI
@@ -87,6 +92,45 @@ def _env_flag(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() not in {"0", "false", "no", "n"}
 
 
+
+
+def _use_langsmith() -> bool:
+    """LangSmith tracing 활성화 여부를 환경변수 기준으로 판단한다.
+
+    LangChain/LangGraph 자동 tracing은 LANGCHAIN_TRACING_V2 또는 LANGSMITH_TRACING으로 켜지고,
+    requests 기반 직접 호출은 이 함수와 _run_with_langsmith_trace를 통해 선택적으로 trace된다.
+    """
+    tracing_enabled = (
+        _env_flag("LANGSMITH_TRACING", "false")
+        or _env_flag("LANGCHAIN_TRACING_V2", "false")
+        or _env_flag("LANGSMITH_TRACING_V2", "false")
+    )
+    has_key = bool(os.getenv("LANGSMITH_API_KEY") or os.getenv("LANGCHAIN_API_KEY"))
+    return bool(tracing_enabled and has_key)
+
+
+def _run_with_langsmith_trace(
+    *,
+    name: str,
+    run_type: str,
+    inputs: Optional[Dict[str, Any]],
+    metadata: Optional[Dict[str, Any]],
+    fn: Callable[[], Any],
+) -> Any:
+    """langsmith가 설치/설정된 경우에만 함수 호출을 trace한다.
+
+    langsmith 미설치, API KEY 미설정, tracing 비활성 상태에서는 기존 동작을 그대로 유지한다.
+    """
+    if not _use_langsmith() or _langsmith_traceable is None:
+        return fn()
+
+    @_langsmith_traceable(name=name, run_type=run_type, metadata=metadata or {})
+    def _wrapped(**kwargs: Any) -> Any:
+        return fn()
+
+    return _wrapped(**(inputs or {}))
+
+
 def get_langchain_feature_flags() -> Dict[str, bool]:
     """운영 중 기능을 켜고 끌 수 있는 확장 옵션."""
     return {
@@ -97,6 +141,7 @@ def get_langchain_feature_flags() -> Dict[str, bool]:
         "router_enabled": _env_flag("LANGCHAIN_ROUTER_ENABLED", "true"),
         "structured_parser_enabled": _env_flag("LANGCHAIN_STRUCTURED_PARSER_ENABLED", "true"),
         "retrieval_compression_enabled": _env_flag("LANGCHAIN_RETRIEVAL_COMPRESSION_ENABLED", "false"),
+        "langsmith_tracing_enabled": _use_langsmith(),
     }
 
 
@@ -142,33 +187,48 @@ def _upstage_generate_requests(prompt: str, system_prompt: str, config: ChatConf
     if not config.api_key:
         raise ValueError("UPSTAGE_API_KEY가 비어 있습니다. .env에 UPSTAGE_API_KEY를 설정하세요.")
 
-    resp = requests.post(
-        f"{config.base_url.rstrip('/')}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {config.api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
+    def _call_upstage() -> str:
+        resp = requests.post(
+            f"{config.base_url.rstrip('/')}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": config.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": config.temperature,
+                "max_tokens": config.max_tokens,
+                "stream": False,
+            },
+            timeout=config.timeout,
+        )
+        resp.raise_for_status()
+
+        payload = resp.json()
+        choices = payload.get("choices", [])
+        if not choices:
+            raise ValueError("Upstage Chat 응답에 choices 값이 없습니다.")
+
+        message = choices[0].get("message", {})
+        return str(message.get("content", "")).strip()
+
+    return _run_with_langsmith_trace(
+        name="upstage_chat_generate",
+        run_type="llm",
+        inputs={"prompt": prompt, "system_prompt": system_prompt, "model": config.model},
+        metadata={
+            "provider": "upstage",
             "model": config.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
-            "stream": False,
+            "call_path": "requests",
         },
-        timeout=config.timeout,
+        fn=_call_upstage,
     )
-    resp.raise_for_status()
-
-    payload = resp.json()
-    choices = payload.get("choices", [])
-    if not choices:
-        raise ValueError("Upstage Chat 응답에 choices 값이 없습니다.")
-
-    message = choices[0].get("message", {})
-    return str(message.get("content", "")).strip()
 
 
 def ollama_generate(prompt: str, system_prompt: str, config: ChatConfig) -> str:

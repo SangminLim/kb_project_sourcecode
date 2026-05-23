@@ -11,14 +11,6 @@ from .llm_client import (
     Embeddings, LangChainChroma, UpstageEmbeddingFunction, UpstageLangChainEmbeddings,
     _env_flag, _use_langchain,
 )
-
-try:
-    # llm_client.py에 LangSmith helper가 적용되어 있으면 retrieval도 같은 helper를 재사용한다.
-    # 아직 helper가 없거나 LangSmith가 설치되지 않은 환경에서도 앱이 죽지 않도록 fallback한다.
-    from .llm_client import _run_with_langsmith_trace
-except Exception:
-    def _run_with_langsmith_trace(*, name, run_type, inputs, metadata, fn):
-        return fn()
 from .utils import normalize_whitespace
 
 def _tokenize_for_score(text: str) -> List[str]:
@@ -185,44 +177,25 @@ def retrieve_docs(
 
     기본은 LangChain Retriever를 사용하고, 실패하면 기존 ChromaDB 직접 조회로 fallback한다.
     업무별 조건은 코드에 박지 않고 where filter와 env 설정으로 주입한다.
-    LangSmith가 켜져 있으면 retrieval run으로 남겨 검색 품질 평가에 활용한다.
     """
+    if _use_langchain() and _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true"):
+        try:
+            return _retrieve_docs_langchain(
+                persist_dir=persist_dir,
+                collection_name=collection_name,
+                query=query,
+                top_k=top_k,
+                where=where,
+            )
+        except Exception:
+            # 호출부의 AgentResult/debug_logs 구조를 깨지 않기 위해 여기서는 조용히 fallback한다.
+            # 검색 실패 원인까지 화면에 보여줘야 하면 answer_question에서 별도 wrapper를 두면 된다.
+            pass
 
-    def _retrieve() -> Dict[str, Any]:
-        if _use_langchain() and _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true"):
-            try:
-                return _retrieve_docs_langchain(
-                    persist_dir=persist_dir,
-                    collection_name=collection_name,
-                    query=query,
-                    top_k=top_k,
-                    where=where,
-                )
-            except Exception:
-                # 호출부의 AgentResult/debug_logs 구조를 깨지 않기 위해 여기서는 조용히 fallback한다.
-                # 검색 실패 원인까지 화면에 보여줘야 하면 answer_question에서 별도 wrapper를 두면 된다.
-                pass
-
-        return _retrieve_docs_chromadb_direct(
-            persist_dir=persist_dir,
-            collection_name=collection_name,
-            query=query,
-            top_k=top_k,
-            where=where,
-        )
-
-    return _run_with_langsmith_trace(
-        name="handover_retrieve_docs",
-        run_type="retriever",
-        inputs={
-            "query": query,
-            "top_k": top_k,
-            "where": where,
-            "collection_name": collection_name,
-        },
-        metadata={
-            "collection_name": collection_name,
-            "retriever_engine": "langchain_chroma" if _use_langchain() and _env_flag("LANGCHAIN_RETRIEVER_ENABLED", "true") else "chromadb_direct",
-        },
-        fn=_retrieve,
+    return _retrieve_docs_chromadb_direct(
+        persist_dir=persist_dir,
+        collection_name=collection_name,
+        query=query,
+        top_k=top_k,
+        where=where,
     )
