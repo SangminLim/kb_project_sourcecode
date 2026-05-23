@@ -1,1 +1,19 @@
-# 🔍 생성 결과 검증- 상태: **PASS WITH WARNINGS**- 점수: **0.88**- 배치유형: **db_to_file**## 요약전통시장 가맹점 파일 생성 배치가 CSV 형식으로 정상적으로 생성되며, SQL 구조와 job.py 실행 단서가 배치 목적에 부합합니다. 운영 반영 전 검토사항이 있습니다.## 배치 해석배치는 TB_TRAD_MARKET_MERCHANT 테이블에서 USE_YN='Y'인 가맹점 중 기준일자(APPLY_START_DT)가 적용시작일자와 종료일자 사이에 있는 데이터를 추출하여 CSV 파일로 출력합니다. SQL은 WHERE 절에서 USE_YN, APPLY_START_DT, APPLY_END_DT 조건을 정확히 적용하고 있으며, job.py는 DB 접속, 파라미터 처리, CSV 출력 로직을 포함하고 있습니다. 출력 파일명은 trad_market_merchant_{base_date}.csv 패턴으로 생성되며, 인코딩은 utf-8-sig로 설정되어 있습니다.## 검토 필요- 멱등성 보장 로직 미확인- 인덱스 사용 여부 및 실행 계획 미확인- 데이터 품질 검증 조건 미포함- 테스트 파일이 산출물 존재 여부만 검증
+# 🔍 생성 결과 검증
+
+- 상태: **PASS WITH WARNINGS**
+- 점수: **0.88**
+- 배치유형: **db_to_file**
+
+## 요약
+TB_TRAD_MARKET_MERCHANT에서 사용가능(USE_YN='Y') + 적용기간 유효 + 기준일자 기준 데이터를 조회하여 CSV 파일로 생성하는 배치입니다.
+
+## 주요 처리
+- TB_TRAD_MARKET_MERCHANT 조회
+- 기준일자(base_date) 기준 유효 데이터 필터링
+- CSV 파일 생성
+
+## 검토 필요
+- USE_YN / APPLY_START_DT 조건 인덱스 확인
+- CSV 파일 중복 생성 방지 확인
+- 출력 헤더/구분자 확인
+- 기준일자(base_date) 파라미터 검증 확인

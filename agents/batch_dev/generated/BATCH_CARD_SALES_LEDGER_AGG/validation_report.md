@@ -1,1 +1,19 @@
-# 🔍 생성 결과 검증- 상태: **PASS WITH WARNINGS**- 점수: **0.82**- 배치유형: **aggregation_to_table**## 요약소득공제 월별 통합 집계 배치의 SQL과 job.py가 생성되었으며, 배치 목적과 일치하는 월별 집계 로직을 구현했으나, 성능 및 데이터 품질 검증 측면에서 운영 확인 필요 항목이 존재합니다. 운영 반영 전 검토사항이 있습니다.## 배치 해석이 배치는 TB_CARD_SALES_LEDGER를 기준으로 BASE_YM 파라미터에 해당하는 월별 데이터를 추출하고, TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT와의 LEFT JOIN을 통해 가맹점 유형을 판별하여 TB_DEDUCTION_MONTHLY_SUMMARY에 Delete Insert 방식으로 적재합니다. SQL은 CANCEL_YN='N', USE_YN='Y', SALES_DT 범위 조건을 적용하고, CASE 문으로 가맹점 유형을 BOOK_PERF/TRAD_MARKET/GENERAL/UNKNOWN으로 구분하며, TOTAL_AMT와 TXN_COUNT를 집계합니다. job.py는 DB 접속, 파라미터 처리, SQL 실행 로직을 포함하고, test_job.py는 파일 존재 및 SQL/파라미터 검증을 수행합니다.## 검토 필요- 파일 출력 설정 미확인: output_format, output_file_pattern, output_dir, encoding이 null로 설정되어 있어 배치 실행 시 파일 생성 여부를 확인할 수 없습니다.- 성능 위험: 대량 데이터 조회 시 Full Scan 가능성이 높으며, BASE_YM, MERCHANT_ID, SALES_DT, CANCEL_YN 컬럼에 인덱스 확인이 필요합니다.- 재처리 위험: Delete Insert 방식으로 인해 재처리 시 중복 적재 위험이 존재하며, 멱등성 보장을 위한 추가 로직이 필요합니다.- 테스트 충분성: 집계 결과 검증, 경계 조건 테스트, 성능 테스트 등이 누락되어 있습니다.
+# 🔍 생성 결과 검증
+
+- 상태: **PASS WITH WARNINGS**
+- 점수: **0.82**
+- 배치유형: **aggregation_to_table**
+
+## 요약
+TB_CARD_SALES_LEDGER 기준 데이터를 집계하여 결과를 생성하는 배치입니다.
+
+## 주요 처리
+- TB_CARD_SALES_LEDGER 조회
+- 사용여부/적용기간 조건 필터링
+- 집계 결과 생성
+
+## 검토 필요
+- USE_YN / APPLY_START_DT 조건 인덱스 확인
+- 집계 기준별 row count 및 중복 검증 확인
+- 금액 합계 검증 확인
+- row count 및 중복 검증 확인

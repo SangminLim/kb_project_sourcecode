@@ -1,1 +1,19 @@
-# 🔍 생성 결과 검증- 상태: **PASS WITH WARNINGS**- 점수: **0.85**- 배치유형: **ledger_extract_with_classification**## 요약소득공제 대상 거래 추출 배치가 월배치 형태로 생성되었으며, 배치 유형과 실행 주기가 일치하고, SQL과 job.py가 기본 파일 출력 로직을 포함하고 있다. 운영 반영 전 검토사항이 있습니다.## 배치 해석이 배치는 TB_CARD_SALES_LEDGER에서 BASE_YM 기준년월을 파라미터로 받아 CANCEL_YN='N' 및 USE_YN='Y'인 거래를 추출하고, 세 개의 참조 테이블(TB_BOOK_PERF_MERCHANT, TB_TRAD_MARKET_MERCHANT, TB_GENERAL_DEDUCT_MERCHANT)과 LEFT JOIN하여 MERCHANT_TYPE을 분류한다. JOIN 조건은 SALES_DT가 각 가맹점의 적용기간(APPLY_START_DT~APPLY_END_DT) 내에 있고 USE_YN='Y'인 경우만 매칭되며, APPLY_END_DT가 NULL일 경우 '99991231'로 대체한다. 최종 출력은 CSV 파일로 card_sales_ledger_{base_ym}.csv 경로에 UTF-8-sig 인코딩으로 저장된다.## 검토 필요- TB_CARD_SALES_LEDGER 테이블의 SALES_DT, MERCHANT_ID, BASE_YM 컬럼에 인덱스가 없을 경우 대용량 데이터 조회 시 성능 저하 위험이 있다.- 중복 거래 및 MERCHANT_TYPE별 데이터 품질 검증 로직이 job.py에 포함되어 있지 않아 운영 시 데이터 정확성 검증이 필요하다.- 파일 덮어쓰기 및 멱등성 보장을 위한 로직이 README에 명시되어 있지 않아 재처리 시 중복 적재 위험이 있다.
+# 🔍 생성 결과 검증
+
+- 상태: **PASS WITH WARNINGS**
+- 점수: **0.85**
+- 배치유형: **ledger_extract_with_classification**
+
+## 요약
+TB_CARD_SALES_LEDGER에서 사용가능(USE_YN='Y') + 적용기간 유효 데이터를 조회하여 CSV 파일로 생성하는 배치입니다.
+
+## 주요 처리
+- TB_CARD_SALES_LEDGER 조회
+- 사용여부/적용기간 조건 필터링
+- CSV 파일 생성
+
+## 검토 필요
+- USE_YN / APPLY_START_DT 조건 인덱스 확인
+- CSV 파일 중복 생성 방지 확인
+- 출력 헤더/구분자 확인
+- 금액 합계 검증 확인

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -64,93 +63,6 @@ def _resolve_validation_output_dir(created_files: List[Any]) -> Path | None:
     return None
 
 
-
-
-def _compact_batch_warning(text: Any) -> str:
-    """배치 개발 화면의 검토 문구를 실무형 짧은 문장으로 정규화한다.
-
-    특정 배치명/테이블명을 보지 않고 경고 문구의 일반 품질 신호만 축약한다.
-    """
-    raw = str(text or "").strip()
-    if not raw:
-        return ""
-
-    raw = raw.replace("생성물 검증 경고:", "").strip()
-    upper = raw.upper()
-
-    # 내부 추론 방식 안내는 평가 근거로는 유용하지만 사용자 상단 검토항목에서는 과하게 보일 수 있어 숨긴다.
-    if "ERWIN" in upper and "추론" in raw:
-        return ""
-
-    if "USE_YN" in upper or "APPLY_START" in upper or "APPLY_END" in upper or "인덱스" in raw:
-        if "USE_YN" in upper and ("APPLY_START" in upper or "APPLY_END" in upper):
-            return "USE_YN / APPLY_START_DT 조건 인덱스 확인"
-        if "APPLY_START" in upper or "APPLY_END" in upper:
-            return "APPLY_START_DT / APPLY_END_DT 인덱스 확인"
-        return "조건 컬럼 인덱스 확인"
-
-    if "파일" in raw and ("덮어쓰기" in raw or "멱등" in raw or "중복" in raw):
-        return "CSV 파일 중복 생성 방지 확인"
-
-    if "BASE_DATE" in upper or "기준일자" in raw or "파라미터" in raw:
-        return "기준일자(base_date) 파라미터 검증 확인"
-
-    if "헤더" in raw or "구분자" in raw or "CSV" in upper or "OUTPUT_FORMAT" in upper:
-        return "출력 헤더/구분자 확인"
-
-    if "금액" in raw and "합계" in raw:
-        return "금액 합계 검증 확인"
-
-    if "ROW COUNT" in upper or "건수" in raw or "중복" in raw:
-        return "row count 및 중복 검증 확인"
-
-    if "테스트" in raw:
-        return "SQL/파일포맷/파라미터 테스트 보강"
-
-    return raw[:80]
-
-
-def _dedupe_compact_items(items: List[Any], *, max_items: int = 3) -> List[str]:
-    result: List[str] = []
-    seen = set()
-    for item in items or []:
-        compact = _compact_batch_warning(item)
-        if not compact or compact in seen:
-            continue
-        seen.add(compact)
-        result.append(compact)
-        if len(result) >= max_items:
-            break
-    return result
-
-
-def _split_interpretation_lines(value: Any) -> List[str]:
-    text = str(value or "").strip()
-    if not text:
-        return []
-
-    lines: List[str] = []
-    for line in text.splitlines():
-        clean = line.strip().lstrip("-•").strip()
-        if clean:
-            lines.append(clean)
-
-    if len(lines) <= 1:
-        # LLM이 한 문단으로 준 경우 문장 단위로 최대 3개만 보여준다.
-        lines = [
-            item.strip()
-            for item in re.split(r"(?<=[.!?。])\s+", text)
-            if item.strip()
-        ]
-
-    return lines[:3]
-
-
-def _build_validation_review_items(validation_report: Dict[str, Any]) -> List[str]:
-    warnings = validation_report.get("warnings") or []
-    recommendations = validation_report.get("recommendations") or []
-    issues = validation_report.get("issues") or []
-    return _dedupe_compact_items(list(warnings) + list(recommendations) + list(issues), max_items=3)
 
 def run_batch_sql_improvement(dev_result: Any) -> Dict[str, Any] | None:
     """생성된 배치 SQL에 대해 자동 개선 제안을 생성한다.
@@ -518,8 +430,6 @@ def render_batch_development_result(result: Any) -> None:
         return
 
     success = payload.get("success")
-    validation_report = payload.get("validation_report") or {}
-
     st.markdown("#### 🛠️ 배치 개발 결과")
     if success:
         st.success(payload.get("message", "배치 소스가 생성되었습니다."))
@@ -527,33 +437,28 @@ def render_batch_development_result(result: Any) -> None:
         st.error(payload.get("message", "배치 소스 생성에 실패했습니다."))
 
     errors = payload.get("errors") or []
-    raw_warnings = list(payload.get("warnings") or [])
-    if isinstance(validation_report, dict):
-        raw_warnings.extend(validation_report.get("warnings") or [])
-        raw_warnings.extend(validation_report.get("recommendations") or [])
-
+    warnings = payload.get("warnings") or []
     if errors:
         st.markdown("##### ❌ 오류")
         for item in errors:
             st.markdown(f"- {item}")
-
-    display_warnings = _dedupe_compact_items(raw_warnings, max_items=3)
-    if display_warnings:
+    if warnings:
         st.markdown("##### ⚠️ 검토 필요")
-        for item in display_warnings:
+        for item in warnings:
             st.markdown(f"- {item}")
 
     sql_improvement = payload.get("sql_improvement")
     if sql_improvement:
-        render_sql_improvement_report(sql_improvement, max_items=3)
+        render_sql_improvement_report(sql_improvement, max_items=5)
 
     # 상세 batch_spec / 생성 파일 목록은 화면에서 숨긴다.
     # 필요 시 generated 폴더의 batch_spec.json, validation_report.json 파일로 확인한다.
+    validation_report = payload.get("validation_report")
     if validation_report:
-        with st.expander("🔍 생성 결과 요약", expanded=False):
+        with st.expander("🔍 LLM 해석/검증 결과", expanded=False):
             is_valid = bool(validation_report.get("valid"))
             score = validation_report.get("score", 0)
-            summary = str(validation_report.get("summary") or "").strip()
+            summary = validation_report.get("summary", "")
             interpretation = validation_report.get("interpretation", "")
 
             if is_valid:
@@ -564,20 +469,18 @@ def render_batch_development_result(result: Any) -> None:
             if summary:
                 st.markdown("**요약**")
                 st.write(summary)
+            if interpretation:
+                st.markdown("**배치 해석**")
+                st.write(interpretation)
 
-            flow_items = _split_interpretation_lines(interpretation)
-            if flow_items:
-                st.markdown("**주요 처리**")
-                for item in flow_items:
+            recommendations = validation_report.get("recommendations") or []
+            if recommendations:
+                st.markdown("**권장사항**")
+                for item in recommendations[:5]:
                     st.markdown(f"- {item}")
 
-            review_items = _build_validation_review_items(validation_report)
-            if review_items:
-                st.markdown("**검토 포인트**")
-                for item in review_items:
-                    st.markdown(f"- {item}")
+    st.info("운영 반영 전 query.sql, 컬럼, 인덱스, 검증조건, 파일 포맷을 개발자가 반드시 검토하세요.")
 
-    st.info("운영 반영 전 query.sql, 주요 조건, 인덱스, 파일 포맷을 확인하세요.")
 
 def render_batch_development_evaluation_panel(result: Any) -> None:
     """배치개발 평가용 근거 패널.

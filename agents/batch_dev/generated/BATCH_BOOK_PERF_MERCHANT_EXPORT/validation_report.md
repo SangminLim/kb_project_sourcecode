@@ -1,1 +1,17 @@
-# 🔍 생성 결과 검증- 상태: **PASS WITH WARNINGS**- 점수: **0.88**- 배치유형: **db_to_file**## 요약도서공연 가맹점 파일 생성 배치가 정상적으로 생성되었으며, SQL과 job.py 실행 단서가 배치 목적에 부합하고 파일 출력 설정이 운영 관점에서 적절함 운영 반영 전 검토사항이 있습니다.## 배치 해석이 배치는 TB_BOOK_PERF_MERCHANT 테이블에서 USE_YN='Y'인 도서공연 소득공제 대상 가맹점 정보를 추출하여 CSV 파일로 출력하는 일 배치입니다. 기준일자(base_date)는 APPLY_START_DT와 APPLY_END_DT 사이의 유효 기간 내에 있는 데이터만 필터링하며, APPLY_END_DT가 NULL인 경우도 포함하여 처리합니다. 출력 파일은 book_perf_merchant_YYYYMMDD.csv 형식으로 UTF-8-sig 인코딩을 사용하여 ./output 디렉토리에 저장됩니다. job.py는 DB 접속, SQL 실행, CSV 파일 생성 로직을 포함하고 있으며, 테스트 파일은 생성 산출물 존재 여부만 검증합니다.## 검토 필요- 테스트 파일이 생성 산출물 존재 여부만 검증하므로 SQL/파일포맷/파라미터 검증 로직 추가 필요- APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼에 인덱스 확인 필요- 중복 데이터 및 row count 검증 로직 추가 필요
+# 🔍 생성 결과 검증
+
+- 상태: **PASS WITH WARNINGS**
+- 점수: **1.00**
+- 배치유형: **db_to_file**
+
+## 요약
+기본 룰 검증을 완료했습니다.
+
+## 주요 처리
+도서공연가맹점테이블 파일 생성은 batch_type=db_to_file 유형으로 생성되었습니다. 주요 기준 테이블은 TB_BOOK_PERF_MERCHANT로 해석됩니다. 출력은 csv 파일이며 파일명 패턴은 book_perf_merchant_{base_date}.csv입니다. 배치 파라미터는 base_date 기준으로 사용됩니다. SQL에는 조건절이 포함되어 있어 무조건 전체 추출보다는 기준 조건 기반 처리로 보입니다. 운영 반영 전에는 실제 컬럼 존재 여부, 인덱스, 파일 경로 권한, 재실행 시 중복/덮어쓰기 정책을 확인해야 합니다. LLM 의미 검증은 호출 오류로 생략되었으므로, 위 해석은 룰 기반 정적 해석입니다.
+
+## 검토 필요
+- USE_YN / APPLY_START_DT 조건 인덱스 확인
+- CSV 파일 중복 생성 방지 확인
+- 출력 헤더/구분자 확인
+- 기준일자(base_date) 파라미터 검증 확인

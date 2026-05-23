@@ -1,1 +1,19 @@
-# 🔍 생성 결과 검증- 상태: **PASS WITH WARNINGS**- 점수: **0.88**- 배치유형: **db_to_file**## 요약일반 소득공제 가맹점 정보를 CSV 파일로 추출하는 배치가 정상적으로 생성되었으며, SQL과 job.py 실행 단서가 배치 목적에 부합한다. 운영 반영 전 검토사항이 있습니다.## 배치 해석이 배치는 TB_GENERAL_DEDUCT_MERCHANT 테이블에서 USE_YN='Y'인 일반 소득공제 대상 가맹점을 조회하여 기준일자(APPLY_START_DT)가 적용 시작일과 종료일 사이에 있는 데이터만 필터링한다. 조회된 데이터는 MERCHANT_ID, MERCHANT_NM, BIZ_NO, MCC_CD, APPLY_START_DT, APPLY_END_DT, USE_YN 컬럼으로 구성되며, REG_DTM과 UPD_DTM은 추가 조회된다. 배치 유형은 db_to_file이며, CSV 형식으로 general_deduct_merchant_YYYYMMDD.csv 파일을 ./output 디렉터리에 UTF-8-SIG 인코딩으로 생성한다. job.py는 DB 접속, SQL 실행, 파라미터 처리, CSV 출력 로직을 포함하고 있으며, 테스트 파일은 배치 산출물 존재 여부만 검증한다.## 검토 필요- 파일 덮어쓰기 위험 및 멱등성 보장 로직 부재- TB_GENERAL_DEDUCT_MERCHANT 테이블에 대한 Full Scan 가능성- test_job.py의 검증 범위 부족- 데이터 품질 검증(중복, row count 등) 부족
+# 🔍 생성 결과 검증
+
+- 상태: **PASS WITH WARNINGS**
+- 점수: **0.88**
+- 배치유형: **db_to_file**
+
+## 요약
+TB_GENERAL_DEDUCT_MERCHANT에서 사용가능(USE_YN='Y') + 적용기간 유효 + 기준일자 기준 데이터를 조회하여 CSV 파일로 생성하는 배치입니다.
+
+## 주요 처리
+- TB_GENERAL_DEDUCT_MERCHANT 조회
+- 기준일자(base_date) 기준 유효 데이터 필터링
+- CSV 파일 생성
+
+## 검토 필요
+- USE_YN / APPLY_START_DT 조건 인덱스 확인
+- CSV 파일 중복 생성 방지 확인
+- 출력 헤더/구분자 확인
+- 기준일자(base_date) 파라미터 검증 확인

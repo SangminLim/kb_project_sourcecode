@@ -172,38 +172,6 @@ def _extract_where_clause(sql: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-
-
-def _has_reviewable_subquery_pattern(sql: str) -> bool:
-    """일반 derived table은 제외하고, 반복 수행 가능성이 있는 서브쿼리 패턴만 검토 대상으로 본다.
-
-    특정 테이블/업무명을 보지 않고 SQL 구조만 사용한다.
-    - FROM (SELECT ... ) alias 형태는 일반적인 인라인 뷰/derived table이므로 단독 경고하지 않는다.
-    - WHERE/HAVING의 IN/EXISTS/ANY/ALL 서브쿼리나 SELECT list의 scalar subquery는 실행계획 확인 대상으로 본다.
-    """
-    text = str(sql or "")
-    upper = text.upper()
-    if not upper:
-        return False
-
-    if re.search(r"\b(EXISTS|IN|ANY|ALL)\s*\(\s*SELECT\b", upper, flags=re.IGNORECASE):
-        return True
-
-    where_or_having = re.search(
-        r"\b(WHERE|HAVING)\b([\s\S]*?)(\bGROUP\s+BY\b|\bORDER\s+BY\b|\bUNION\b|$)",
-        text,
-        flags=re.IGNORECASE,
-    )
-    if where_or_having and re.search(r"\(\s*SELECT\b", where_or_having.group(2), flags=re.IGNORECASE):
-        return True
-
-    select_head = re.search(r"\bSELECT\b([\s\S]*?)\bFROM\b", text, flags=re.IGNORECASE)
-    if select_head and re.search(r"\(\s*SELECT\b", select_head.group(1), flags=re.IGNORECASE):
-        return True
-
-    return False
-
-
 def _append_finding(
     findings: List[Dict[str, str]],
     *,
@@ -316,10 +284,10 @@ def build_rule_based_sql_analysis(
         ),
         (
             "서브쿼리 확인",
-            _has_reviewable_subquery_pattern(sql_text),
-            "반복 수행 가능성이 있는 서브쿼리 패턴이 있습니다. 실행계획을 확인하세요.",
+            bool(re.search(r"\(\s*SELECT\b", upper_sql)),
+            "서브쿼리가 있습니다. 실행계획에서 반복 수행 여부와 조인 전환 가능성을 확인하세요.",
             "WARN",
-            "WHERE/HAVING/SELECT 절 서브쿼리 패턴 검출",
+            "서브쿼리 패턴 검출",
             "상관 서브쿼리 반복 수행 여부와 JOIN/CTE 전환 가능성을 검토하세요.",
         ),
         (
@@ -526,124 +494,23 @@ def _build_sql_analysis_chat_config() -> Any:
     )
 
 
-def _strip_markdown_fence(text: str) -> str:
-    """LLM 응답의 markdown fence를 제거한다."""
-    raw = str(text or "").strip()
-    raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
-    raw = re.sub(r"```$", "", raw).strip()
-    return raw
-
-
-def _extract_first_balanced_json(text: str) -> str | None:
-    """문자열 안에서 첫 번째 균형 잡힌 JSON object만 추출한다.
-
-    단순 brace 정규식은 문자열 내부 brace나 뒤쪽 설명 문장에 취약하므로,
-    따옴표/escape/depth를 추적한다.
-    """
-    raw = _strip_markdown_fence(text)
-    start = raw.find("{")
-    if start < 0:
-        return None
-
-    depth = 0
-    in_string = False
-    escape = False
-
-    for idx in range(start, len(raw)):
-        ch = raw[idx]
-
-        if escape:
-            escape = False
-            continue
-
-        if ch == "\\":
-            escape = True
-            continue
-
-        if ch == '"':
-            in_string = not in_string
-            continue
-
-        if in_string:
-            continue
-
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return raw[start:idx + 1]
-
-    return None
-
-
-def _loads_json_object_lenient(text: str) -> Dict[str, Any] | None:
-    """LLM JSON 응답을 보수적으로 object로 파싱한다.
-
-    특정 SQL/테이블명을 보정하지 않고, JSON 형식 흔들림만 일반적으로 보정한다.
-    """
-    raw = _strip_markdown_fence(text)
-    if not raw:
-        return None
-
-    candidates = [raw]
-    balanced = _extract_first_balanced_json(raw)
-    if balanced and balanced not in candidates:
-        candidates.append(balanced)
-
-    for candidate in candidates:
-        for fixed in (
-            candidate,
-            re.sub(r",\s*([}\]])", r"\1", candidate),
-        ):
-            try:
-                payload = json.loads(fixed)
-                return payload if isinstance(payload, dict) else None
-            except Exception:
-                continue
-
-    return None
-
-
 def _extract_json_object(text: str) -> Dict[str, Any] | None:
     """LLM 응답에서 JSON 객체만 보수적으로 추출한다."""
-    return _loads_json_object_lenient(text)
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
 
-
-def _coerce_nested_json_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """summary 안에 JSON 문자열이 잘못 들어간 경우 실제 payload로 복구한다.
-
-    파싱 실패 fallback이 raw JSON을 summary에 넣는 현상을 방지하기 위한 일반 방어 로직이다.
-    """
-    if not isinstance(payload, dict):
-        return payload
-
-    summary = payload.get("summary")
-    if not isinstance(summary, str):
-        return payload
-
-    nested = _loads_json_object_lenient(summary)
-    if not nested:
-        return payload
-
-    # nested JSON이 실제 분석 필드를 갖고 있으면 nested를 우선 사용한다.
-    analysis_keys = {
-        "summary",
-        "interpretation",
-        "table_roles",
-        "join_analysis",
-        "risks",
-        "change_guide",
-        "improved_sql_example",
-        "performance_points",
-        "review_checklist",
-    }
-    if analysis_keys & set(nested.keys()):
-        merged = dict(payload)
-        merged.update(nested)
-        return merged
-
-    return payload
+    json_match = re.search(r"\{[\s\S]*\}", raw)
+    if not json_match:
+        return None
+    try:
+        return json.loads(json_match.group(0))
+    except Exception:
+        return None
 
 
 def _dedupe_text_items(items: Any, limit: int = 5) -> List[Any]:
@@ -707,7 +574,6 @@ def _normalize_sql_analysis_llm_report(
     if llm_report.get("error"):
         return llm_report
 
-    llm_report = _coerce_nested_json_summary(llm_report)
     parsed = parsed or {}
     simple_mode = _is_simple_sql_analysis(rule_report, parsed, change_request)
 
@@ -810,10 +676,8 @@ SQL:
         if parsed_json is not None:
             return parsed_json
 
-        # JSON 파싱이 실패해도 raw 응답 전체를 summary에 넣지 않는다.
-        # raw가 그대로 노출되면 화면에 JSON 덩어리가 표시되므로 룰 기반 결과로 fallback한다.
         return {
-            "summary": "",
+            "summary": str(raw or "").strip(),
             "interpretation": [],
             "table_roles": [],
             "join_analysis": [],

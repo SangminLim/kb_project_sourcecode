@@ -101,8 +101,8 @@ VALIDATION_POLICY_VERSION = "practical-scoring-v3-nonblocking-warn"
 DEFAULT_LLM_JSON_SCHEMA = {
     "valid": "boolean",
     "score": "number between 0 and 1",
-    "summary": "생성 결과를 1문장으로 요약",
-    "interpretation": "배치가 무엇을 하는지 핵심 처리 2~3개로 짧게 해석",
+    "summary": "생성 결과를 1~2문장으로 요약",
+    "interpretation": "배치가 무엇을 하는지, SQL/파일/파라미터 기준으로 실무자가 이해할 수 있게 3~6문장으로 해석",
     "detected_batch_type": "string or null",
     "checks": [
         {
@@ -361,225 +361,6 @@ def _normalize_generated_files(
     return result
 
 
-
-def _infer_batch_validation_profile(
-    batch_spec: Mapping[str, Any],
-    generated_files: Mapping[str, str],
-) -> Dict[str, Any]:
-    """생성 결과에서 검토항목 압축에 필요한 일반 특성을 추론한다.
-
-    특정 배치명/테이블명을 보지 않고 batch_type, target, SQL 구조, 컬럼 role 단서만 사용한다.
-    """
-    compact = _build_compact_spec(batch_spec)
-    query_sql = _extract_query_sql(batch_spec, generated_files)
-    upper_sql = query_sql.upper()
-
-    source = compact.get("source", {}) if isinstance(compact.get("source", {}), Mapping) else {}
-    target = compact.get("target", {}) if isinstance(compact.get("target", {}), Mapping) else {}
-
-    batch_type = str(compact.get("batch_type") or "").lower()
-    output_format = str(target.get("output_format") or "").lower()
-    source_table = str(source.get("table_name") or "").strip()
-    output_pattern = str(target.get("output_file_pattern") or "").strip()
-
-    has_aggregate = bool(re.search(r"\b(SUM|COUNT|AVG|MIN|MAX)\s*\(", upper_sql))
-    has_group_by = bool(re.search(r"\bGROUP\s+BY\b", upper_sql))
-    has_amount = bool(re.search(r"\b[A-Z0-9_]*(AMT|AMOUNT|PRICE|FEE|TOTAL)[A-Z0-9_]*\b", upper_sql))
-    has_use_yn = bool(re.search(r"\bUSE_YN\b", upper_sql))
-    has_effective_date = bool(re.search(r"APPLY_START|START_DT|VALID_START", upper_sql)) and bool(
-        re.search(r"APPLY_END|END_DT|VALID_END", upper_sql)
-    )
-    has_base_date_param = bool(re.search(r":base_date\b", query_sql, flags=re.IGNORECASE))
-    has_file_output = "file" in batch_type or output_format in {"csv", "txt", "xlsx"}
-    has_join = bool(re.search(r"\bJOIN\b", upper_sql))
-    has_insert_or_delete = bool(re.search(r"\b(INSERT\s+INTO|DELETE\s+FROM)\b", upper_sql))
-    is_simple_export = bool(
-        has_file_output
-        and not has_aggregate
-        and not has_group_by
-        and not has_insert_or_delete
-        and len(re.findall(r"\bJOIN\b", upper_sql)) <= 1
-    )
-
-    return {
-        "batch_type": batch_type,
-        "output_format": output_format,
-        "source_table": source_table,
-        "output_pattern": output_pattern,
-        "query_sql": query_sql,
-        "has_file_output": has_file_output,
-        "has_aggregate": has_aggregate,
-        "has_group_by": has_group_by,
-        "has_amount": has_amount,
-        "has_use_yn": has_use_yn,
-        "has_effective_date": has_effective_date,
-        "has_base_date_param": has_base_date_param,
-        "has_join": has_join,
-        "has_insert_or_delete": has_insert_or_delete,
-        "is_simple_export": is_simple_export,
-    }
-
-
-def _profile_review_items(profile: Mapping[str, Any]) -> List[str]:
-    """배치 특성에 맞는 운영 검토항목을 만든다.
-
-    일반 규칙:
-    - 파일 export면 파일명/포맷/파라미터 검증을 우선한다.
-    - 유효기간/사용여부 조건이 있으면 해당 조건 인덱스를 검토한다.
-    - 금액/집계 검증은 SQL에 금액/집계 단서가 있을 때만 제안한다.
-    """
-    items: List[str] = []
-
-    if profile.get("has_use_yn") or profile.get("has_effective_date"):
-        if profile.get("has_effective_date"):
-            items.append("USE_YN / APPLY_START_DT 조건 인덱스 확인" if profile.get("has_use_yn") else "APPLY_START_DT / APPLY_END_DT 조건 인덱스 확인")
-        elif profile.get("has_use_yn"):
-            items.append("USE_YN 조건 인덱스 확인")
-
-    if profile.get("has_file_output"):
-        items.append("CSV 파일 중복 생성 방지 확인" if profile.get("output_format") == "csv" else "파일 중복 생성 방지 확인")
-        items.append("출력 헤더/구분자 확인" if profile.get("output_format") == "csv" else "출력 파일 포맷 확인")
-
-    if profile.get("has_base_date_param"):
-        items.append("기준일자(base_date) 파라미터 검증 확인")
-
-    if profile.get("has_aggregate") or profile.get("has_group_by"):
-        items.append("집계 기준별 row count 및 중복 검증 확인")
-
-    if profile.get("has_amount"):
-        items.append("금액 합계 검증 확인")
-
-    if not items:
-        items.append("운영 반영 전 실행계획 및 기본 데이터 검증 확인")
-
-    return _dedupe(items)[:4]
-
-
-def _profile_recommendations(profile: Mapping[str, Any]) -> List[str]:
-    """화면 권장사항용 짧은 문구를 만든다."""
-    items = _profile_review_items(profile)
-    # 파일 export에서 '검토 필요'와 중복되더라도 validation_report 안에서는 동일한 실무 포인트로 보이게 유지한다.
-    return items[:3]
-
-
-def _compact_validation_text(text: str) -> str:
-    """LLM/룰 warning 문장을 화면용 짧은 검토문구로 정규화한다."""
-    raw = str(text or "").strip()
-    upper = raw.upper()
-
-    if not raw:
-        return ""
-
-    if "금액" in raw and "합계" in raw:
-        # 금액 단서가 없는 배치에서는 별도 필터에서 제거된다.
-        return "금액 합계 검증 확인"
-
-    if "중복" in raw and ("파일" in raw or "덮어쓰기" in raw or "멱등" in raw):
-        return "CSV 파일 중복 생성 방지 확인"
-
-    if "USE_YN" in upper or "APPLY_START" in upper or "APPLY_END" in upper or "인덱스" in raw:
-        if "USE_YN" in upper and ("APPLY_START" in upper or "APPLY_END" in upper):
-            return "USE_YN / APPLY_START_DT 조건 인덱스 확인"
-        if "APPLY_START" in upper or "APPLY_END" in upper:
-            return "APPLY_START_DT / APPLY_END_DT 조건 인덱스 확인"
-        return "조건 컬럼 인덱스 확인"
-
-    if "BASE_DATE" in upper or "기준일자" in raw:
-        return "기준일자(base_date) 파라미터 검증 확인"
-
-    if "OUTPUT_FORMAT" in upper or "헤더" in raw or "구분자" in raw or "ENCODING" in upper:
-        return "출력 헤더/구분자 확인"
-
-    if "ROW COUNT" in upper or "건수" in raw or "중복" in raw:
-        return "row count 및 중복 검증 확인"
-
-    if "테스트" in raw or "TEST" in upper:
-        return "SQL/파일포맷/파라미터 테스트 보강"
-
-    # 너무 긴 LLM 문장은 첫 문장만 사용한다.
-    first_sentence = re.split(r"(?<=[.!?。])\s+|\n", raw)[0].strip()
-    return first_sentence[:80]
-
-
-def _filter_profile_items(items: List[str], profile: Mapping[str, Any]) -> List[str]:
-    """배치 특성과 맞지 않는 과한 일반론을 제거한다."""
-    filtered: List[str] = []
-    for item in items or []:
-        text = _compact_validation_text(item)
-        if not text:
-            continue
-
-        # 금액/집계 없는 단순 마스터 export에 금액 합계 검증을 띄우지 않는다.
-        if "금액" in text and not profile.get("has_amount"):
-            continue
-        if "집계" in text and not (profile.get("has_aggregate") or profile.get("has_group_by")):
-            continue
-
-        # 단순 export에서는 일반적인 '테스트 범위 확대'보다 파일/파라미터/인덱스 검토를 우선한다.
-        if profile.get("is_simple_export") and "테스트" in text:
-            continue
-
-        filtered.append(text)
-
-    base_items = _profile_review_items(profile)
-    return _dedupe(base_items + filtered)[:4]
-
-
-def _make_concise_summary(batch_spec: Mapping[str, Any], generated_files: Mapping[str, str], fallback_summary: str = "") -> str:
-    """생성 배치 요약을 한 문장으로 압축한다."""
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
-    source_table = profile.get("source_table") or "소스 테이블"
-    output_format = str(profile.get("output_format") or "파일").upper()
-    query_sql = str(profile.get("query_sql") or "")
-    upper_sql = query_sql.upper()
-
-    conditions: List[str] = []
-    if profile.get("has_use_yn"):
-        conditions.append("사용가능(USE_YN='Y')")
-    if profile.get("has_effective_date"):
-        conditions.append("적용기간 유효")
-    if profile.get("has_base_date_param"):
-        conditions.append("기준일자 기준")
-
-    if profile.get("has_file_output"):
-        condition_text = " + ".join(conditions) if conditions else "조건에 맞는"
-        return f"{source_table}에서 {condition_text} 데이터를 조회하여 {output_format} 파일로 생성하는 배치입니다."
-
-    if profile.get("has_aggregate") or profile.get("has_group_by"):
-        return f"{source_table} 기준 데이터를 집계하여 결과를 생성하는 배치입니다."
-
-    if fallback_summary:
-        return str(fallback_summary).strip()
-    return f"{source_table} 기준 데이터를 처리하는 배치입니다."
-
-
-def _make_concise_interpretation(batch_spec: Mapping[str, Any], generated_files: Mapping[str, str], fallback: str = "") -> str:
-    """배치 해석을 화면에 바로 보일 짧은 bullet 텍스트로 만든다."""
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
-    source_table = profile.get("source_table") or "소스 테이블"
-    lines: List[str] = []
-
-    lines.append(f"- {source_table} 조회")
-
-    if profile.get("has_base_date_param"):
-        if profile.get("has_effective_date"):
-            lines.append("- 기준일자(base_date) 기준 유효 데이터 필터링")
-        else:
-            lines.append("- 기준일자(base_date) 파라미터 기준 필터링")
-    elif profile.get("has_use_yn") or profile.get("has_effective_date"):
-        lines.append("- 사용여부/적용기간 조건 필터링")
-
-    if profile.get("has_aggregate") or profile.get("has_group_by"):
-        lines.append("- 집계 결과 생성")
-    elif profile.get("has_file_output"):
-        fmt = str(profile.get("output_format") or "파일").upper()
-        lines.append(f"- {fmt} 파일 생성")
-
-    if not lines and fallback:
-        return str(fallback).strip()
-
-    return "\n".join(_dedupe(lines)[:4])
-
 def _run_rule_validation(
     request_text: str,
     batch_spec: Mapping[str, Any],
@@ -665,11 +446,8 @@ def _run_rule_validation(
 
     valid = not issues
     score = _calculate_rule_score(checks, config)
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
 
     static_interpretation = _build_static_interpretation(batch_spec, generated_files)
-    rule_warnings = _filter_profile_items(warnings, profile)
-
     return ValidationReport(
         valid=valid,
         score=score,
@@ -678,14 +456,16 @@ def _run_rule_validation(
         detected_batch_type=_safe_get_str(batch_spec, "batch_type") or _safe_get_str(batch_spec, "type"),
         checks=checks,
         issues=issues,
-        warnings=rule_warnings,
-        recommendations=_profile_recommendations(profile),
+        warnings=_dedupe(warnings),
+        recommendations=[
+            "운영 반영 전 실행계획 및 데이터 검증을 확인하세요.",
+            "대량 데이터 기준 row count 및 중복 검증을 확인하세요.",
+        ],
         score_breakdown={
             "query_sql": query_sql,
             "batch_type": _safe_get_str(batch_spec, "batch_type") or _safe_get_str(batch_spec, "type"),
             "target": dict(batch_spec.get("target", {})) if isinstance(batch_spec.get("target", {}), Mapping) else {},
             "validation_rules": dict(batch_spec.get("validation_rules", {})) if isinstance(batch_spec.get("validation_rules", {}), Mapping) else {},
-            "validation_profile": dict(profile),
         },
     )
 
@@ -1039,20 +819,16 @@ def _run_llm_validation(
         if isinstance(item, dict)
     ]
 
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
-    llm_warnings = _filter_profile_items(_safe_str_list(parsed.get("warnings")), profile)
-    llm_recommendations = _filter_profile_items(_safe_str_list(parsed.get("recommendations")), profile)
-
     return ValidationReport(
         valid=bool(parsed.get("valid", False)),
         score=_safe_score(parsed.get("score", 0.0)),
-        summary=_make_concise_summary(batch_spec, generated_files, str(parsed.get("summary", ""))),
-        interpretation=_make_concise_interpretation(batch_spec, generated_files, str(parsed.get("interpretation", ""))),
+        summary=str(parsed.get("summary", "LLM 검증 결과 요약이 없습니다.")),
+        interpretation=str(parsed.get("interpretation", "LLM 해석 결과가 없습니다.")),
         detected_batch_type=parsed.get("detected_batch_type"),
         checks=checks,
         issues=_safe_str_list(parsed.get("issues")),
-        warnings=llm_warnings,
-        recommendations=llm_recommendations,
+        warnings=_safe_str_list(parsed.get("warnings")),
+        recommendations=_safe_str_list(parsed.get("recommendations")),
         raw_llm_response=raw,
     )
 
@@ -1089,11 +865,7 @@ def _build_validation_prompt(
 - PASS만 남발하지 말고, 운영 반영 전 실제로 확인해야 할 위험을 WARN으로 분리한다.
 - FAIL은 필수 파일 누락, query.sql 없음, 위험 SQL, JOIN ON/USING 누락, SQL 구문 오류, 필수 파라미터 불일치처럼 실행 실패 가능성이 직접적인 경우에만 사용한다.
 - 테스트 부족, 인덱스 확인 필요, 데이터 품질 검증 부족, 집계 검증 부족, 운영 재처리 검토, 중복 가능성 검토는 FAIL이 아니라 WARN으로 분류한다.
-- summary는 1문장으로 짧게 쓴다.
-- interpretation은 최대 3개 핵심 처리만 담는다. 장문 설명은 금지한다.
-- warnings/recommendations는 최대 3개만 작성한다.
-- 금액/집계 컬럼이 없는 단순 파일 export에는 금액 합계 검증을 쓰지 않는다.
-- 단순 파일 export에서는 인덱스, 파일 중복 생성, 기준 파라미터, 파일 포맷 확인 위주로 작성한다.
+- summary와 interpretation은 실무자가 바로 이해할 수 있게 구체적으로 쓴다.
 
 출력 JSON 스키마:
 {schema}
@@ -1125,13 +897,13 @@ test_job.py 단서:
 6. job.py가 DB 조회, 파라미터 처리, 파일 출력 또는 테이블 적재를 수행할 단서를 갖는가?
 7. 테스트 파일이 생성 산출물 존재 여부만 보는지, SQL/파일포맷/파라미터까지 검증하는지 판단하라.
 8. 성능 위험: Full Scan, 인덱스 필요 컬럼, 대량 데이터 조회 가능성을 검토하라.
-9. 데이터 품질 위험: row count, 중복, 기준일자 검증 필요 여부를 검토하라. 금액 컬럼이 없으면 금액 합계 검증은 제외하라.
+9. 데이터 품질 위험: NOT NULL, 중복, row count, 금액 합계, 기준일자 검증 필요 여부를 검토하라.
 10. 재처리 위험: 파일 덮어쓰기, 중복 적재, 삭제 후 적재 여부, 멱등성 여부를 검토하라.
 
 checks 작성 가이드:
-- 4~6개만 작성한다.
-- 항목 예시: 요청 목적 적합성, SQL 의미 일치성, 파라미터 일치성, 파일 출력 설정, 운영 재처리 위험, 성능 위험
-- detail에는 입력에서 확인한 근거를 짧게 포함한다.
+- 최소 6개 이상 작성한다.
+- 항목 예시: 요청 목적 적합성, SQL 의미 일치성, 파라미터 일치성, 파일 출력 설정, 운영 재처리 위험, 성능 위험, 테스트 충분성, 데이터 품질 검증
+- detail에는 반드시 입력에서 확인한 근거를 포함한다.
 
 score 기준:
 - 0.90 이상: 단순하고 위험이 경미하며 테스트/재처리/성능 검토사항이 거의 없음
@@ -1453,24 +1225,13 @@ def _merge_reports(rule_report: ValidationReport, llm_report: ValidationReport) 
             llm_non_blocking_issues.append(str(issue))
 
     all_issues = _dedupe(blocking_issues)
-    raw_warnings = _dedupe(
+    all_warnings = _dedupe(
         rule_report.warnings
         + llm_report.warnings
         + llm_non_blocking_issues
         + downgraded_fail_messages
     )
-    profile = {}
-    if isinstance(rule_report.score_breakdown, Mapping):
-        maybe_profile = rule_report.score_breakdown.get("validation_profile", {})
-        if isinstance(maybe_profile, Mapping):
-            profile = dict(maybe_profile)
-
-    all_warnings = _filter_profile_items(raw_warnings, profile) if profile else raw_warnings[:4]
-    all_recommendations = (
-        _filter_profile_items(rule_report.recommendations + llm_report.recommendations, profile)
-        if profile
-        else _dedupe(rule_report.recommendations + llm_report.recommendations)[:4]
-    )
+    all_recommendations = _dedupe(rule_report.recommendations + llm_report.recommendations)
 
     has_blocking_fail = bool(blocking_fail_checks) or bool(all_issues)
 
@@ -1496,7 +1257,8 @@ def _merge_reports(rule_report: ValidationReport, llm_report: ValidationReport) 
     )
 
     summary = llm_report.summary or rule_report.summary
-    # 검토항목은 별도 섹션에서 보여주므로 요약 문장에는 중복 문구를 붙이지 않는다.
+    if valid and all_warnings and "검토" not in summary:
+        summary = f"{summary} 운영 반영 전 검토사항이 있습니다."
 
     return ValidationReport(
         valid=valid,
@@ -1677,7 +1439,7 @@ def _render_markdown_report(report: ValidationReport) -> str:
         "## 요약",
         report.summary or "생성 결과 요약 없음",
         "",
-        "## 주요 처리",
+        "## 배치 해석",
         report.interpretation or "배치 해석 정보 없음",
         "",
         "## 검토 필요",
@@ -1685,7 +1447,7 @@ def _render_markdown_report(report: ValidationReport) -> str:
 
     lines.extend(review_items)
 
-    return "\n".join(lines) + "\n"
+    return "".join(lines) + ""
 
 
 def _extract_table_candidates(batch_spec: Mapping[str, Any]) -> List[str]:
