@@ -1,0 +1,819 @@
+빌더??
+
+확인해보니, 네 질문 처리는 2단 LangGraph 구조로 되어 있어.
+
+결론
+
+발표에서는 이렇게 말하면 된다.
+
+사용자의 질문이 들어오면 먼저 전체 라우팅 그래프에서 SQL 분석, 배치 개발, 업무 인수인계, 일반 질문 중 어디로 보낼지 분류합니다.
+업무 인수인계 질문으로 판단되면 내부 Handover Agent가 다시 LangGraph workflow를 실행해서 질문 정규화, rewrite, intent/system 판별, guard, retrieval, 응답 생성을 순서대로 수행합니다.
+
+실제 처리 흐름
+1. 전체 질문 라우팅
+
+workflow.py에서 먼저 질문을 분류한다.
+
+사용자 질문
+→ dictionary rewrite
+→ structured request 감지
+→ intent 판별
+→ 실행 route 결정
+
+route는 대략 이 중 하나로 감.
+
+sql_analysis
+batch_development
+handover_agent
+general_fallback
+
+즉 네 질문 "KKK은행 소득공제 업무 알려줘"는
+SQL이나 배치개발이 아니기 때문에 handover_agent 쪽으로 간다.
+
+2. Handover Agent 내부 LangGraph 실행
+
+handover_graph.py에 실제 노드 순서가 정의되어 있다.
+
+START
+→ prepare
+→ rewrite
+→ resolve
+→ guard
+→ retrieve
+→ respond
+→ END
+
+그리고 장애/청구 질문이면 중간에 별도 reasoning 경로로 빠진다.
+
+guard
+→ incident_planner
+→ incident_prepare
+→ incident_reason
+→ incident_respond
+
+또는
+
+guard
+→ billing_planner
+→ billing_prepare
+→ billing_respond
+
+이건 발표에서 **“일반 RAG 질문과 실시간 장애/청구 분석 질문을 분기 처리한다”**고 설명하면 좋다.
+
+KKK은행 소득공제 업무 질문의 실제 흐름
+예시 질문
+KKK은행 소득공제 업무 알려줘
+처리 과정
+1. 공백 정리
+2. 업무 용어/시스템명 표준화
+3. 질문 rewrite
+4. intent 판별 → overview
+5. system_id 판별 → kkk_bank
+6. 검색 조건 생성
+   system_id = kkk_bank
+   section = overview
+7. Vector DB 검색
+8. overview 구조화 데이터로 답변 생성
+9. 평가용 debug log 출력
+핵심 코드 기준
+intent 판별
+
+intent.py에서 intent를 패턴 점수 기반으로 잡는다.
+단순히 먼저 걸린 키워드를 쓰는 게 아니라, 매칭 패턴 길이와 개수를 기준으로 더 구체적인 intent를 고르는 구조다.
+
+예:
+
+업무 알려줘 → overview
+배치 프로세스 → batch_process
+흐름도 → batch_flow
+리니지 → table_lineage
+장애현황 → realtime incident 계열
+검색 조건 생성
+
+agent.py에서 intent가 overview이고 system_id가 있으면 이런 filter를 만든다.
+
+{"$and": [{"system_id": system_id}, {"section": intent}]}
+
+그래서 KKK은행 개요 질문은:
+
+{"$and": [{"system_id": "kkk_bank"}, {"section": "overview"}]}
+
+로 검색된다.
+
+Vector DB 검색
+
+retrieval.py에서 LangChain Chroma retriever를 우선 사용하고, 실패하면 ChromaDB 직접 조회로 fallback한다.
+즉 검색 안정성도 고려되어 있다.
+
+응답 라우팅
+
+models.py에서 응답 타입을 결정한다.
+
+graph 데이터 있으면 → graph
+chart면 → chart
+table이면 → table
+그 외 → llm_text
+
+즉 질문 결과에 따라 텍스트, 표, 차트, 그래프가 다르게 렌더링된다.
+
+발표용 한 줄 요약
+
+저희 에이전트는 사용자의 자연어 질문을 바로 LLM에 넘기지 않고, LangGraph 기반으로 질문 정규화 → 의도 분류 → 시스템 식별 → 검색 조건 생성 → Vector DB 검색 → 응답 라우팅 순서로 처리합니다. 그래서 KKK은행 소득공제 업무 질문은 kkk_bank + overview 조건으로 근거 문서를 검색하고, 구조화된 JSON 데이터를 기반으로 답변을 생성합니다.
+
+
+==========================================================
+올려준 소스를 기준으로 “질문 하나가 어떤 노드를 거쳐 답변이 되는지” 발표용으로 풀어서 정리해볼게. 특히 KKK은행 소득공제 업무 알려줘 예시를 기준으로 보겠다.
+
+6s 동안 생각함
+
+좋아. 소스 기준으로 보면 네 에이전트는 질문을 바로 LLM에 던지는 구조가 아니라, 크게 바깥 LangGraph → 안쪽 HandoverAgent LangGraph → RAG/렌더링 순서로 처리한다.
+
+1. 전체 구조
+
+발표에서는 이 그림으로 설명하면 제일 깔끔해.
+
+사용자 질문
+  ↓
+[바깥 LangGraph]
+classify → route
+  ↓
+handover_agent / sql_analysis / batch_development / general_fallback
+  ↓
+[HandoverAgent 내부 LangGraph]
+prepare → rewrite → resolve → guard → retrieve → respond
+  ↓
+답변 생성 + 평가용 근거 출력
+
+바깥 그래프는 handover_graph.py에 있고, classify, route, sql_analysis, batch_development, handover_agent, general_fallback, finalize 노드를 등록한다. 즉 질문이 들어오면 먼저 “이 질문이 어떤 기능으로 가야 하는지”를 결정한다.
+
+2. 예시 질문 기준
+
+질문:
+
+KKK은행 소득공제 업무 알려줘
+
+이 질문은 SQL 분석도 아니고 배치 개발 요청서도 아니니까 최종적으로 handover_agent 경로로 간다.
+
+graph_classify_node()에서 먼저 질문을 정리하고 intent를 잡는다.
+
+normalized_question = apply_dictionary_rewrite(question)
+structured_intent = detect_structured_request_type(question)
+detected_intent = detect_intent(normalized_question)
+initial_intent = structured_intent or detected_intent
+
+즉 여기서 하는 일은:
+
+질문 정리
+→ 배치개발 같은 구조화 요청인지 확인
+→ 일반 intent 판별
+→ initial_intent 결정
+
+이 구조가 handover_graph.py에 있다.
+
+그 다음 graph_route_node()가 intent를 보고 실행 노드를 정한다.
+
+route = _resolve_route_by_intent(initial_intent)
+
+그래서 업무 개요 질문이면 handover_agent로 라우팅된다.
+
+3. HandoverAgent 내부 처리
+
+HandoverAgent.answer_question()이 실제 업무 질의를 처리하는 진입점이다.
+
+여기서 설정값 LLM_LANGGRAPH_ENABLED가 켜져 있고 LangGraph가 설치되어 있으면 내부 그래프를 실행한다. 실패하면 선형 처리로 fallback한다.
+
+내부 그래프 노드 순서는 workflow.py에 정확히 나와 있다.
+
+START
+→ prepare
+→ rewrite
+→ resolve
+→ guard
+→ retrieve
+→ respond
+→ END
+
+그리고 장애나 청구 질문이면 incident_planner, billing_planner 쪽으로 빠진다.
+
+4. 내부 노드별 설명
+4-1. prepare 노드
+
+_graph_prepare_node()는 질문을 1차 정리한다.
+
+하는 일은 이거야.
+
+공백 정리
+→ dictionary rewrite
+→ rewrite 전 intent 힌트 확인
+→ system_id 힌트 확인
+→ 후속 질문이면 chat_history 사용 여부 결정
+
+예시로 보면:
+
+원문: KKK은행 소득공제 업무 알려줘
+정리: KKK은행 소득공제 업무 알려줘
+dictionary 표준화: KKK은행 소득공제 업무 개요를 알려줘
+
+여기서 apply_dictionary_rewrite()가 시스템명/업무용어를 표준화한다. intent.py를 보면 alias 표준화와 질문 치환을 분리해서 처리한다.
+
+4-2. rewrite 노드
+
+_graph_rewrite_node()는 LLM rewrite를 수행한다.
+
+즉 사용자가 구어체로 말하거나 오타가 있어도 검색하기 좋은 질문으로 바꾼다.
+
+예:
+
+업무 알려줘
+→ 업무 개요를 알려줘
+
+이 rewrite는 rewrite_question()을 호출하고, 이후 다시 dictionary rewrite를 한 번 더 적용한다.
+
+LLM 호출은 llm_client.py 쪽에서 Upstage Chat API로 간다. 함수명은 ollama_generate지만 실제 내부는 Upstage API 호출로 되어 있다.
+
+4-3. resolve 노드
+
+_graph_resolve_node()는 최종적으로 두 가지를 확정한다.
+
+intent
+system_id
+
+이 질문에서는 보통 이렇게 된다.
+
+{
+  "intent": "overview",
+  "system_id": "kkk_bank"
+}
+
+intent 판별은 detect_intent()가 한다. 이 함수는 단순히 처음 발견한 키워드를 쓰는 게 아니라, intent 패턴 후보를 점수화해서 더 구체적인 패턴을 우선한다. 예를 들어 “배치 흐름도”처럼 “배치”와 “흐름도”가 같이 있는 경우 더 구체적인 intent가 선택되도록 되어 있다.
+
+후속 질문이면 이전 사용자 질문에서 intent를 가져오는 로직도 있다. 단, assistant 답변까지 보지 않고 직전 사용자 발화만 본다. 이건 답변 문구 때문에 intent가 잘못 끌려가는 문제를 막기 위한 설계다.
+
+4-4. guard 노드
+
+_graph_guard_node()는 질문이 처리 가능한지 검사한다.
+
+여기서 보는 조건은 크게 두 가지다.
+
+1. intent도 없고 system_id도 없으면 out_of_scope
+2. 시스템명이 필요한 intent인데 system_id가 없으면 시스템명 누락 처리
+
+그 다음 처리 가능한 질문이면 응답 타입과 검색 필터를 만든다.
+
+이 질문은 정상 질문이므로 다음 값이 만들어진다.
+
+render_type = "text"
+structured_data = system.get("overview")
+where = {
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+이 부분은 _build_structured_payload()와 _build_where_filter()에 있다. overview, batch_process는 구조화 데이터로 text 응답을 만들고, batch_flow, table_lineage는 graph 응답으로 간다.
+
+4-5. retrieve 노드
+
+_graph_retrieve_node()는 Vector DB에서 근거 문서를 찾는다.
+
+검색 질의는 rewrite된 질문이다.
+
+search_query = rewritten_question
+
+그리고 아까 만든 where filter를 같이 넘긴다.
+
+retrieve_docs(
+    query=search_query,
+    top_k=top_k,
+    where=where
+)
+
+즉 이 질문은 대략 이렇게 검색된다.
+
+query = "KKK은행 소득공제 업무 개요를 알려줘"
+where = system_id = kkk_bank AND section = overview
+top_k = 4
+
+검색은 기본적으로 LangChain Chroma retriever를 먼저 쓰고, 실패하면 ChromaDB 직접 조회로 fallback한다.
+
+retrieval.py를 보면 LangChain Chroma를 만들고 as_retriever()로 검색한다. where filter도 search_kwargs["filter"]로 전달된다.
+
+그리고 옵션이 켜져 있으면 검색 결과를 한 번 더 압축/재정렬한다. 이때 질문 토큰과 문서 토큰의 overlap, section 일치 보너스, title 보너스를 이용한다.
+
+4-6. respond 노드
+
+_graph_respond_node()는 최종 답변을 만든다.
+
+여기서 중요한 점은 overview와 batch_process는 무조건 LLM으로 새로 쓰는 게 아니라, 구조화된 JSON 데이터가 있으면 renderer로 답변을 만든다.
+
+소스에 이렇게 되어 있다.
+
+if intent == "overview" and structured_data:
+    answer = build_overview_fallback(structured_data)
+    answer_generation = skipped
+
+즉 “KKK은행 소득공제 업무 알려줘”는 LLM이 마음대로 지어내는 답변이 아니라, JSON의 overview 구조를 기반으로 답변이 만들어진다.
+
+그래서 네 화면에 이런 게 나온 거야.
+
+📌 KKK은행 소득공제 업무 개요
+🔹 핵심 요약
+📥 주요 입력 데이터
+🚫 제외 및 보정 항목
+⭐ 핵심 포인트
+🎯 주요 대상 거래
+📤 최종 산출물
+
+LLM 답변 생성은 graph/chart/table/overview/batch_process에 해당하지 않는 일반 텍스트 RAG 답변일 때 build_answer_prompt()를 만든 뒤 ollama_generate()를 호출한다. 실패하면 구조화 데이터나 첫 번째 검색 문서로 fallback한다.
+
+5. 네 질문 처리의 핵심 특징
+
+발표에서 강조하면 좋은 건 이 5개야.
+
+첫째, 질문을 바로 LLM에 던지지 않는다
+
+질문을 먼저 분류한다.
+
+SQL 분석?
+배치 개발?
+업무 인수인계?
+일반 질문?
+
+이건 바깥 LangGraph가 담당한다.
+
+둘째, 업무 질문은 내부 LangGraph에서 단계별로 처리한다
+prepare → rewrite → resolve → guard → retrieve → respond
+
+이 구조는 단순 if문보다 발표하기 좋다. “노드 기반 처리”라고 말하면 된다.
+
+셋째, intent와 system_id를 분리해서 정확도를 높인다
+
+예:
+
+system_id = kkk_bank
+intent = overview
+
+이 둘을 분리했기 때문에 BBB증권 데이터와 섞이지 않는다.
+
+넷째, Vector DB 검색에 metadata filter를 건다
+
+그냥 “소득공제”로 전체 문서를 검색하지 않는다.
+
+system_id = kkk_bank
+section = overview
+
+조건을 걸어서 검색한다.
+
+다섯째, overview 답변은 구조화 JSON 기반이다
+
+그래서 hallucination 위험이 낮다.
+
+검색 근거 + JSON 원본 구조 → 정해진 렌더러 → 답변
+
+네 결과에 “JSON 위치”, “원본 JSON 데이터”, “retrieval 근거 4건”이 나오는 이유가 이 구조 때문이다.
+
+발표용 설명 문장
+
+그대로 말해도 된다.
+
+저희 시스템은 사용자의 질문을 바로 LLM에 전달하지 않고, 먼저 LangGraph 기반 라우팅 그래프에서 SQL 분석, 배치 개발, 업무 인수인계, 일반 질문 중 어떤 기능인지 분류합니다. 업무 인수인계 질문으로 판단되면 내부 HandoverAgent 그래프가 실행되고, prepare, rewrite, resolve, guard, retrieve, respond 단계로 처리됩니다. 예를 들어 “KKK은행 소득공제 업무 알려줘”라는 질문은 dictionary rewrite와 LLM rewrite를 거쳐 “KKK은행 소득공제 업무 개요를 알려줘”로 표준화되고, intent는 overview, system_id는 kkk_bank로 판별됩니다. 이후 Vector DB 검색 시 system_id=kkk_bank, section=overview metadata filter를 적용해서 관련 근거만 조회하고, 최종 답변은 overview JSON 구조를 기반으로 생성합니다. 그래서 답변과 함께 원본 JSON 위치, 검색 조건, retrieval 근거를 평가용으로 확인할 수 있습니다.
+
+
+좋아. 이걸 발표할 때는 “실제 질문이 시스템 안에서 어떻게 변하는지”를 보여주면 이해가 엄청 잘 된다.
+
+네 질문:
+
+KKK은행 소득공제 업무 알려줘
+
+가 내부에서 어떻게 처리되는지 단계별로 보여줄게.
+
+전체 흐름
+사용자 질문
+↓
+prepare
+↓
+rewrite
+↓
+resolve
+↓
+guard
+↓
+retrieve
+↓
+respond
+↓
+최종 답변
+1. prepare
+역할
+
+질문을 “기계가 처리하기 쉬운 상태”로 만드는 단계.
+
+소스:
+
+raw_question = normalize_whitespace(question)
+normalized_question = apply_dictionary_rewrite(raw_question)
+
+실제 예시
+사용자 입력
+KKK은행 소득공제 업무 알려줘
+prepare 내부 처리
+1-1 공백 정리
+KKK은행   소득공제 업무 알려줘
+
+↓
+
+KKK은행 소득공제 업무 알려줘
+1-2 dictionary rewrite 수행
+
+여기서 업무 용어를 표준화함.
+
+소스:
+
+QUESTION_REPLACEMENTS
+
+예를 들면 내부적으로:
+
+{
+  "업무 알려줘": "업무 개요를 알려줘"
+}
+
+같은 치환이 있음.
+
+prepare 결과
+{
+  "raw_question":
+    "KKK은행 소득공제 업무 알려줘",
+
+  "normalized_question":
+    "KKK은행 소득공제 업무 개요를 알려줘"
+}
+dictionary rewrite가 뭔데?
+
+이건 LLM이 아니라
+“업무 용어 사전 치환”이야.
+
+예:
+
+사용자 표현	표준 표현
+업무 알려줘	업무 개요 알려줘
+흐름	배치 흐름도
+라인리지	리니지
+케케케은행	KKK은행
+
+즉:
+
+사용자 표현
+→ 회사 표준 용어
+
+로 바꾸는 단계.
+
+2. rewrite
+역할
+
+LLM이 질문을 “검색하기 좋은 형태”로 다시 작성하는 단계.
+
+소스:
+
+rewrite_question(...)
+
+실제 예시
+
+prepare 결과:
+
+KKK은행 소득공제 업무 개요를 알려줘
+
+↓
+
+rewrite 후:
+
+KKK은행 소득공제 업무 개요를 설명해줘
+
+또는
+
+KKK은행 소득공제 업무 개요를 알려줘
+
+처럼 더 자연스럽고 검색하기 좋은 문장으로 바뀜.
+
+LLM rewrite가 왜 필요하냐?
+
+dictionary rewrite는 단순 치환밖에 못함.
+
+예:
+
+소득공제가 뭐하는건데?
+
+↓
+
+LLM rewrite:
+
+KKK은행 소득공제 업무 개요를 알려줘
+
+처럼 의도를 보정 가능.
+
+dictionary rewrite vs LLM rewrite 차이
+구분	역할
+dictionary rewrite	정해진 용어 치환
+LLM rewrite	문맥/의도 보정
+실제 발표용 예시
+dictionary rewrite
+"업무 알려줘"
+↓
+"업무 개요를 알려줘"
+LLM rewrite
+"소득공제 뭐하는거야?"
+↓
+"KKK은행 소득공제 업무 개요를 알려줘"
+3. resolve
+역할
+
+최종적으로:
+
+intent
+system_id
+
+를 판별하는 단계.
+
+소스:
+
+intent = detect_intent(rewritten_question)
+system_id = detect_system_id(rewritten_question)
+
+실제 예시
+
+rewrite 결과:
+
+KKK은행 소득공제 업무 개요를 알려줘
+system_id 판별
+
+소스:
+
+if spec["canonical_name"] in normalized:
+    return spec["system_id"]
+
+내부 사전
+{
+  "canonical_name": "KKK은행",
+  "system_id": "kkk_bank"
+}
+결과
+{
+  "system_id": "kkk_bank"
+}
+intent 판별
+
+소스:
+
+candidates = get_intent_match_scores(q)
+
+내부 패턴 예시
+overview:
+  - "업무 개요"
+  - "업무 알려줘"
+  - "무슨 업무"
+결과
+{
+  "intent": "overview"
+}
+resolve 최종 결과
+{
+  "rewritten_question":
+    "KKK은행 소득공제 업무 개요를 알려줘",
+
+  "system_id":
+    "kkk_bank",
+
+  "intent":
+    "overview"
+}
+4. guard
+역할
+
+질문이 처리 가능한지 검사.
+
+예:
+
+정상
+KKK은행 소득공제 업무 알려줘
+
+→ 통과
+
+시스템명 없음
+소득공제 업무 알려줘
+
+→ 어느 시스템인지 모르므로 차단 가능
+
+범위 밖 질문
+오늘 날씨 알려줘
+
+→ out_of_scope 처리
+
+실제 예시
+
+현재 질문은 정상이라서:
+
+where = {
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+를 생성함.
+
+5. retrieve
+역할
+
+Vector DB 검색.
+
+실제 예시
+검색 질의
+KKK은행 소득공제 업무 개요를 알려줘
+검색 조건
+system_id = kkk_bank
+section = overview
+실제 의미
+KKK은행 문서 중에서
+overview 영역만 검색
+왜 중요한가?
+
+이게 없으면:
+
+BBB증권
+청구계
+장애문서
+
+까지 같이 검색될 수 있음.
+
+6. respond
+역할
+
+검색 결과를 사용자 답변 형태로 만드는 단계.
+
+overview 질문 특징
+
+네 시스템은 overview는
+LLM 자유생성이 아니라:
+
+구조화 JSON
+→ renderer
+→ 답변
+
+구조임.
+
+실제 예시
+
+JSON:
+
+{
+  "summary": "...",
+  "input_data": [...],
+  "outputs": [...]
+}
+
+↓
+
+렌더링:
+
+📌 KKK은행 소득공제 업무 개요
+
+🔹 핵심 요약
+...
+
+📥 주요 입력 데이터
+...
+
+📤 최종 산출물
+...
+발표에서 이렇게 말하면 좋다
+
+사용자의 질문은 먼저 prepare 단계에서 공백 정리와 dictionary rewrite를 통해 표준 용어로 정규화됩니다. 예를 들어 “업무 알려줘”는 “업무 개요를 알려줘”로 변환됩니다. 이후 rewrite 단계에서 LLM이 질문 의도를 보정해 검색하기 좋은 문장으로 재작성합니다. resolve 단계에서는 최종 질문 기준으로 system_id와 intent를 판별합니다. 예를 들어 “KKK은행 소득공제 업무 개요를 알려줘”는 system_id=kkk_bank, intent=overview로 판별됩니다. guard 단계에서는 처리 가능한 질문인지 검증하고, retrieve 단계에서는 system_id=kkk_bank, section=overview metadata filter를 적용해 Vector DB를 검색합니다. 마지막 respond 단계에서는 검색된 JSON 구조를 기반으로 overview renderer가 답변을 생성합니다.
+
+chat_history
+  ↓
+prepare
+↓
+규칙 기반 정리
+(공백/alias/dictionary)
+
+rewrite
+↓
+LLM이 오타/구어체/의도 보정
+
+resolve
+↓
+보정된 질문 기준으로
+system_id + intent 최종 판별
+
+intent = detect_intent(rewritten_question)
+system_id = detect_system_id(rewritten_question)
+
+prepare 단계에서는 공백 정리와 dictionary 기반 용어 표준화를 수행합니다. 다만 prepare는 규칙 기반이기 때문에 오타나 자연어 의미 보정에는 한계가 있습니다. 이후 rewrite 단계에서 LLM이 질문 문맥을 기반으로 오타와 구어체 표현을 보정합니다. 예를 들어 “KKK은앵 소득공제 업뮤 알려줘”는 “KKK은행 소득공제 업무 개요를 알려줘”로 재작성됩니다. 마지막 resolve 단계에서는 rewrite된 질문 기준으로 system_id와 intent를 최종 판별합니다. 따라서 system_id는 rewrite 단계가 아니라 resolve 단계에서 최종 결정됩니다.
+
+후속 질문(follow-up)
+문맥 유지(context)
+이전 system_id/intent 재사용
+rewrite 보조
+
+chat_history
+  ↓
+prepare
+  ↓
+rewrite
+  ↓
+resolve
+  ↓
+respond
+
+hat_history는 단순 대화 저장이 아니라 후속 질문 처리에 사용됩니다. prepare 단계에서는 현재 질문이 “그럼?”, “저거는?” 같은 follow-up 질문인지 판단하고, rewrite 단계에서는 이전 대화를 함께 LLM에 전달해서 문맥 기반 질문 재작성을 수행합니다. 예를 들어 “그럼 흐름도는?”이라는 질문은 이전 대화가 “KKK은행 소득공제 업무”였다면 “KKK은행 소득공제 배치 흐름도를 보여줘”로 rewrite됩니다. 이후 resolve 단계에서는 이전 질문의 system_id와 intent를 fallback으로 재사용할 수 있습니다. 따라서 사용자가 시스템명을 반복 입력하지 않아도 자연스럽게 이어지는 대화가 가능합니다.
+
+규칙으로 가능한 건 규칙으로 처리
+LLM은 애매한 부분만 처리
+
+왜냐면:
+
+비용 감소
+재현성 증가
+hallucination 감소
+테스트 가능성 증가
+
+때문.
+
+2. planner
+
+Multi-step reasoning 할 때.
+
+예:
+
+질문:
+오늘 장애현황 보여줘
+
+step1:
+장애 조회
+
+step2:
+영향 배치 조회
+
+step3:
+조치 가이드 생성
+
+이런 Few-shot은 효과 큼.
+
+현재 시스템은 전형적인 Few-shot 기반 intent 분류보다는 Rule-based Routing과 RAG 중심 구조를 사용합니다. intent와 system_id는 dictionary 및 pattern 기반으로 안정적으로 판별하고, LLM은 rewrite와 자연어 응답 생성에 제한적으로 사용합니다. 따라서 실무 환경에서 중요한 재현성과 검색 정확도를 우선한 구조입니다. 다만 향후 planner 기반 multi-step reasoning 확장 시에는 Few-shot prompting을 적용할 수 있는 구조로 설계되어 있습니다.
+
+사람들이 착각하는 "에이전트"
+
+많은 사람들이:
+
+LLM이 전부 알아서 판단
+
+하면 에이전트 같다고 생각함.
+
+근데 실제 업무에서는 그거 위험함.
+
+왜냐면:
+
+매번 결과 달라짐
+hallucination
+장애 원인 추적 어려움
+테스트 어려움
+운영 불안정
+
+문제가 생김.
+=============
+정형적인 건 룰 기반
+애매한 건 LLM
+복잡한 건 planner
+검색은 RAG
+실행은 workflow
+
+실제 금융권 스타일은 네 구조에 가까움
+
+특히 금융권은:
+
+재현성
+감사 추적
+explainability
+운영 안정성
+
+엄청 중요해서:
+
+룰 + LLM 하이브리드
+
+를 선호함.
+
+저희 시스템은 단순히 모든 처리를 LLM에 맡기는 구조가 아니라, 실무 운영 안정성을 고려한 Hybrid Agent 구조입니다. 정형적인 intent 분류와 system_id 판별은 rule 기반으로 안정적으로 처리하고, 오타 보정과 자연어 rewrite, 응답 생성은 LLM이 수행합니다. 또한 LangGraph 기반 workflow orchestration과 retrieval filter, follow-up context 처리, incident reasoning 분기 등을 통해 실무형 Agentic Workflow 구조를 구현했습니다.
+
+왜 그렇게 보냐면
+
+실제 운영에서는 제일 중요한 게:
+
+중요 요소	이유
+재현성	같은 질문이면 비슷한 결과
+추적 가능성	왜 이런 답이 나왔는지 설명 가능
+운영 안정성	갑자기 이상한 답변 안 나와야 함
+비용 통제	무조건 LLM 태우면 비용 커짐
+테스트 가능성	QA/검증 가능해야 함
+장애 대응	문제 발생 시 원인 추적 가능해야 함
+
+이거거든.

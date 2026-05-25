@@ -1,0 +1,441 @@
+네, 작성해주신 로그와 텍스트를 보면 Multi-Reasoning(다단계 추론) Step이 아주 명확하게 적용되어 실행된 상태입니다.
+
+그렇게 판단할 수 있는 구체적인 이유는 다음과 같습니다.
+
+1. 단순 데이터 매핑을 넘어선 '조건별 판단' (Reasoning)
+시스템이 단순히 장애 목록만 긁어온 것이 아니라, 내부적인 운영 정책(Policy)을 기반으로 각 장애 건에 대해 다각도로 분석(Reasoning)한 흔적이 보입니다.
+
+기준 설정: [INCIDENT 3] policy.long_running_minutes = 30 이라는 명확한 기준(30분)을 먼저 정의했습니다.
+
+다단계 판단: 이 기준을 바탕으로 각 배치별로 아래 항목들을 하나씩 추론해 나갔습니다.
+
+상태 판단 (FAIL → 미해결)
+
+경과분 분석 (61분, 31분 → 30분 이상이므로 장기미처리여부: True)
+
+우선순위 결정 (우선순위: P1, 심각도: HIGH)
+
+2. 단계별 실행 계획 수립 (Planner Logs)
+Multi-Reasoning 구조에서는 문제를 해결하기 위해 AI가 스스로 단계를 나누어 계획을 세우는데, 🛠 Planner / Reasoning Logs 부분이 그 증거입니다.
+
+[PLAN 2]에서 ['prepare_realtime_query', 'status_reasoning', 'summarize_table'] 순서로 단계를 쪼개어 실행 계획을 세웠고,
+
+[PLAN 7]에서 최종적으로 incident_reasoning_flow라는 다단계 추론 워크플로우를 선택하여 구동한 것을 볼 수 있습니다.
+
+💡 요약하자면
+단순히 "장애가 2건 있습니다"라고 출력한 것이 아니라, [계획 수립] → [정책 매핑] → [개별 데이터 분석(시간, 심각도)] → [우선순위 및 조치 필요성 판단]의 과정을 거쳤기 때문에, Multi-Reasoning Step이 정석적으로 작동한 결과물이 맞습니다.
+
+사용자 질문: "장애현황 보여줘"
+        ↓
+질문 의도 판단: today_incidents
+        ↓
+실행 계획 로드: execution_plan_loaded = True
+        ↓
+선택된 단계:
+1. prepare_realtime_query
+2. status_reasoning
+3. summarize_table
+        ↓
+장애 데이터 2건 조회
+        ↓
+각 row별 상태/우선순위 판단
+        ↓
+표 + 요약 + reasoning 결과 출력
+
+
+이 로그는 장애현황 질문을 처리할 때 어떤 workflow/step을 탔는지 기록한 것이야.
+
+전체 흐름은 이렇게 처리된 거야.
+
+사용자 질문: "장애현황 보여줘"
+        ↓
+질문 의도 판단: today_incidents
+        ↓
+실행 계획 로드: execution_plan_loaded = True
+        ↓
+선택된 단계:
+1. prepare_realtime_query
+2. status_reasoning
+3. summarize_table
+        ↓
+장애 데이터 2건 조회
+        ↓
+각 row별 상태/우선순위 판단
+        ↓
+표 + 요약 + reasoning 결과 출력
+
+각 로그 뜻은 이거야.
+
+execution_plan_loaded = True
+→ JSON에 정의된 실행계획을 정상적으로 읽었다는 뜻.
+
+selected_steps = ['prepare_realtime_query', 'status_reasoning', 'summarize_table']
+→ 장애현황 처리에 필요한 단계를 3개 선택했다는 뜻.
+
+post_process = incident_reasoning
+→ 조회 결과를 그대로 보여주는 게 아니라, 장애 판단 로직을 추가로 적용했다는 뜻.
+
+target_domain = incident
+→ 이 질문은 장애 도메인으로 처리했다는 뜻.
+
+source_rows = 2
+→ 장애 데이터가 2건 있었다는 뜻.
+
+column_mapping = ...
+→ 원본 컬럼명을 내부 판단용 컬럼으로 매핑했다는 뜻.
+예: 배치명 → batch, 상태 → status, 경과분 → elapsed.
+
+policy.long_running_minutes = 30
+→ 30분 이상이면 장기 미처리로 판단하는 정책을 사용했다는 뜻.
+
+reasoning_results = 2
+→ 장애 2건에 대해 각각 reasoning 결과를 만들었다는 뜻.
+
+priority_ranking = completed
+→ P1/P2 같은 우선순위 산정이 끝났다는 뜻.
+
+뒤쪽 로그는 Planner 쪽 로그야.
+
+detected_request = today_incidents
+→ 질문을 “오늘 장애현황 조회” 요청으로 분류함.
+
+requires_reasoning = True
+→ 단순 조회가 아니라 상태 판단이 필요하다고 봄.
+
+requires_action_summary = False
+→ 별도 조치 요약 step은 안 탐.
+
+requires_impact_analysis = False
+→ 영향도 분석 step은 안 탐. 그래서 영향도판단: -로 나온 거야.
+
+selected_workflow = incident_reasoning_flow
+→ 장애 reasoning용 workflow를 선택함.
+
+row_reasoning = delegated_to_realtime_renderer
+→ 각 장애 row별 판단은 renderer 쪽에서 처리했다는 뜻.
+
+결론적으로 이건:
+
+질문 분류 → 장애현황 workflow 선택 → 장애 데이터 조회 → 정책 기반 상태판단 → 우선순위 산정 → 표/요약 출력
+
+으로 처리됐다는 로그야.
+
+
+이렇게 질문하면 돼.
+
+기본 장애현황만:
+
+오늘 장애현황 보여줘
+
+조치 step까지 보이게:
+
+오늘 장애현황 조치방법까지 알려줘
+
+영향도 step까지 보이게:
+
+오늘 장애현황 영향도까지 분석해줘
+
+조치 + 영향도 둘 다:
+
+오늘 장애현황 조치방법이랑 후속 영향도까지 알려줘
+
+기대되는 step 변화:
+
+기본:
+prepare_realtime_query → status_reasoning → summarize_table
+
+조치 포함:
+prepare_realtime_query → status_reasoning → action_guide → summarize_table
+
+영향도 포함:
+prepare_realtime_query → status_reasoning → impact_analysis → summarize_table
+
+조치+영향도:
+prepare_realtime_query → status_reasoning → action_guide → impact_analysis → summarize_table
+
+경진대회 시연은 마지막 질문이 제일 좋아.
+
+
+=============================================
+
+오늘 장애현황 보여줘에대한 결과
+
+1] BATCH_01_CARD_APPROVAL_LOAD
+
+상태판단: 미해결
+영향도판단: -
+우선순위: P1
+장기미처리여부: True
+운영조치존재여부: True
+추가조치필요여부: False
+판단근거
+상태가 'FAIL'로 미해결/장애 상태에 해당합니다.
+경과분 73분이 장기화 기준 30분 이상입니다.
+등록된 조치내용이 있습니다.
+심각도 'HIGH'가 높은 등급 정책에 해당합니다.
+[2] BATCH_02_CARD_PURCHASE_LOAD
+
+상태판단: 미해결
+영향도판단: -
+우선순위: P1
+장기미처리여부: True
+운영조치존재여부: True
+추가조치필요여부: False
+판단근거
+상태가 'FAIL'로 미해결/장애 상태에 해당합니다.
+경과분 43분이 장기화 기준 30분 이상입니다.
+등록된 조치내용이 있습니다.
+🛠 Planner / Reasoning Logs
+
+[PLAN 1] execution_plan_loaded = True
+[PLAN 2] selected_steps = ['prepare_realtime_query', 'status_reasoning', 'summarize_table']
+[PLAN 3] post_process = incident_reasoning
+[PLAN 4] target_domain = incident
+[PLAN 5] planner_reasons = ['기본 장애현황 조회 절차 적용']
+[INCIDENT 1] source_rows = 2
+[INCIDENT 2] column_mapping = {'batch': '배치명', 'status': '상태', 'error_code': '오류코드', 'elapsed': '경과분', 'severity': '심각도', 'action_detail': '조치내용', 'action_owner': '담당자'}
+[INCIDENT 3] policy.long_running_minutes = 30
+[INCIDENT 4] reasoning_results = 2
+[INCIDENT 5] priority_ranking = completed
+[PLAN 1] detected_request = today_incidents
+[PLAN 2] selected_steps = ['prepare_realtime_query', 'status_reasoning', 'summarize_table']
+[PLAN 3] requires_reasoning = True
+[PLAN 4] requires_action_summary = False
+[PLAN 5] requires_impact_analysis = False
+[PLAN 6] planner_reasons = ['기본 장애현황 조회 절차 적용']
+[PLAN 7] selected_workflow = incident_reasoning_flow
+[PLAN 8] row_reasoning = delegated_to_realtime_renderer
+📊 평가용 근거 확인
+
+
+
+오늘 장애현황 조치방법까지 알려줘에 대한 결과
+오늘 장애현황 조치방법까지 알려줘
+오늘 장애현황 조치방법까지 알려줘
+
+오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.
+
+오늘 장애현황
+장애 현황 조회 결과
+
+전체 장애 건수: 2건
+
+장애 배치명 목록:
+
+BATCH_02_CARD_PURCHASE_LOAD
+BATCH_01_CARD_APPROVAL_LOAD
+주요 오류 원인 요약:
+
+매입 데이터 처리 오류, 카드 승인 데이터 적재 실패
+조치 방법 요약:
+
+BATCH_02_CARD_PURCHASE_LOAD (ERR102): 매입 원천 데이터의 전문 포맷 오류 여부를 확인하고, 오류 레코드를 분리한 뒤 정상 데이터 기준으로 재처리한다.
+BATCH_01_CARD_APPROVAL_LOAD (ERR101): 원천 승인 파일 수신 여부를 확인하고, 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 배치를 재실행한다.
+담당자: 매입계 운영담당자, 승인계 운영담당자
+
+확인 필요사항: 조치 후 배치 재실행 여부와 후속 배치 영향도를 확인하세요.
+
+🧠 Multi Reasoning Step
+선택된 reasoning step: 상태/우선순위 판단 → 조치 가이드 보강
+
+[1] BATCH_01_CARD_APPROVAL_LOAD
+
+🔎 상태/우선순위 판단
+
+상태판단: 미해결
+영향도판단: 높음
+우선순위: P1
+장기미처리여부: True
+운영조치존재여부: True
+추가조치필요여부: False
+🛠 조치 가이드
+
+등록 조치내용: 원천 승인 파일 수신 여부를 확인하고, 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 배치를 재실행한다.
+담당자: 승인계 운영담당자
+운영조치존재여부: True
+추가조치필요여부: False
+권장조치: 담당자 확인 후 우선 조치하고 후속 배치/고객 영향 여부를 공지
+판단근거
+상태가 'FAIL'로 미해결/장애 상태에 해당합니다.
+경과분 85분이 장기화 기준 30분 이상입니다.
+등록된 조치내용과 담당자 정보가 있습니다.
+심각도 'HIGH'가 높은 등급 정책에 해당합니다.
+[2] BATCH_02_CARD_PURCHASE_LOAD
+
+🔎 상태/우선순위 판단
+
+상태판단: 미해결
+영향도판단: 높음
+우선순위: P1
+장기미처리여부: True
+운영조치존재여부: True
+추가조치필요여부: False
+🛠 조치 가이드
+
+등록 조치내용: 매입 원천 데이터의 전문 포맷 오류 여부를 확인하고, 오류 레코드를 분리한 뒤 정상 데이터 기준으로 재처리한다.
+담당자: 매입계 운영담당자
+운영조치존재여부: True
+추가조치필요여부: False
+권장조치: 담당자 확인 후 우선 조치하고 후속 배치/고객 영향 여부를 공지
+판단근거
+상태가 'FAIL'로 미해결/장애 상태에 해당합니다.
+경과분 55분이 장기화 기준 30분 이상입니다.
+등록된 조치내용과 담당자 정보가 있습니다.
+🛠 Planner / Reasoning Logs
+
+[PLAN 1] execution_plan_loaded = True
+[PLAN 2] selected_steps = ['prepare_realtime_query', 'status_reasoning', 'action_guide', 'summarize_table']
+[PLAN 3] post_process = incident_reasoning
+[PLAN 4] target_domain = incident
+[PLAN 5] planner_reasons = ['사용자가 원인/조치/담당자 확인을 요청함']
+[INCIDENT 1] source_rows = 2
+[INCIDENT 2] column_mapping = {'batch': '배치명', 'status': '상태', 'error_code': '오류코드', 'elapsed': '경과분', 'severity': '심각도', 'action_detail': '조치내용', 'action_owner': '담당자', 'impact_yn': None, 'downstream': None}
+[INCIDENT 3] policy.long_running_minutes = 30
+[INCIDENT 4] reasoning_results = 2
+[INCIDENT 5] priority_ranking = completed
+[PLAN 1] detected_request = today_incidents
+[PLAN 2] selected_steps = ['prepare_realtime_query', 'status_reasoning', 'action_guide', 'summarize_table']
+[PLAN 3] requires_reasoning = True
+[PLAN 4] requires_action_summary = True
+[PLAN 5] requires_impact_analysis = False
+[PLAN 6] planner_reasons = ['사용자가 원인/조치/담당자 확인을 요청함']
+[PLAN 7] selected_workflow = incident_reasoning_flow
+[PLAN 8] row_reasoning = delegated_to_realtime_renderer
+=============================
+
+
+오늘 장애현황 영향도까지 분석해줘
+오늘 장애현황 영향도까지 분석해줘
+
+오늘 장애현황을 표 형태로 정리했습니다. 아래에서 세부 항목을 확인할 수 있습니다.
+
+오늘 장애현황
+장애 현황 조회 결과
+
+전체 장애 건수: 2건
+
+장애 배치명 목록:
+
+BATCH_02_CARD_PURCHASE_LOAD
+BATCH_01_CARD_APPROVAL_LOAD
+주요 오류 원인 요약:
+
+매입 데이터 처리 오류, 카드 승인 데이터 적재 실패
+조치 방법 요약:
+
+BATCH_02_CARD_PURCHASE_LOAD (ERR102): 매입 원천 데이터의 전문 포맷 오류 여부를 확인하고, 오류 레코드를 분리한 뒤 정상 데이터 기준으로 재처리한다.
+BATCH_01_CARD_APPROVAL_LOAD (ERR101): 원천 승인 파일 수신 여부를 확인하고, 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 배치를 재실행한다.
+담당자: 매입계 운영담당자, 승인계 운영담당자
+
+확인 필요사항: 조치 후 배치 재실행 여부와 후속 배치 영향도를 확인하세요.
+
+🧠 Multi Reasoning Step
+선택된 reasoning step: 상태/우선순위 판단 → 영향도 판단 보강
+
+[1] BATCH_01_CARD_APPROVAL_LOAD
+
+🔎 상태/우선순위 판단
+
+상태판단: 미해결
+영향도판단: 높음
+우선순위: P1
+장기미처리여부: True
+운영조치존재여부: True
+추가조치필요여부: False
+📌 영향도 분석
+
+원천 영향여부: 영향 정보 없음
+영향도판단: 높음
+후속영향확인: 후속 배치 영향 확인 필요
+우선순위: P1
+장기미처리여부: True
+권장조치: 담당자 확인 후 우선 조치하고 후속 배치/고객 영향 여부를 공지
+판단근거
+상태가 'FAIL'로 미해결/장애 상태에 해당합니다.
+경과분 86분이 장기화 기준 30분 이상입니다.
+등록된 조치내용과 담당자 정보가 있습니다.
+심각도 'HIGH'가 높은 등급 정책에 해당합니다.
+[2] BATCH_02_CARD_PURCHASE_LOAD
+
+🔎 상태/우선순위 판단
+
+상태판단: 미해결
+영향도판단: 높음
+우선순위: P1
+장기미처리여부: True
+운영조치존재여부: True
+추가조치필요여부: False
+📌 영향도 분석
+
+원천 영향여부: 영향 정보 없음
+영향도판단: 높음
+후속영향확인: 후속 배치 영향 확인 필요
+우선순위: P1
+장기미처리여부: True
+권장조치: 담당자 확인 후 우선 조치하고 후속 배치/고객 영향 여부를 공지
+판단근거
+상태가 'FAIL'로 미해결/장애 상태에 해당합니다.
+경과분 56분이 장기화 기준 30분 이상입니다.
+등록된 조치내용과 담당자 정보가 있습니다.
+🛠 Planner / Reasoning Logs
+
+[PLAN 1] execution_plan_loaded = True
+[PLAN 2] selected_steps = ['prepare_realtime_query', 'status_reasoning', 'impact_analysis', 'summarize_table']
+[PLAN 3] post_process = incident_reasoning
+[PLAN 4] target_domain = incident
+[PLAN 5] planner_reasons = ['사용자가 영향도 또는 후속 배치 확인을 요청함']
+[INCIDENT 1] source_rows = 2
+[INCIDENT 2] column_mapping = {'batch': '배치명', 'status': '상태', 'error_code': '오류코드', 'elapsed': '경과분', 'severity': '심각도', 'action_detail': '조치내용', 'action_owner': '담당자', 'impact_yn': None, 'downstream': None}
+[INCIDENT 3] policy.long_running_minutes = 30
+[INCIDENT 4] reasoning_results = 2
+[INCIDENT 5] priority_ranking = completed
+[PLAN 1] detected_request = today_incidents
+[PLAN 2] selected_steps = ['prepare_realtime_query', 'status_reasoning', 'impact_analysis', 'summarize_table']
+[PLAN 3] requires_reasoning = True
+[PLAN 4] requires_action_summary = False
+[PLAN 5] requires_impact_analysis = True
+[PLAN 6] planner_reasons = ['사용자가 영향도 또는 후속 배치 확인을 요청함']
+[PLAN 7] selected_workflow = incident_reasoning_flow
+[PLAN 8] row_reasoning = delegated_to_realtime_renderer
+📊 평가용 근거 확인
+
+
+
+청구
+보수적으로 봐도 잘 나온 편이야.
+
+이건 단순히 “그래프 하나 출력”이 아니라 아래 단계가 분리돼 있어.
+
+1. 청구 데이터 조회 준비
+2. 차트 컬럼 검증
+3. 월별 청구 금액 조회
+4. 월별 금액 그래프 생성
+5. 증감 흐름 요약
+
+평가자 입장에서는 multi-step reasoning / workflow 기반 처리로 볼 가능성이 높아.
+
+특히 좋은 점은:
+
+validate_chart_fields
+fetch_monthly_billing
+build_chart
+summarize_trend
+
+이렇게 실제 처리 단계가 명확하고,
+
+전월 대비 증감률=-23.53
+흐름 판단=감소
+변동률 기준 10% 이상
+
+처럼 단순 요약이 아니라 계산 기반 판단이 들어갔다는 점이 좋아.
+
+다만 실무 UI 기준으로는 Billing Multi Reasoning Step과 Billing Planner / Reasoning Logs는 운영자용이라기보다 평가/개발자 설명용이야.
+
+정리하면:
+
+경진대회 평가용: 좋음
+실제 운영 화면: 로그는 숨기는 게 좋음
+multi-step reasoning 관점: 충분히 인정 가능
+
+장애현황보다 이 청구 예시는 오히려 더 명확해.
+왜냐면 조회 → 검증 → 집계 → 시각화 → 추세 판단 흐름이 자연스럽게 보이거든.

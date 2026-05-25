@@ -1,0 +1,798 @@
+빌더”는 네 화면에 보이는 답변 포맷/검색조건을 만드는 쪽을 말하는 것 같아. 소스 기준으로는 크게 structured_payload builder, where filter builder, response_builder 세 역할로 나눠서 보면 된다.
+
+6s 동안 생각함
+
+네가 말한 빌더(builder)는 하나만 있는 게 아니라, 소스상 역할별로 보면 3종류가 있어.
+
+1. 구조화 데이터 빌더
+2. 검색 조건 빌더
+3. 응답 빌더
+
+쉽게 말하면:
+
+질문 분석 결과
+→ 어떤 데이터를 쓸지 만들고
+→ 어떤 조건으로 검색할지 만들고
+→ 어떤 형태로 답변할지 만든다
+1. 구조화 데이터 빌더
+
+소스에서는 이 함수야.
+
+_build_structured_payload(system_id, intent)
+
+이 함수는 질문의 system_id와 intent를 보고, JSON에서 어떤 데이터를 꺼낼지 결정한다.
+
+예를 들어:
+
+system_id = kkk_bank
+intent = overview
+
+이면 JSON에서:
+
+KKK은행 → overview
+
+를 꺼낸다.
+
+소스상으로도 overview, batch_process면 text 응답용 structured_data를 반환하고, batch_flow, table_lineage면 graph_data를 반환한다.
+
+예시:
+
+KKK은행 소득공제 업무 알려줘
+
+결과:
+
+{
+  "render_type": "text",
+  "structured_data": "KKK은행 overview JSON",
+  "graph_data": null,
+  "query_meta": null
+}
+
+반대로:
+
+KKK은행 소득공제 배치 흐름도 보여줘
+
+이면:
+
+{
+  "render_type": "graph",
+  "graph_data": "KKK은행 batch_flow JSON",
+  "structured_data": null
+}
+2. 검색 조건 빌더
+
+소스에서는 이 함수야.
+
+_build_where_filter(system_id, intent)
+
+이 함수는 Vector DB 검색 조건을 만든다.
+
+예를 들어:
+
+system_id = kkk_bank
+intent = overview
+
+이면:
+
+{
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+를 만든다. 이 조건이 retrieve 단계에서 Chroma 검색 필터로 들어간다.
+
+즉 빌더 검색 조건은 이거야.
+
+KKK은행 문서 중에서 overview 섹션만 검색해라
+
+실제로 retrieval 쪽에서는 where가 있으면 LangChain Chroma의 filter로 전달된다.
+
+3. 응답 빌더
+
+소스에서는 이 계열이야.
+
+build_overview_fallback()
+build_batch_process_fallback()
+build_graph_answer()
+build_chart_answer()
+build_table_answer()
+build_answer_prompt()
+
+respond 단계에서 route를 보고 어떤 빌더를 쓸지 결정한다.
+
+예를 들어 overview이고 structured_data가 있으면 LLM 답변 생성을 건너뛰고 build_overview_fallback()으로 정해진 형식의 답변을 만든다. 소스에도 answer_generation = skipped라고 로그를 남기게 되어 있다.
+
+즉:
+
+overview JSON
+→ build_overview_fallback()
+→ 📌 업무 개요 / 주요 입력 데이터 / 산출물 형태 답변
+
+이렇게 되는 거야.
+
+반대로 graph/chart/table이면 각각 build_graph_answer, build_chart_answer, build_table_answer를 쓴다.
+
+그리고 이도 저도 아닌 일반 RAG 답변이면 build_answer_prompt()로 LLM에게 보낼 프롬프트를 만든 뒤 Upstage Chat API를 호출한다.
+
+KKK은행 질문 기준 전체 예시
+
+질문:
+
+KKK은행 소득공제 업무 알려줘
+
+처리 결과:
+
+system_id = kkk_bank
+intent = overview
+
+그 다음 빌더들이 이렇게 동작함.
+
+1. _build_structured_payload
+   → KKK은행 overview JSON 꺼냄
+   → render_type = text
+
+2. _build_where_filter
+   → {"system_id": "kkk_bank", "section": "overview"} 검색 조건 생성
+
+3. retrieve_docs
+   → ChromaDB에서 KKK은행 overview 근거 검색
+
+4. response_builder
+   → build_overview_fallback(structured_data)
+   → 최종 업무 개요 답변 생성
+발표용으로는 이렇게 말하면 돼
+
+빌더는 질문 분석 결과를 실제 검색과 응답에 사용할 수 있는 구조로 변환하는 역할입니다. 먼저 structured payload builder가 system_id와 intent를 기준으로 JSON에서 overview, batch_process, batch_flow 같은 원본 데이터를 꺼냅니다. 다음으로 where filter builder가 Vector DB 검색 조건을 만들어 system_id=kkk_bank, section=overview처럼 검색 범위를 제한합니다. 마지막으로 response builder가 검색 결과와 구조화 데이터를 바탕으로 텍스트, 그래프, 차트, 표 중 적절한 응답 형태를 생성합니다. 따라서 빌더는 LLM이 임의로 답변하지 않도록 데이터 선택, 검색 조건, 응답 형식을 통제하는 역할을 합니다.
+
+
+“빌더”는 네 화면에 보이는 답변 포맷/검색조건을 만드는 쪽을 말하는 것 같아. 소스 기준으로는 크게 structured_payload builder, where filter builder, response_builder 세 역할로 나눠서 보면 된다.
+
+6s 동안 생각함
+
+네가 말한 빌더(builder)는 하나만 있는 게 아니라, 소스상 역할별로 보면 3종류가 있어.
+
+1. 구조화 데이터 빌더
+2. 검색 조건 빌더
+3. 응답 빌더
+
+쉽게 말하면:
+
+질문 분석 결과
+→ 어떤 데이터를 쓸지 만들고
+→ 어떤 조건으로 검색할지 만들고
+→ 어떤 형태로 답변할지 만든다
+1. 구조화 데이터 빌더
+
+소스에서는 이 함수야.
+
+_build_structured_payload(system_id, intent)
+
+이 함수는 질문의 system_id와 intent를 보고, JSON에서 어떤 데이터를 꺼낼지 결정한다.
+
+예를 들어:
+
+system_id = kkk_bank
+intent = overview
+
+이면 JSON에서:
+
+KKK은행 → overview
+
+를 꺼낸다.
+
+소스상으로도 overview, batch_process면 text 응답용 structured_data를 반환하고, batch_flow, table_lineage면 graph_data를 반환한다.
+
+예시:
+
+KKK은행 소득공제 업무 알려줘
+
+결과:
+
+{
+  "render_type": "text",
+  "structured_data": "KKK은행 overview JSON",
+  "graph_data": null,
+  "query_meta": null
+}
+
+반대로:
+
+KKK은행 소득공제 배치 흐름도 보여줘
+
+이면:
+
+{
+  "render_type": "graph",
+  "graph_data": "KKK은행 batch_flow JSON",
+  "structured_data": null
+}
+2. 검색 조건 빌더
+
+소스에서는 이 함수야.
+
+_build_where_filter(system_id, intent)
+
+이 함수는 Vector DB 검색 조건을 만든다.
+
+예를 들어:
+
+system_id = kkk_bank
+intent = overview
+
+이면:
+
+{
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+를 만든다. 이 조건이 retrieve 단계에서 Chroma 검색 필터로 들어간다.
+
+즉 빌더 검색 조건은 이거야.
+
+KKK은행 문서 중에서 overview 섹션만 검색해라
+
+실제로 retrieval 쪽에서는 where가 있으면 LangChain Chroma의 filter로 전달된다.
+
+3. 응답 빌더
+
+소스에서는 이 계열이야.
+
+build_overview_fallback()
+build_batch_process_fallback()
+build_graph_answer()
+build_chart_answer()
+build_table_answer()
+build_answer_prompt()
+
+respond 단계에서 route를 보고 어떤 빌더를 쓸지 결정한다.
+
+예를 들어 overview이고 structured_data가 있으면 LLM 답변 생성을 건너뛰고 build_overview_fallback()으로 정해진 형식의 답변을 만든다. 소스에도 answer_generation = skipped라고 로그를 남기게 되어 있다.
+
+즉:
+
+overview JSON
+→ build_overview_fallback()
+→ 📌 업무 개요 / 주요 입력 데이터 / 산출물 형태 답변
+
+이렇게 되는 거야.
+
+반대로 graph/chart/table이면 각각 build_graph_answer, build_chart_answer, build_table_answer를 쓴다.
+
+그리고 이도 저도 아닌 일반 RAG 답변이면 build_answer_prompt()로 LLM에게 보낼 프롬프트를 만든 뒤 Upstage Chat API를 호출한다.
+
+KKK은행 질문 기준 전체 예시
+
+질문:
+
+KKK은행 소득공제 업무 알려줘
+
+처리 결과:
+
+system_id = kkk_bank
+intent = overview
+
+그 다음 빌더들이 이렇게 동작함.
+
+1. _build_structured_payload
+   → KKK은행 overview JSON 꺼냄
+   → render_type = text
+
+2. _build_where_filter
+   → {"system_id": "kkk_bank", "section": "overview"} 검색 조건 생성
+
+3. retrieve_docs
+   → ChromaDB에서 KKK은행 overview 근거 검색
+
+4. response_builder
+   → build_overview_fallback(structured_data)
+   → 최종 업무 개요 답변 생성
+발표용으로는 이렇게 말하면 돼
+
+빌더는 질문 분석 결과를 실제 검색과 응답에 사용할 수 있는 구조로 변환하는 역할입니다. 먼저 structured payload builder가 system_id와 intent를 기준으로 JSON에서 overview, batch_process, batch_flow 같은 원본 데이터를 꺼냅니다. 다음으로 where filter builder가 Vector DB 검색 조건을 만들어 system_id=kkk_bank, section=overview처럼 검색 범위를 제한합니다. 마지막으로 response builder가 검색 결과와 구조화 데이터를 바탕으로 텍스트, 그래프, 차트, 표 중 적절한 응답 형태를 생성합니다. 따라서 빌더는 LLM이 임의로 답변하지 않도록 데이터 선택, 검색 조건, 응답 형식을 통제하는 역할을 합니다.
+
+어떤소스에서 어떻게 구현되어있는지 자세히 설명해줘
+4s 동안 생각함
+
+좋아. 네 소스에서 빌더(builder)라고 볼 수 있는 구현은 주로 agent.py, models.py, retrieval.py, 그리고 ingest 쪽 Pasted code.py에 나뉘어 있어.
+
+핵심은 이거야.
+
+ingest builder
+→ 검색용 문서/metadata 생성
+
+runtime builder
+→ 질문 결과에 맞는 structured_data, where_filter 생성
+
+response builder
+→ 최종 답변 형태 생성
+1. ingest 단계 빌더
+
+파일:
+
+Pasted code.py
+
+여기서는 JSON을 ChromaDB에 넣기 전에 검색 가능한 문서 형태로 만든다.
+
+예를 들어 flatten_payload()가 전체 JSON을 돌면서 flatten_system_docs()를 호출하고, 실시간 query도 flatten_realtime_queries()로 문서화한다. 마지막에는 upsert_documents()가 ChromaDB에 저장한다.
+
+흐름은 이거야.
+
+JSON
+→ flatten_payload()
+→ flatten_system_docs()
+→ append_doc()
+→ metadata 부여
+→ ChromaDB upsert
+
+여기서 중요한 건 append_doc()가 문서마다 metadata를 붙이는 거야.
+
+예를 들면 overview 문서는:
+
+{
+  "system_id": "kkk_bank",
+  "section": "overview",
+  "title": "KKK은행 소득공제 업무 개요"
+}
+
+batch_process 문서는:
+
+{
+  "system_id": "kkk_bank",
+  "section": "batch_process"
+}
+
+이런 식으로 들어간다.
+
+그리고 overview 텍스트도 그냥 통째로 넣는 게 아니라 build_overview_text()에서 summary, content, input_data, target_transactions, exclusions, outputs, key_points를 합쳐 검색용 텍스트로 만든다.
+
+2. structured payload builder
+
+파일:
+
+agent.py
+
+함수:
+
+_build_structured_payload(system_id, intent)
+
+이 함수는 질문 분석 결과를 보고 JSON 원본에서 어떤 데이터를 꺼낼지 결정한다.
+
+소스 흐름은 이거야.
+
+if system_id and intent in {"overview", "batch_process", "batch_flow", "table_lineage"}:
+    system = get_system_by_id(self.payload, system_id)
+
+    if intent in {"overview", "batch_process"}:
+        return "text", None, None, system.get(intent)
+
+    return "graph", system.get(intent), None, None
+
+즉:
+
+overview / batch_process
+→ text 응답용 structured_data 반환
+
+batch_flow / table_lineage
+→ graph 응답용 graph_data 반환
+
+그리고 장애현황이나 청구 그래프 같은 realtime intent면 get_realtime_intent_spec()와 get_realtime_query()를 통해 query_meta를 만든다.
+
+예시:
+
+질문: KKK은행 소득공제 업무 알려줘
+system_id = kkk_bank
+intent = overview
+
+그러면:
+
+_build_structured_payload()
+→ self.payload에서 kkk_bank 시스템 조회
+→ system["overview"] 반환
+→ render_type = text
+3. where filter builder
+
+파일:
+
+agent.py
+
+함수:
+
+_build_where_filter(system_id, intent)
+
+이 함수는 Vector DB 검색 조건을 만든다.
+
+소스는 이거야.
+
+if intent in {"overview", "batch_process", "batch_flow", "table_lineage"} and system_id:
+    return {"$and": [{"system_id": system_id}, {"section": intent}]}
+
+즉 KKK은행 + overview면:
+
+{
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+가 만들어진다.
+
+이 조건은 retrieve 단계에서 실제 검색으로 넘어간다.
+
+4. retrieval 쪽에서 where filter 사용
+
+파일:
+
+retrieval.py
+
+검색 함수:
+
+retrieve_docs(..., where=where)
+
+LangChain Chroma를 쓸 때는 이 where가 search_kwargs["filter"]로 들어간다.
+
+search_kwargs = {"k": top_k}
+if where:
+    search_kwargs["filter"] = where
+
+그래서 ChromaDB 검색이 그냥 전체 문서를 검색하는 게 아니라:
+
+system_id = kkk_bank
+section = overview
+
+조건에 맞는 문서만 검색한다.
+
+검색 엔진은 LangChain retriever를 먼저 쓰고, 실패하면 ChromaDB direct 조회로 fallback한다.
+
+5. response route builder
+
+파일:
+
+models.py
+
+함수:
+
+resolve_response_route()
+
+이 함수는 최종 응답을 어떤 형태로 만들지 결정한다.
+
+if render_type == "graph" and has_graph:
+    return ResponseRoute(name="graph", render_type="graph")
+
+if render_type == "chart" and has_query_meta:
+    return ResponseRoute(name="chart", render_type="chart")
+
+if render_type == "table" and has_query_meta:
+    return ResponseRoute(name="table", render_type="table")
+
+return ResponseRoute(name="llm_text", render_type=render_type)
+
+즉:
+
+batch_flow / table_lineage → graph
+billing_monthly_amount → chart
+today_incidents → table
+그 외 → llm_text
+
+이렇게 응답 경로를 결정한다.
+
+6. 실제 response builder 호출 위치
+
+파일:
+
+agent.py
+
+_graph_respond_node() 안에서 route에 따라 builder가 호출된다.
+
+if route.name == "graph":
+    build_graph_answer()
+
+if route.name == "chart":
+    build_chart_answer()
+
+if route.name == "table":
+    build_table_answer()
+
+if intent == "overview":
+    build_overview_fallback()
+
+if intent == "batch_process":
+    build_batch_process_fallback()
+
+그리고 overview와 batch_process는 structured_data가 있으면 LLM 생성을 건너뛰고 정해진 renderer로 답변한다. 로그도 answer_generation = skipped라고 남긴다.
+
+즉 네 질문:
+
+KKK은행 소득공제 업무 알려줘
+
+는 최종적으로:
+
+build_overview_fallback(structured_data)
+
+를 타는 구조야.
+
+7. LLM 답변 builder
+
+파일:
+
+agent.py`, `llm_client.py`
+
+graph/table/chart/overview/batch_process에 해당하지 않는 일반 RAG 답변이면:
+
+system_prompt, prompt = build_answer_prompt(...)
+answer = ollama_generate(...)
+
+를 실행한다.
+
+여기서 ollama_generate()라는 이름은 남아 있지만 실제 구현은 Upstage Chat API 호출이다. llm_client.py에서 /chat/completions로 요청을 보내고 응답의 message.content를 반환한다.
+
+전체 예시로 보면
+
+질문:
+
+KKK은행 소득공제 업무 알려줘
+
+처리:
+
+1. resolve
+   system_id = kkk_bank
+   intent = overview
+
+2. _build_structured_payload
+   kkk_bank의 overview JSON 꺼냄
+   render_type = text
+   structured_data = overview
+
+3. _build_where_filter
+   where = system_id=kkk_bank AND section=overview
+
+4. retrieve_docs
+   ChromaDB에서 KKK은행 overview 문서 검색
+
+5. resolve_response_route
+   graph/chart/table 아님
+   llm_text route
+
+6. respond
+   intent == overview 이므로
+   build_overview_fallback(structured_data) 호출
+
+7. 결과
+   📌 KKK은행 소득공제 업무 개요 형태로 응답
+
+발표에서는 이렇게 말하면 돼.
+
+빌더는 LLM이 임의로 데이터를 고르는 것을 막고, 질문 분석 결과를 실제 검색 조건과 응답 구조로 변환하는 역할입니다. ingest 단계에서는 JSON을 section 단위 문서와 metadata로 변환하고, runtime에서는 system_id와 intent를 기준으로 structured payload와 where filter를 생성합니다. 이후 response route builder가 graph, chart, table, text 중 응답 방식을 결정하고, overview나 batch_process는 LLM 자유생성이 아니라 structured renderer를 통해 안정적으로 답변을 생성합니다.
+
+
+좋아.
+이걸 시간순으로 이해하면 엄청 쉬워져.
+
+핵심은:
+
+builder는 질문 분석이 끝난 뒤,
+retrieve 직전에 실행된다
+
+야.
+
+전체 실행 흐름
+
+네 구조를 실제 실행 순서대로 보면:
+
+사용자 질문
+↓
+prepare
+↓
+rewrite
+↓
+resolve
+↓
+guard
+  ├─ structured payload builder 실행
+  └─ where filter builder 실행
+↓
+retrieve
+↓
+response route builder 실행
+↓
+respond
+
+즉 builder는 한 군데가 아니라:
+
+guard 단계
++
+respond 직전
+
+에서 실행돼.
+
+실제 예시로 보자
+
+질문:
+
+KKK은행 소득공제 업무 알려줘
+1. prepare
+
+질문 정리.
+
+업무 알려줘
+→ 업무 개요를 알려줘
+2. rewrite
+
+LLM이 의미 보정.
+
+KKK은행 소득공제 업무 개요를 알려줘
+3. resolve
+
+최종 intent/system_id 판별.
+
+{
+  "system_id": "kkk_bank",
+  "intent": "overview"
+}
+4. 여기서 builder 실행됨 (guard 단계)
+
+이게 핵심.
+
+guard 안에서:
+
+render_type,
+graph_data,
+query_meta,
+structured_data = _build_structured_payload(...)
+
+여기서 무슨 일이 생기냐?
+
+질문 결과 기준으로:
+
+"어떤 데이터를 쓸까?"
+
+를 결정함.
+
+실제 결과
+{
+  "render_type": "text",
+  "structured_data": overview_json
+}
+
+즉:
+
+KKK은행 overview JSON
+
+을 꺼내옴.
+
+그 다음 where filter builder 실행
+
+guard 안에서 이어서:
+
+where = _build_where_filter(system_id, intent)
+
+결과
+{
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+즉:
+
+retrieve할 때
+어떤 문서만 검색할지
+
+결정됨.
+
+그래서 retrieve 단계에서는
+
+이미 builder가 만든 걸 사용함.
+
+retrieve_docs(
+    query=...,
+    where=where
+)
+실제 의미
+전체 Chroma 검색 X
+
+KKK은행 + overview 만 검색 O
+retrieve 끝난 후
+
+respond 직전에 또 builder 개념이 나옴.
+
+response route builder 실행
+
+소스:
+
+resolve_response_route(...)
+
+역할
+어떤 형태로 답변할까?
+
+결정.
+
+예시 결과
+
+현재 질문은:
+
+render_type = text
+
+라서:
+
+llm_text route
+
+선택.
+
+그런데 overview니까 special 처리
+
+respond 단계에서:
+
+if intent == "overview":
+    build_overview_fallback()
+
+최종적으로
+overview renderer 실행
+
+↓
+
+📌 KKK은행 소득공제 업무 개요
+🔹 핵심 요약
+📥 주요 입력 데이터
+...
+
+형태 생성.
+
+정리하면
+시점	builder
+guard	structured payload builder
+guard	where filter builder
+respond 직전	response route builder
+respond	overview/table/chart/graph renderer
+쉽게 말하면
+질문 분석 끝난 후
+
+builder가:
+
+1. 어떤 데이터 쓸지
+2. 어떤 문서 검색할지
+3. 어떤 형태로 답변할지
+
+를 만들어주는 거야.
+
+실제 업무적으로 왜 중요하냐?
+
+이 구조가 좋은 이유는:
+
+LLM이 모든 걸 즉흥적으로 결정하지 않음
+
+이라는 거.
+
+builder가:
+
+retrieval 범위
+응답 구조
+renderer
+metadata filter
+
+를 통제함.
+
+실제 업무 스타일로 보면
+
+네 builder는 사실:
+
+Execution Plan Builder
+
+에 가까움.
+
+즉:
+
+질문 결과
+→ 실행 계획 생성
+
+하는 역할.
+
+발표에서는 이렇게 말하면 좋음
+
+builder는 질문 분석 이후 실행됩니다. resolve 단계에서 system_id와 intent가 결정되면, guard 단계에서 structured payload builder가 JSON 원본 데이터 중 어떤 데이터를 사용할지 결정하고, where filter builder가 Vector DB 검색 조건을 생성합니다. 이후 retrieve 단계에서는 builder가 생성한 metadata filter를 사용해 검색을 수행합니다. 마지막으로 respond 직전에는 response route builder가 graph, chart, table, text 중 어떤 형태로 응답할지 결정하고, overview renderer나 graph renderer 같은 실제 응답 builder가 최종 결과를 생성합니다.

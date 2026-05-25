@@ -1,0 +1,294 @@
+보수적으로 봐도, 네 ingest 구조는 꽤 실제 업무 스타일에 가까운 편이야.
+특히 단순히:
+
+JSON 통째로 임베딩
+
+한 게 아니라,
+
+업무 의미 단위로 flatten + metadata 분리 + semantic chunking
+
+하고 있다는 게 실무적이야.
+
+네 ingest 구조 핵심
+
+네 ingest는 크게 이렇게 동작함.
+
+JSON 업무 데이터
+↓
+flatten
+↓
+section별 문서화
+↓
+semantic chunking
+↓
+metadata 생성
+↓
+ChromaDB 적재
+
+실제 실무적인 부분들
+1. overview / batch_process / flow / lineage 분리
+
+이거 매우 중요함.
+
+소스:
+
+section="overview"
+section="batch_process"
+section="batch_flow"
+section="table_lineage"
+
+왜 실무적이냐?
+
+질문 유형마다 retrieval 대상이 다르기 때문.
+
+예:
+
+질문	검색 대상
+업무 알려줘	overview
+배치 프로세스	batch_process
+흐름도	batch_flow
+테이블 리니지	table_lineage
+
+즉:
+
+"모든 문서 전체 검색"
+
+안 하고
+업무 영역별로 분리한 거야.
+
+이거 실제 RAG 품질에서 엄청 중요함.
+
+2. semantic chunking
+
+이거 꽤 잘한 편.
+
+예:
+
+build_overview_chunks()
+build_batch_process_chunks()
+
+의미 단위 chunking 하고 있음
+
+예를 들면 overview를:
+
+summary_content
+input_target
+exclusions
+outputs_key_points
+
+로 나눔.
+
+왜 이게 중요하냐?
+
+예:
+
+"제외 업종 뭐야?"
+
+질문이 들어오면:
+
+exclusions chunk
+
+만 retrieval 가능.
+
+만약 전체 overview를 한 chunk로 넣으면?
+불필요한 내용까지 다 retrieval
+
+돼서 정확도 떨어짐.
+
+이건 실제 업무에서 많이 하는 방식
+
+특히:
+
+semantic chunking
+
+은 RAG 품질 핵심 중 하나.
+
+3. batch_process를 step 단위로 분리
+
+이거 실무적으로 좋음.
+
+소스:
+
+step 단위 chunking
+
+왜 좋냐?
+
+사용자 질문이 보통:
+
+2단계 뭐해?
+집계 단계 알려줘
+대상 판별 로직 설명해줘
+
+이런 식으로 들어오기 때문.
+
+그래서:
+step 단위 retrieval
+
+이 훨씬 정확함.
+
+4. metadata 설계
+
+이거 꽤 중요함.
+
+네가 넣은 metadata:
+
+{
+  "system_id": ...
+  "section": ...
+  "step": ...
+  "chunk_type": ...
+}
+
+이게 왜 중요하냐?
+
+현재 retrieval에서:
+
+where = {
+  "$and": [
+    {"system_id": "kkk_bank"},
+    {"section": "overview"}
+  ]
+}
+
+를 걸 수 있는 이유가 ingest metadata 때문.
+
+즉:
+
+좋은 retrieval 품질
+=
+좋은 metadata 설계
+
+임.
+
+5. doc_level 구분
+
+이것도 실무적임.
+
+doc_level:
+  section
+  chunk
+  detail
+  structure
+
+의미
+level	의미
+section	전체 개요
+chunk	semantic chunk
+detail	세부 batch/job
+structure	flow/lineage
+
+이렇게 retrieval granularity를 나눈 거야.
+
+6. batch_job detail ingest
+
+이거 꽤 실무적이야.
+
+예:
+
+job_name
+retry_count
+failure_action
+upstream_jobs
+downstream_jobs
+
+다 metadata/text로 넣고 있음.
+
+그래서 가능한 질문
+재시도 몇 번이야?
+선행배치 뭐야?
+장애조치방법 알려줘
+
+이런 세부 질의 가능.
+
+실제로 부족한 부분도 있음
+
+보수적으로 보면 아직:
+
+초기 실무형 ingest
+
+정도야.
+
+아직 부족한 부분
+1. Hybrid Search 없음
+
+현재는 사실상:
+
+vector similarity
+
+중심.
+
+실무에서는:
+
+BM25 + Vector
+
+혼합 많이 씀.
+
+2. Hierarchical Retrieval 부족
+
+현재는:
+
+overview chunk
+
+검색 후:
+
+parent section
+
+재조립 구조는 약함.
+
+3. Chunk relationship graph 없음
+
+예:
+
+step1 → step2 dependency
+
+같은 graph retrieval은 아직 없음.
+
+4. Time/versioning 없음
+
+실무에서는:
+
+운영버전
+개정일
+시점
+
+중요함.
+
+5. 운영 문서 linkage 부족
+
+실제 업무에서는:
+
+Confluence
+Scheduler
+DB metadata
+운영대장
+장애이력
+
+연결 많이 함.
+
+근데 방향은 좋음
+
+보수적으로 평가해도:
+
+"그냥 JSON 벡터화"
+
+수준은 이미 넘었음.
+
+특히:
+
+semantic chunking
+metadata filtering
+section separation
+step granularity
+detail-level ingest
+
+이런 건 실제 RAG 설계 핵심임.
+
+발표에서는 이렇게 말하면 좋음
+
+ingest 단계에서는 업무 JSON 데이터를 그대로 벡터화하지 않고, overview, batch_process, batch_flow, table_lineage 등 업무 의미 단위로 flatten합니다. 이후 semantic chunking을 통해 overview는 summary, input_data, exclusions 등으로 분리하고, batch_process는 step 단위와 batch_job 단위로 추가 분할합니다. 또한 system_id, section, step, chunk_type 등의 metadata를 함께 적재하여 retrieval 시 metadata filtering이 가능하도록 설계했습니다. 이를 통해 “업무 개요”, “장애 조치 방법”, 
+“특정 step 설명” 같은 질문에 대해 검색 범위를 통제하면서 정확도를 높일 수 있도록 구성했습니다.
+
+
+발표에서는 이렇게 설명하면 좋음
+
+ingestion 단계에서는 JSON 데이터를 단순 텍스트로 저장하지 않고, overview, batch_process, batch_flow, table_lineage 같은 section 단위로 flatten합니다. 이때 각 문서에는 system_id, section, step, chunk_type 등의 metadata를 함께 저장합니다. 예를 들어 KKK은행 overview 문서는 system_id=kkk_bank, section=overview metadata를 가지며, batch_process 문서는 section=batch_process metadata를 가집니다. 따라서 retrieval 시에는 semantic similarity뿐 아니라 metadata filter를 함께 적용하여 검색 범위를 제어할 수 있습니다.

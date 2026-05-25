@@ -70,6 +70,9 @@ DEFAULT_INCIDENT_REASONING_POLICY: Dict[str, Any] = {
         "status_reason": "상태판단",
         "impact_level": "영향도",
         "priority": "우선순위",
+        "long_running": "장기미처리여부",
+        "has_action_record": "운영조치존재여부",
+        "needs_additional_action": "추가조치필요여부",
         "reasoning_note": "판단근거",
         "recommended_action": "권장조치",
     },
@@ -296,7 +299,14 @@ def reason_incident_row(row: Mapping[str, Any], policy: Optional[Mapping[str, An
     is_open = _is_in(status, policy.get("open_statuses", [])) or not _is_in(status, policy.get("closed_statuses", []))
     is_critical = _is_in(severity, policy.get("critical_severities", []))
     has_impact = _upper(impact_yn) in {"Y", "YES", "TRUE", "1", "있음", "영향"}
-    action_missing = not _has_value(action_detail) or not _has_value(action_owner)
+    # 운영 조치 여부와 추가 조치 필요 여부는 의미가 다르므로 분리한다.
+    # - 운영조치존재여부: 조치내용 또는 담당자가 하나라도 등록되어 있는지
+    # - 추가조치필요여부: 미종료 장애인데 조치내용/담당자 중 하나라도 누락되었는지
+    has_action_detail = _has_value(action_detail)
+    has_action_owner = _has_value(action_owner)
+    has_action_record = has_action_detail or has_action_owner
+    action_info_incomplete = not (has_action_detail and has_action_owner)
+    needs_additional_action = is_open and action_info_incomplete
     long_running = is_open and elapsed >= _number(policy.get("high_elapsed_minutes"), 30)
     medium_running = is_open and elapsed >= _number(policy.get("medium_elapsed_minutes"), 10)
     retry_warn = retry_count >= _number(policy.get("retry_warn_count"), 2)
@@ -314,13 +324,17 @@ def reason_incident_row(row: Mapping[str, Any], policy: Optional[Mapping[str, An
         reason_parts.append("영향도 표시 있음")
     if retry_warn:
         reason_parts.append(f"재시도 {retry_count}회")
-    if action_missing:
-        reason_parts.append("조치정보 미흡")
+    if not has_action_record:
+        reason_parts.append("운영 조치정보 미등록")
+    elif action_info_incomplete:
+        reason_parts.append("운영 조치정보 일부 누락")
+    else:
+        reason_parts.append("운영 조치정보 등록됨")
 
     if is_open and (is_critical or has_impact or long_running):
         priority = "P1"
         impact_level = "높음"
-    elif is_open and (medium_running or retry_warn or action_missing):
+    elif is_open and (medium_running or retry_warn or needs_additional_action):
         priority = "P2"
         impact_level = "중간"
     elif is_open:
@@ -348,6 +362,15 @@ def reason_incident_row(row: Mapping[str, Any], policy: Optional[Mapping[str, An
     enriched[str(output_columns.get("status_reason", "상태판단"))] = status_reason
     enriched[str(output_columns.get("impact_level", "영향도"))] = impact_level
     enriched[str(output_columns.get("priority", "우선순위"))] = priority
+    enriched[str(output_columns.get("long_running", "장기미처리여부"))] = long_running
+    enriched[str(output_columns.get("has_action_record", "운영조치존재여부"))] = has_action_record
+    enriched[str(output_columns.get("needs_additional_action", "추가조치필요여부"))] = needs_additional_action
+
+    # 기존 화면/이력 호환용 영문 key도 함께 제공한다.
+    enriched["is_long_running"] = long_running
+    enriched["has_action_record"] = has_action_record
+    enriched["needs_additional_action"] = needs_additional_action
+
     enriched[str(output_columns.get("reasoning_note", "판단근거"))] = ", ".join(reason_parts) if reason_parts else "추가 위험 신호 없음"
     enriched[str(output_columns.get("recommended_action", "권장조치"))] = recommended_action
     return enriched

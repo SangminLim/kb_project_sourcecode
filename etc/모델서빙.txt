@@ -1,0 +1,184 @@
+Dockerfile
+requirements.txt
+model binary 파일
+predict.py / inference.py
+FastAPI app.py
+
+Dockerfile
+  └─ Python 환경 구성
+  └─ requirements.txt 설치
+  └─ 모델 파일 복사 또는 다운로드
+  └─ FastAPI 서버 실행
+
+FastAPI
+  └─ /predict API 제공
+
+predict.py
+  └─ 모델 로드
+  └─ 입력 전처리
+  └─ 추론
+  └─ 결과 후처리
+
+Kubernetes
+  └─ Docker image 실행
+  └─ Pod 생성
+  └─ Service/Ingress로 외부 호출
+
+FROM python:3.11-slim
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# app.py
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from predict import load_model, predict
+
+app = FastAPI()
+
+# 서버 시작 시 모델 메모리 로드
+model = load_model()
+
+
+# 요청 데이터 형식
+class PredictRequest(BaseModel):
+    text: str
+
+
+# 응답 API
+@app.post("/predict")
+def inference(request: PredictRequest):
+
+    result = predict(model, request.text)
+
+    return {
+        "result": result
+    }
+
+# predict.py
+
+from transformers import pipeline
+
+def load_model():
+
+    model = pipeline(
+        "text-classification",
+        model="./model"
+    )
+
+    return model
+
+
+def predict(model, text):
+
+    result = model(text)
+
+    return result
+
+외부 요청
+   ↓
+FastAPI (/predict)
+   ↓
+predict.py
+   ↓
+모델 추론
+   ↓
+JSON 응답
+
+K8S Pod
+ └─ Docker Container
+      └─ FastAPI 서버
+            └─ 모델 메모리 로드
+@app.post("/predict")
+def predict_api(request: PredictRequest):
+
+POST /predict HTTP/1.1
+Host: localhost:8000
+Content-Type: application/json
+
+{
+  "text": "오늘 날씨 좋아"
+}
+
+Swagger UI생성해서 테스트
+
+==========================================================================
+prdict.py, FastAPI를 vLLM이 역할을 대신해주는 구조같습니다.
+prdict.py, FastAPI 는 모델을 로드하고 추론하는 핵심이라고 할수있는데
+
+vLLM, Ollama는 
+
+Client / Agent
+  ↓
+vLLM 또는 TGI 또는 Ollama
+  ↓
+LLM model weights
+  ↓
+텍스트 응답
+
+Dockerfile
+requirements.txt 또는 공식 이미지
+model weights
+vLLM/TGI 실행 명령
+
+[업무 인수인계 AI / LangGraph Agent]
+        ↓
+[LLM API 호출]
+        ↓
+[vLLM 서버 on Kubernetes]
+        ↓
+[LLM 모델 weights]
+
+agent-app
+  - Streamlit
+  - LangGraph
+  - RAG
+  - 업무 로직
+
+  llm-serving
+  - vLLM
+  - Llama/Qwen/HyperCLOVA 계열 모델
+  - GPU Pod
+
+에이전트 개발자 = LangGraph/RAG/업무흐름 개발
+모델서빙 = vLLM으로 LLM API 제공
+인프라 = Docker/K8S/GPU/Service/Ingress 구성
+
+========================================================================
+일반 모델 서빙
+Client → FastAPI(app.py) → predict.py → model.pkl/.pt
+
+LLM 모델 서빙
+Client/Agent → vLLM API Server → LLM weights
+=========================================================================
+GPU 서버 또는 EKS GPU Node
+  ↓
+Docker Container
+  ↓
+vLLM 실행
+  ↓
+모델 weights 로드
+  ↓
+OpenAI 호환 REST API 제공
+
+python -m vllm.entrypoints.openai.api_server \
+  --model /models/Qwen2.5-7B-Instruct \
+  --host 0.0.0.0 \
+  --port 8000
+
+POST /v1/chat/completions
+GET  /health
+
+Streamlit/LangGraph 업무 Agent
+  ↓ REST API 호출
+vLLM 서버 /v1/chat/completions
+  ↓
+LLM 응답
+====================================================================================
+
+7B라고 하면 70억개의 파라미터가 있는 LLM모델이고 이걸 GPU에 올려서 실행된다고 보면되는건가?
+
+LLM weights(웨이트는 학습된 숫자값)를 GPU 메모리에 올리고 고성능 추론 API 서버를 제공하는 엔진

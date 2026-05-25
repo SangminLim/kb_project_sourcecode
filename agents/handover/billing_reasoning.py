@@ -27,14 +27,36 @@ def _contains_any_keyword(text: str, keywords: Sequence[Any]) -> bool:
     return any(_text(keyword).lower() in normalized for keyword in keywords if _text(keyword))
 
 
+def _ordered_unique_steps(steps: Sequence[Any], step_order: Sequence[Any]) -> List[str]:
+    """정책 step_order 기준으로 정렬하되, 알 수 없는 확장 step은 원래 순서를 보존한다."""
+    unique_steps = [str(step).strip() for step in steps if str(step).strip()]
+    unique_steps = list(dict.fromkeys(unique_steps))
+    order = [str(step).strip() for step in step_order if str(step).strip()]
+    ordered = [step for step in order if step in unique_steps]
+    ordered.extend([step for step in unique_steps if step not in order])
+    return ordered
+
+
 DEFAULT_BILLING_PLANNER_POLICY: Dict[str, Any] = {
     "enabled": True,
-    "default_steps": [
+    # 실무형 planner 구성:
+    # - mandatory_steps: 조회/검증처럼 업무 수행에 항상 필요한 최소 단계
+    # - default_steps: 업무별 기본 확장 단계. 기본값은 비워두고 query_meta.planner_policy로 조정
+    # - step_rules: 사용자 질문/정책에 따라 추가되는 선택 단계
+    # - step_order: 화면/로그 표시 순서. 없는 step은 뒤에 보존
+    "mandatory_steps": [
+        "prepare_realtime_query",
+        "validate_chart_fields",
+        "fetch_monthly_billing",
+    ],
+    "default_steps": [],
+    "step_order": [
         "prepare_realtime_query",
         "validate_chart_fields",
         "fetch_monthly_billing",
         "build_chart",
         "summarize_trend",
+        "detect_billing_anomaly",
     ],
     "step_rules": [
         {
@@ -47,6 +69,11 @@ DEFAULT_BILLING_PLANNER_POLICY: Dict[str, Any] = {
             "include_when_any": ["그래프", "차트", "시각화", "보여줘"],
             "reason": "사용자가 청구 데이터를 그래프로 확인하길 요청함",
         },
+        {
+            "step": "detect_billing_anomaly",
+            "include_when_any": ["이상", "이상징후", "급증", "급감", "비정상", "누락", "원인분석"],
+            "reason": "사용자가 청구 금액 이상징후 확인을 요청함",
+        },
     ],
     "step_labels": {
         "prepare_realtime_query": "청구 데이터 조회 준비",
@@ -54,6 +81,7 @@ DEFAULT_BILLING_PLANNER_POLICY: Dict[str, Any] = {
         "fetch_monthly_billing": "월별 청구 금액 조회",
         "build_chart": "월별 금액 그래프 생성",
         "summarize_trend": "증감 흐름 요약",
+        "detect_billing_anomaly": "이상징후 판단",
     },
 }
 
@@ -61,11 +89,13 @@ DEFAULT_BILLING_PLANNER_POLICY: Dict[str, Any] = {
 def merge_billing_planner_policy(query_meta: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     """청구 그래프/요약 workflow 실행 계획 정책을 병합한다.
 
-    기본값은 chart + summary의 안전한 표준 절차이고,
-    업무별 단계/라벨/키워드는 realtime_queries[].planner_policy에서 덮어쓸 수 있다.
+    기본값은 조회/검증의 최소 필수 절차이고,
+    업무별 필수/기본/선택 단계와 라벨/키워드는 realtime_queries[].planner_policy에서 덮어쓸 수 있다.
     """
     policy: Dict[str, Any] = dict(DEFAULT_BILLING_PLANNER_POLICY)
+    policy["mandatory_steps"] = list(DEFAULT_BILLING_PLANNER_POLICY.get("mandatory_steps", []))
     policy["default_steps"] = list(DEFAULT_BILLING_PLANNER_POLICY.get("default_steps", []))
+    policy["step_order"] = list(DEFAULT_BILLING_PLANNER_POLICY.get("step_order", []))
     policy["step_rules"] = [dict(rule) for rule in DEFAULT_BILLING_PLANNER_POLICY.get("step_rules", [])]
     policy["step_labels"] = dict(DEFAULT_BILLING_PLANNER_POLICY.get("step_labels", {}))
 
@@ -83,7 +113,7 @@ def merge_billing_planner_policy(query_meta: Optional[Mapping[str, Any]] = None)
             policy[key] = merged_labels
         elif key == "step_rules" and isinstance(value, list):
             policy[key] = [dict(rule) for rule in value if isinstance(rule, Mapping)]
-        elif key == "default_steps" and isinstance(value, list):
+        elif key in {"mandatory_steps", "default_steps", "step_order"} and isinstance(value, list):
             policy[key] = [str(step) for step in value if str(step).strip()]
         else:
             policy[key] = value
@@ -97,14 +127,16 @@ def build_billing_plan(question: str, query_meta: Optional[Mapping[str, Any]] = 
     운영 설정 기반의 제한형 planner로 차트 생성과 요약 단계를 명시한다.
     """
     policy = merge_billing_planner_policy(query_meta)
+    mandatory_steps = [str(step) for step in policy.get("mandatory_steps", []) if str(step).strip()]
     default_steps = [str(step) for step in policy.get("default_steps", []) if str(step).strip()]
-    steps: List[str] = list(dict.fromkeys(default_steps))
+    step_order = [str(step) for step in policy.get("step_order", []) if str(step).strip()]
+    steps: List[str] = list(dict.fromkeys(mandatory_steps + default_steps))
     reasons: List[str] = []
 
     if not policy.get("enabled", True):
         return {
             "enabled": False,
-            "steps": steps,
+            "steps": _ordered_unique_steps(steps, step_order),
             "step_labels": policy.get("step_labels", {}),
             "reasons": ["planner_policy.enabled=false"],
         }
@@ -124,24 +156,11 @@ def build_billing_plan(question: str, query_meta: Optional[Mapping[str, Any]] = 
             reason = _text(rule.get("reason")) or f"{step} 조건 충족"
             reasons.append(reason)
 
-    required_order = [
-        "prepare_realtime_query",
-        "validate_chart_fields",
-        "fetch_monthly_billing",
-        "build_chart",
-        "summarize_trend",
-    ]
-    for required_step in required_order:
-        if required_step not in steps:
-            steps.append(required_step)
-
-    steps = [step for step in required_order if step in steps] + [
-        step for step in steps if step not in required_order
-    ]
+    steps = _ordered_unique_steps(steps, step_order)
 
     return {
         "enabled": True,
-        "steps": list(dict.fromkeys(steps)),
+        "steps": steps,
         "step_labels": policy.get("step_labels", {}),
         "reasons": reasons or ["기본 청구 그래프/요약 절차 적용"],
     }
@@ -166,11 +185,13 @@ def billing_planner_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflow
     planner_reasons = plan.get("reasons", [])
     requires_chart = "build_chart" in planned_steps
     requires_summary = "summarize_trend" in planned_steps
+    requires_anomaly_check = "detect_billing_anomaly" in planned_steps
 
     debug_logs.append(f"[BILLING PLAN 1] detected_request = {state.get('intent', 'billing_chart')}")
     debug_logs.append(f"[BILLING PLAN 2] selected_steps = {planned_steps}")
     debug_logs.append(f"[BILLING PLAN 3] requires_chart = {requires_chart}")
     debug_logs.append(f"[BILLING PLAN 4] requires_summary = {requires_summary}")
+    debug_logs.append(f"[BILLING PLAN 4-1] requires_anomaly_check = {requires_anomaly_check}")
     debug_logs.append(f"[BILLING PLAN 5] planner_reasons = {planner_reasons}")
     debug_logs.append("[BILLING PLAN 6] selected_workflow = billing_graph_reasoning_flow")
 
@@ -204,6 +225,8 @@ def billing_prepare_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflow
         debug_logs.append("[BILLING PLAN 9] chart_rendering = delegated_to_streamlit_renderer")
     if "summarize_trend" in planned_steps:
         debug_logs.append("[BILLING PLAN 10] trend_summary = delegated_to_realtime_summary")
+    if "detect_billing_anomaly" in planned_steps:
+        debug_logs.append("[BILLING PLAN 11] anomaly_check = delegated_to_realtime_payload")
 
     return {
         **state,

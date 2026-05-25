@@ -1,0 +1,157 @@
+응. 네 구조를 보면 사실상:
+
+batch_flow
+table_lineage
+
+는 Graph Visualization 구조로 처리하고 있고,
+프론트에서는 보통:
+
+graphviz
+react-flow
+pyvis
+networkx
+mermaid
+
+같은 그래프 라이브러리 중 하나로 렌더링하는 형태야.
+
+그리고 네 설명 기준으로 보면 아마:
+
+Graphviz 계열
+
+또는 그와 비슷한 노드/엣지 기반 렌더링 구조를 쓰고 있는 거 같아.
+
+왜 그렇게 보이냐?
+
+네 ingest JSON 구조 자체가:
+
+{
+  "nodes": [...],
+  "edges": [...]
+}
+
+형태잖아.
+
+batch_flow 구조
+
+예:
+
+{
+  "id": "BATCH_06_DEDUCTION_TARGET_FILTER",
+  "label": "소득공제 대상 판별",
+  "type": "job",
+  "step": 2
+}
+
+그리고:
+
+{
+  "from": "BATCH_01_CARD_APPROVAL_LOAD",
+  "to": "BATCH_06_DEDUCTION_TARGET_FILTER"
+}
+
+이런 edge 구조 있음.
+
+table_lineage도 동일
+{
+  "from": "TB_CARD_APPROVAL",
+  "to": "TB_DEDUCTION_TARGET"
+}
+
+형태.
+
+즉:
+
+Node + Edge Graph 구조
+
+그 자체야.
+
+실제 runtime 흐름
+
+질문:
+
+KKK은행 소득공제 배치 흐름도 보여줘
+
+↓
+
+resolve:
+
+{
+  "intent": "batch_flow",
+  "system_id": "kkk_bank"
+}
+
+↓
+
+structured payload builder:
+
+return "graph", system.get(intent), None, None
+
+여기서 중요한 점
+render_type = graph
+
+로 바뀜.
+
+그 다음 response route builder
+if render_type == "graph":
+    return ResponseRoute(name="graph")
+
+결국 respond 단계에서
+graph renderer
+
+를 타게 됨.
+
+즉:
+
+nodes
+edges
+
+를 프론트에 넘겨서
+시각화 라이브러리가 렌더링함.
+
+실제로는 누가 그림을 그리냐?
+
+LLM 아님.
+
+LLM은:
+
+"이 질문은 graph다"
+
+정도만 판단.
+
+실제 그림은
+graph visualization library
+
+가 그림.
+
+실무적으로도 이 방식이 맞음
+
+왜냐면:
+
+LLM이 ASCII로 흐름도 생성
+
+이런 건 품질이 안 좋고 불안정함.
+
+실무에서는 대부분:
+
+구조화 graph data
+→ visualization library rendering
+
+구조 사용.
+
+네 구조가 좋은 이유
+
+네 JSON 자체가 이미:
+
+Graph Domain Model
+
+형태야.
+
+즉:
+
+nodes
+edges
+highlight_nodes
+start_nodes
+end_nodes
+
+를 가지고 있음.
