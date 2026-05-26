@@ -312,3 +312,96 @@ LLM 구성 전략
 다만 에이전트의 핵심 구조는 LangGraph Workflow, LangChain RAG, Vector DB, Retriever, Prompt Template을 분리하여 설계했기 때문에 LLM Provider 교체가 가능하다.
 
 향후 금융권 운영 환경에서는 내부망 GPU 서버에 오픈웨이트 LLM을 배포하고 vLLM 기반 모델서빙 구조로 전환할 수 있다.
+
+
+
+응, 지금 네 발표자료 흐름 유지하면서 자연스럽게 추가해서 정리해줄게.
+아래 내용만 기존 문서에 추가/교체하면 돼.
+
+개선사항 (추가 버전)
+자연어 기반 업무 질의 지원
+벡터 검색 기반 업무 문서 통합 조회
+배치 흐름도 및 테이블 리니지 자동 시각화
+장애 유형별 원인 및 조치 가이드 자동 제공
+SQL 분석 자동화 및 운영 검토 포인트 제공
+배치 개발 요청 기반 표준 스펙 자동 생성
+LangGraph 기반 Multi-step Reasoning 적용
+AI 응답 품질 검증용 Evaluation Harness 적용
+LangSmith 기반 Workflow Trace 및 디버깅 체계 구성
+질문 유형별 회귀(Regression) 테스트 자동화
+오타/후속질문/Intent 정확도 평가 체계 구축
+활용데이터 (추가 버전)
+업무 인수인계 문서
+배치 명세서
+ERD / ERWIN 메타데이터
+배치 운영 로그
+장애 이력 데이터
+SQL 분석 요청서
+업무 개요 JSON 데이터
+테이블 관계 정보
+시스템 메타정보
+AI 평가용 테스트 시나리오(JSON)
+질문 라우팅 평가 데이터셋
+에이전트 핵심기능 (추가)
+에이전트 기능7 - AI 품질 평가 에이전트
+질문 유형별 테스트 케이스 기반으로
+Intent 분류, 시스템 식별, 후속질문 처리,
+오타 보정, Rendering 결과를 자동 검증하고
+회귀 테스트 결과를 점수화
+오픈소스 구성 (수정 버전)
+구분	기술
+LLM	Upstage AI Solar LLM
+개발 F/W	LangChain, LangGraph
+벡터 DB	Chroma
+데이터 DB	Oracle Corporation
+UI	Streamlit
+모델서빙	vLLM
+AI 평가	LangSmith, Custom Evaluation Harness
+기타	Python, Jinja2, Pandas, Graphviz
+기술셋 구성전략 (추가)
+AI 평가 및 운영 안정성 전략
+테스트 하네스 기반 AI 응답 품질 검증
+질문 유형별 회귀 테스트 자동 수행
+LangSmith Trace 기반 Workflow 디버깅
+Intent/Routing 정확도 검증 체계 구축
+운영 반영 전 AI 응답 안정성 검증 수행
+AI 에이전트 구성도 - 시스템 구성도 (수정)
+사용자
+   ↓
+Streamlit UI
+   ↓
+LangGraph Workflow
+   ↓
+Intent 분석 / Planner
+   ↓
+Evaluation Harness / LangSmith Trace
+   ↓
+Retriever
+   ↓
+Vector DB (Chroma)
+   ↓
+업무문서 / 메타데이터 / 장애로그
+   ↓
+LLM 응답 생성
+   ↓
+시각화(Graphviz)
+AI 에이전트 시연 (추가)
+6. AI 평가 하네스 시연
+사용자입력
+테스트 케이스 기반 질의 평가 실행
+결과 출력
+Intent 정확도
+시스템 식별 정확도
+후속질문 처리 결과
+오타 처리 정확도
+Pass/Fail 및 점수 리포트
+CSV / JSON 평가 결과 저장
+발표 때 강조하면 좋은 핵심 문장
+단순 질의응답형 AI가 아니라,
+AI Workflow + 품질 평가(Evaluation Harness) +
+운영 추적(LangSmith Trace) 체계를 함께 구성하여
+운영 안정성과 응답 품질 검증까지 고려한
+실무형 금융 AI 에이전트 구조를 구현하였습니다.
+
+이렇게 넣으면 지금 네 프로젝트가 단순 챗봇이 아니라
+“운영 가능한 AI 에이전트” 느낌으로 올라가 보여.

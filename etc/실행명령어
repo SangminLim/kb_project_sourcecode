@@ -22,7 +22,7 @@ python agents/batch_dev\generated\BATCH_CARD_SALES_LEDGER_EXTRACT\job.py --base-
 python ingest/ingest.py --json_path ./ingest/handover.json --persist_dir ./chroma --collection handover_agent --reset
 
 
-python testCase/query_routing_test_harness.py --cases TestCase/query_routing_test_cases.json
+python testCase/query_routing_test_harness.py --cases testCase/query_routing_test_cases.json
 
 
 python batch_dev/generated/BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py  --base-ym 202604

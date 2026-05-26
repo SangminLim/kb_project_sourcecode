@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import importlib
 import importlib.util
 import json
 import sys
@@ -44,74 +43,16 @@ def _ensure_parent_dir(path: str) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
 
 
-def _to_module_name(module_path: str) -> str | None:
-    """
-    agents/handover/agent.py 또는 agents\handover\agent.py 형태를
-    agents.handover.agent 모듈명으로 변환한다.
-
-    상대 import(from .config import ...)가 있는 패키지 파일은
-    파일 직접 로딩(spec_from_file_location)으로 실행하면 실패하므로,
-    가능하면 importlib.import_module 방식으로 로드한다.
-    """
-    value = str(module_path or "").strip().strip('"').strip("'")
-    if not value:
-        return None
-
-    # 이미 agents.handover.agent 같은 모듈명으로 들어온 경우
-    if value.endswith(".py") is False and "/" not in value and "\\" not in value:
-        return value
-
-    normalized = value.replace("\\", "/")
-    if normalized.endswith(".py"):
-        normalized = normalized[:-3]
-
-    path = Path(normalized)
-    if path.is_absolute():
-        try:
-            path = path.resolve().relative_to(PROJECT_ROOT.resolve())
-        except ValueError:
-            return None
-
-    parts = [part for part in path.parts if part not in (".", "")]
-    if not parts:
-        return None
-    return ".".join(parts)
-
-
 def _load_module(module_path: str):
-    module_name = _to_module_name(module_path)
-
-    # 1순위: 패키지 모듈 방식 로드
-    # 예: agents.handover.agent
-    # 이 방식이어야 agent.py 내부의 from .config import ... 상대 import가 정상 동작한다.
-    if module_name:
-        try:
-            module = importlib.import_module(module_name)
-        except ModuleNotFoundError:
-            module = None
-        except Exception as exc:
-            raise ImportError(f"모듈을 로드할 수 없습니다: {module_name}") from exc
-        else:
-            if not hasattr(module, "HandoverAgent"):
-                raise AttributeError(f"{module_name} 모듈에 HandoverAgent 클래스가 없습니다.")
-            return module
-
-    # 2순위: 기존 방식 유지.
-    # llm.py처럼 상대 import가 없는 단일 파일 테스트를 위해 fallback으로 남겨둔다.
     path = Path(module_path).resolve()
     if not path.exists():
         raise FileNotFoundError(f"llm 모듈 파일이 없습니다: {path}")
-
     spec = importlib.util.spec_from_file_location("llm_under_test", str(path))
     if spec is None or spec.loader is None:
         raise RuntimeError(f"llm 모듈을 로드할 수 없습니다: {path}")
-
     module = importlib.util.module_from_spec(spec)
     sys.modules["llm_under_test"] = module
     spec.loader.exec_module(module)
-
-    if not hasattr(module, "HandoverAgent"):
-        raise AttributeError(f"{path} 파일에 HandoverAgent 클래스가 없습니다.")
     return module
 
 
@@ -306,7 +247,7 @@ def run_tests(args: argparse.Namespace) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="업무 인수인계 에이전트 질의 라우팅 테스트 하네스")
-    parser.add_argument("--llm-path", default="agents.handover.agent", help="테스트할 Agent 모듈 경로 또는 모듈명 예: agents.handover.agent")
+    parser.add_argument("--llm-path", default="llm.py", help="테스트할 llm.py 경로")
     parser.add_argument("--json-path", default="ingest/handover_with_batch_operation_metadata.json", help="업무 JSON 경로")
     parser.add_argument("--persist-dir", default="./chroma", help="Chroma persist dir")
     parser.add_argument("--collection", default="handover_agent", help="Chroma collection name")

@@ -29,7 +29,7 @@
   {
     "case_id": "TC004",
     "category": "system_name_typo",
-    "question": "BB증권 소득공제 업무 개요를 알려줘",
+    "question": "BBB증권 소득공제 업무를 알려줘",
     "expected_system_id": "bbb_securities",
     "expected_intent": "overview",
     "expected_render_type": "text",
