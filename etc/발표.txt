@@ -405,3 +405,756 @@ AI Workflow + 품질 평가(Evaluation Harness) +
 
 이렇게 넣으면 지금 네 프로젝트가 단순 챗봇이 아니라
 “운영 가능한 AI 에이전트” 느낌으로 올라가 보여.
+
+
+질문 시나리오 기반 Harness를 구성하여
+Intent 분류, 시스템 라우팅, 응답 유형,
+Workflow 처리 흐름, Tool 호출,
+Multi-step reasoning 결과에 대한
+자동 회귀 검증 체계를 구현했습니다.
+
+또한 LangSmith 기반 Trace 추적 환경을 구성하여
+향후 Retrieval 및 Groundedness 평가로 확장 가능하도록 설계했습니다.
+
+업무 JSON
+ ↓
+도메인/시스템별 문서 평탄화
+ ↓
+overview / batch_process / batch_flow / table_lineage 분리
+ ↓
+의미 단위 chunk 추가 생성
+ ↓
+Upstage Embedding 생성
+ ↓
+ChromaDB에 upsert
+
+overview
+overview_chunk
+batch_process
+batch_process_chunk
+batch_step
+batch_job
+batch_flow
+table_lineage
+realtime_query
+
+domain_id
+domain_name
+system_id
+system_name
+task_name
+section
+title
+doc_level
+chunk_type
+step
+job_id
+
+사용자 질문
+→ 질문 정규화/의도분류
+→ system_id 식별
+→ intent 식별
+→ Builder가 검색 조건(where/filter) 구성
+→ ChromaDB similarity search
+→ 검색된 chunk/context로 답변 생성
+
+system_id = kkk_bank / bbb_securities
+section = overview / batch_process / batch_flow / table_lineage / batch_job
+doc_level = section / chunk / detail / structure
+
+KKK은행 소득공제 배치 프로세스를 설명해줘
+
+3. 질문에서 system_id를 찾음
+
+질문 안에 KKK은행이 있으니까:
+
+KKK은행 → kkk_bank
+
+로 매핑해.
+
+오타가 있으면 rewrite/보정 로직으로:
+
+KKK은해 → KKK은행 → kkk_bank
+
+처럼 잡는 구조야.
+
+. intent를 찾음
+
+질문에 배치 프로세스가 있으니까:
+
+intent = batch_process
+
+로 분류해.
+
+다른 예시는:
+
+업무 개요 → overview
+배치 흐름도 → batch_flow
+테이블 리니지 → table_lineage
+월별 금액 → billing_monthly_amount
+오늘 장애 → today_incidents
+
+Builder가 where 조건을 만듦
+
+여기서 Builder 역할은 쉽게 말하면:
+
+질문에서 찾은 system_id와 intent를
+ChromaDB metadata filter 조건으로 바꾸는 것
+
+이야.
+
+예:
+
+system_id = kkk_bank
+intent = batch_process
+
+이면 where 조건은 이런 식이 돼.
+
+where = {
+    "$and": [
+        {"system_id": {"$eq": "kkk_bank"}},
+        {"section": {"$in": ["batch_process", "batch_step", "batch_job"]}}
+    ]
+}
+
+즉, 전체 벡터DB에서 찾는 게 아니라:
+
+KKK은행 + 배치 프로세스 관련 chunk
+
+만 대상으로 검색하게 좁히는 거야.
+similarity search 실행
+
+그 다음 사용자 질문을 embedding으로 바꾸고 ChromaDB에서 유사도 검색을 해.
+
+질문 embedding
+→ ChromaDB similarity search
+→ top_k=4 정도 chunk 반환
+
+예를 들어 배치 프로세스 질문이면 이런 chunk가 걸림.
+
+BATCH_01_CARD_APPROVAL_LOAD
+BATCH_02_CARD_PURCHASE_LOAD
+BATCH_06_DEDUCTION_TARGET_FILTER
+BATCH_07_DEDUCTION_AGGREGATION
+
+ingest 코드에서 batch_process를 step 단위, job 단위로 따로 저장해둔 이유가 바로 이거야.
+
+7. 검색된 context로 답변 생성
+
+마지막으로 LLM에는 대략 이런 게 들어가.
+
+System Prompt
++ 사용자 질문
++ 검색된 chunk/context
++ 응답 포맷 지시
+
+그래서 답변이 만들어져.
+
+전체 흐름 한 줄 요약
+자연어 질문에서 system_id와 intent를 먼저 찾고,
+Builder가 metadata where 조건을 만들어 검색 범위를 좁힌 다음,
+ChromaDB similarity search로 관련 chunk를 가져와 LLM이 답변한다.
+
+네가 이해한 것처럼 기존 API에서는 파라미터를 직접 넣어야 하는데, 지금은 그 앞단에서 자연어를 파라미터화하고 있는 구조가 맞아.
+
+그런데 네 구조는 그냥 similarity만 하는 게 아님
+
+중요한 건 여기.
+
+너는:
+
+Builder → where 조건
+
+을 먼저 태움.
+
+즉:
+
+1차 필터
+where = {
+  "system_id": "kkk_bank",
+  "section": "batch_process"
+}
+2차 similarity search
+
+그 범위 안에서만:
+
+질문 embedding
+vs
+batch_process chunk embedding
+
+비교.
+
+이게 왜 중요하냐
+
+만약 where 없이 전체 검색하면:
+
+overview
+table_lineage
+realtime_query
+BBB증권
+
+다 섞여버림.
+
+그래서:
+
+자연어
+→ system_id/intent 추출
+→ metadata filter(where)
+→ similarity search
+
+순서가 매우 중요해.
+
+네 ingest 구조가 중요한 이유
+
+너는 ingest 때 이미:
+
+overview
+batch_process
+batch_step
+batch_job
+batch_flow
+table_lineage
+
+로 쪼개놨잖아.
+
+그래서 질문 유형에 따라:
+
+batch_process → batch_step/job chunk 위주
+table_lineage → lineage chunk 위주
+
+검색되게 만들 수 있는 거야.
+
+실제 검색되는 건 결국 이것
+질문 embedding
+↔ chunk embedding
+
+비교.
+
+그리고 그 전에:
+
+where(metadata filter)
+
+로 검색 범위를 좁히는 구조야.
+
+한 줄로 말하면
+질문을 embedding 벡터로 변환하고,
+Builder가 만든 metadata where 조건 안에서,
+VectorDB에 저장된 chunk embedding과 의미 유사도를 비교해서 검색한다.
+
+질문
+↓
+Intent/System 분석
+↓
+Builder가 metadata filter(where) 생성
+↓
+후보군 축소
+↓
+Similarity Search
+↓
+top_k chunk 선택
+↓
+LLM 답변 생성
+
+질문
+↓
+Intent/System 분석
+↓
+Builder가 metadata filter(where) 생성
+↓
+후보군 축소
+↓
+Similarity Search
+↓
+top_k chunk 선택
+↓
+LLM 답변 생성
+
+1단계 — Rewrite / 정규화
+
+먼저 질문 정리.
+
+예:
+
+"KKK은행 소득공제 배치 프로세스를 설명해줘"
+
+처럼 normalize.
+
+오타 있으면:
+
+KKK은해 → KKK은행
+프러세스 → 프로세스
+
+보정.
+
+2단계 — system_id 찾기
+
+질문에서:
+
+KKK은행
+
+찾음.
+
+그리고 내부 매핑:
+
+KKK은행 → kkk_bank
+
+변환.
+
+즉:
+
+system_id = "kkk_bank"
+3단계 — intent 찾기
+
+질문에서:
+
+배치 프로세스
+
+키워드 보고:
+
+intent = "batch_process"
+
+결정.
+
+4단계 — Builder 실행
+
+여기서 Builder가:
+
+system_id + intent
+
+를 가지고 metadata filter(where)를 만듦.
+
+예:
+
+where = {
+  "$and": [
+    {"system_id": {"$eq": "kkk_bank"}},
+    {
+      "section": {
+        "$in": [
+          "batch_process",
+          "batch_step",
+          "batch_job"
+        ]
+      }
+    }
+  ]
+}
+의미
+
+즉:
+
+KKK은행 관련
++
+배치 프로세스 계열 문서만
+
+검색 후보로 제한.
+
+5단계 — Similarity Search
+
+그 다음 질문 embedding 생성.
+
+"KKK은행 소득공제 배치 프로세스 알려줘"
+→ embedding vector
+
+그리고 ChromaDB에서:
+
+where 조건 안의 chunk들
+
+과 similarity 계산.
+
+실제 검색되는 chunk
+
+예:
+
+BATCH_01_CARD_APPROVAL_LOAD
+BATCH_06_DEDUCTION_TARGET_FILTER
+BATCH_07_DEDUCTION_AGGREGATION
+
+같은 batch 관련 chunk들이 top_k로 나옴.
+
+6단계 — LLM 답변 생성
+
+마지막으로:
+
+System Prompt
++
+사용자 질문
++
+검색된 chunk(context)
+
+를 LLM에 넣음.
+
+최종적으로
+배치 단계 설명
+BATCH 흐름
+처리 순서
+주요 Job
+
+같은 답변 생성.
+
+즉 네가 이해한 게 맞아
+
+정확히 표현하면:
+
+질문에서 먼저 system_id와 intent를 추출하고,
+Builder가 metadata where 조건을 만든 뒤,
+그 범위 안에서 similarity search를 수행해
+관련 chunk를 가져오고,
+그 chunk를 기반으로 LLM이 답변을 생성한다.
+
+
+1. ingest시 systemid, section  등으로 나눠서 저장
+2. chunk는 업무별로 다른게 청킹했습니다.,
+
+KKK은행 소득공제 업무 개요
+업무 요약/내용
+입력 데이터/대상 거래
+제외 항목
+최종 산출물/핵심 포인트
+chunk_size = 450
+overlap = 80
+
+Batch Process 청킹
+step 1: 데이터 적재
+step 2: 소득공제 대상 처리
+step 3: 최종 결과 생성
+
+chunk_size = 600
+overlap = 100
+
+Batch Flow / Table Lineage
+
+이 둘은 일반 문장 chunk가 아니라 구조 문서로 저장해.
+
+batch_flow
+table_lineage
+
+Realtime Query
+
+실시간 조회성 질문도 별도 문서로 넣어.
+
+billing_monthly_amount
+today_incidents
+
+그래서:
+
+청구 이용내역서 월별 금액
+오늘 장애현황
+
+같은 질문을 intent로 매핑할 수 있어.
+
+정리
+
+네 ingest 청킹은 이렇게 말하면 돼.
+
+업무 JSON을 단순 문서 단위로 넣지 않고,
+업무 개요, 배치 프로세스, 배치 Step, 배치 Job,
+배치 흐름도, 테이블 리니지, 실시간 조회 정의로 분리하여
+업무 의미 단위 기반 청킹을 적용했습니다.
+
+1차: 업무 의미 단위로 나누고
+2차: 길이 체크 후 추가 split
+같은 업무 단위로 chunk 만들고, 그 chunk가 너무 길 때만:
+
+chunk_size
+overlap
+
+왜 overlap도 쓰냐
+
+예:
+
+chunk1:
+소득공제 대상 거래 판별
+제외 업종 제거
+
+chunk2:
+제외 업종 제거
+후행 배치 연결
+
+처럼 일부 겹치게 해서:
+
+문맥 손실(context loss)
+
+줄이려고.
+
+왜 overlap도 쓰냐
+
+예:
+
+chunk1:
+소득공제 대상 거래 판별
+제외 업종 제거
+
+chunk2:
+제외 업종 제거
+후행 배치 연결
+
+처럼 일부 겹치게 해서:
+
+문맥 손실(context loss)
+
+줄이려고.
+
+3.  실제 질문을 가지고 systemid 를 찾고 intent찾아서  해당 내용을 가지고 builder 를 통해  where절을 만들어서
+나의 질문을 임베딩후 where절과 같이 similary search를 하여 topk=4개를 가져와서 출력을 하고있다.
+
+4. 장애현황, 청구이용내역서는
+질문은 기존처럼 처리하고 systemid와 intent을 통해 routing 하여  realtime_query날려서 조회후
+llm 으로 요약하고 multi step reasoning처리 하는거잖아
+
+응. 맞아.
+장애현황과 청구 이용내역서는 일반 RAG 답변이 아니라 realtime query routing + 조회 + 요약/분석 흐름으로 보는 게 맞아.
+
+정리하면 이렇게야.
+
+사용자 질문
+↓
+rewrite / 오타 보정
+↓
+intent 식별
+- 오늘 장애현황 → today_incidents
+- 청구 월별 금액 → billing_monthly_amount
+↓
+system_id는 없음 또는 realtime 처리
+↓
+routing
+↓
+realtime_query 정의 확인
+↓
+DB 조회 또는 mock data 조회
+↓
+조회 결과를 table/chart로 구성
+↓
+LLM이 요약/분석
+↓
+Multi-step reasoning 형태로 결과 설명
+
+즉 소득공제 업무 질문처럼:
+
+system_id = kkk_bank
+section = batch_process
+VectorDB similarity search
+
+이 중심이 아니라,
+
+장애/청구 쪽은:
+
+intent = today_incidents
+intent = billing_monthly_amount
+
+로 라우팅해서 정해진 조회 로직을 실행하는 구조야.
+
+예를 들면:
+
+오늘 장애현황 알려줘
+
+이면:
+
+intent = today_incidents
+→ incident 조회
+→ 장애 목록/원인/조치 방법 정리
+→ LLM 요약
+→ table 응답
+
+청구는:
+
+청구 이용내역서 월별 금액 이상징후 분석해줘
+
+이면:
+
+intent = billing_monthly_amount
+→ 월별 금액 조회
+→ 전월 대비/최고/최저/변동 분석
+→ LLM 요약
+→ chart 응답
+
+그래서 정확히 말하면:
+
+업무 문서형 질문은 RAG 검색 기반,
+장애현황/청구이용내역서는 intent 기반 realtime query 실행 후 LLM 요약·분석 기반
+
+이렇게 구분하면 돼.
+
+맞아. 네가 Planner 넣은 게 맞아.
+내가 방금 너무 보수적으로 말했어.
+
+정확히 다시 정리하면:
+
+너는 LangGraph 안에 Planner Node를 넣었고,
+특히 장애현황/청구 데이터 분석 쪽에서
+분석 step을 정리해서 다음 처리로 넘기는 구조를 만든 것
+
+이라고 보면 돼.
+
+다만 구분은 이거야.
+
+Planner가 모든 질문을 자유롭게 계획하는 구조
+
+까지는 아니고,
+
+특정 intent, 특히 장애/청구 분석성 질문에서
+정해진 업무 흐름 안에서 step을 계획/정리하는 Planner 구조
+
+야.
+
+그래서 표현은 이렇게 하는 게 맞아.
+
+장애현황 및 청구 이용내역서 분석 영역에는 Planner Node를 적용하여
+조회 → 분석 → 요약 → 후속 확인사항 도출 흐름의
+Multi-step Reasoning을 수행하도록 구성했습니다.
+
+또는 더 보수적으로:
+
+전체 질문이 아니라 분석성 질문에 한정하여 Planner Node를 적용했습니다.
+
+이게 정확해.
+
+
+사용자 질문
+↓
+질문 Rewrite / 정규화
+- “에러난거”, “장애”, “처리방법” 같은 표현 보정
+↓
+Intent 분류
+- today_incidents 로 판단
+↓
+Planner Node 실행
+- 장애 현황 조회
+- 오류 원인 확인
+- 조치 방법 정리
+- 후속 배치 영향도 확인
+- 운영자 확인사항 정리
+↓
+Realtime Query 실행
+- 장애현황 데이터 조회
+↓
+조회 결과 분석
+- 장애 건수
+- 장애 배치명
+- 오류 코드
+- 원인
+- 조치 방법
+- 담당자
+- 재실행 필요 여부
+↓
+LLM 요약/정리
+↓
+Table 형태 응답 생성
+
+청구 이용내역서 월별 금액 변동 이상징후까지 분석해줘
+
+사용자 질문
+↓
+질문 Rewrite / 정규화
+- “청구쪽 월금액”, “이상한거 봐줘” 같은 표현 보정
+↓
+Intent 분류
+- billing_monthly_amount 로 판단
+↓
+Planner Node 실행
+- 월별 금액 조회
+- 월별 추이 계산
+- 최고/최저 금액 확인
+- 전월 대비 증감 분석
+- 이상징후 여부 판단
+- 요약 및 확인사항 정리
+↓
+Realtime Query 실행
+- 청구 월별 금액 데이터 조회
+↓
+조회 결과 분석
+- 총액
+- 월별 금액
+- 최고 금액 월
+- 최저 금액 월
+- 전월 대비 증감률
+- 급증/급감 여부
+↓
+LLM 요약/분석
+↓
+Chart 형태 응답 생성
+
+질문
+→ Rewrite
+→ Intent 분류
+→ Planner Node
+→ Realtime Query 실행
+→ 결과 데이터 분석
+→ LLM 요약/추론
+→ Table 또는 Chart 응답
+
+장애현황과 청구 이용내역서는 문서 검색 기반 RAG가 아니라,
+Intent 기반 Realtime Query Routing 후 Planner Node를 통해
+조회·분석·요약 단계를 수행하는 Guided Multi-step Reasoning 구조입니다.
+
+
+네 구조 기준으로 보면
+
+예:
+
+오늘 장애현황 및 처리 방법 알려줘
+
+들어오면.
+
+1단계 — Intent 분류
+today_incidents
+
+판단.
+
+2단계 — Planner Node 실행
+
+여기서 Planner가 LLM에 요청함.
+
+예:
+
+현재 질문은 장애현황 분석 질문이다.
+다음 처리 단계를 결정하라.
+3단계 — LLM이 step 계획 반환
+
+예:
+
+{
+  "steps": [
+    "query_incidents",
+    "analyze_cause",
+    "analyze_action",
+    "analyze_impact",
+    "build_response"
+  ]
+}
+4단계 — LangGraph가 다음 노드 실행
+
+즉 Planner 결과를 보고:
+
+query_incidents 노드 실행
+↓
+analyze_cause 노드 실행
+↓
+analyze_action 노드 실행
+
+순서대로 태우는 거야.
+
+그래서 Planner는
+
+정확히 말하면:
+
+다음 실행 workflow를 결정하는 node
+
+야.
+
+중요한 점
+
+근데 네 구조는 완전 자유형 Planner는 아니야.
+
+
+Planner Node가 질문 유형에 따라
+다음 처리 단계(workflow step)를 결정하고,
+LangGraph 기반으로 조회·분석·요약 노드를 순차 실행하도록 구성했습니다.
+
+5.  랭그래프로 전체 work flow 처리하고있지?
+
+
+
+
+
+6
