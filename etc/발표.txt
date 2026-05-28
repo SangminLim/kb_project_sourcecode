@@ -1156,5 +1156,124 @@ LangGraph 기반으로 조회·분석·요약 노드를 순차 실행하도록 �
 
 
 
+1. 질문
+2. chunk 검색
+3. 가장 관련 높은 chunk 찾음
+4. 그 chunk의 parent(section) 찾음
+5. 원본 문맥 기반으로 답변 생성
 
-6
+[section_id = overview_1]
+
+KKK은행 소득공제 업무 개요
+- 승인 데이터 적재
+- 매입 데이터 적재
+- 제외 업종 제거
+- 집계 생성
+- 파일 생성
+
+chunk_1 → 승인 데이터 적재
+chunk_2 → 매입 데이터 적재
+chunk_3 → 제외 업종 제거
+chunk_4 → 집계 생성
+
+
+1. LLM 또는 파서가 요청서에서 핵심 항목 추출
+   - 배치명
+   - 기준 테이블
+   - 출력 목적
+   - 출력 형식
+   - 파일명
+   - 기준일자
+   - 조건
+
+2. ERWin 메타에서 테이블/컬럼 정보 보강
+   - TB_TRAD_MARKET_MERCHANT
+   - MERCHANT_ID, MERCHANT_NM, APPLY_START_DT, APPLY_END_DT, USE_YN 등
+
+3. 조건을 업무 Rule로 해석
+   - USE_YN = 'Y'
+   - APPLY_START_DT <= :base_date
+   - APPLY_END_DT is null or APPLY_END_DT >= :base_date
+
+4. batch_spec.json 생성
+   - batch_id
+   - source table
+   - source columns
+   - target file pattern
+   - effective_date 조건
+   - encoding
+   - output_dir
+
+5. SQL Template 적용
+   - generic_export.sql.j2
+
+6. 결과 파일 생성
+   - batch_spec.json
+   - job.py
+   - query.sql
+   - README.md
+   - test_job.py
+
+   배치 개발 요청서를 LLM이 구조화된 스펙으로 해석하고, ERWin 메타데이터를 참조하여 기준 테이블과 컬럼을 보강합니다. 
+   이후 Rule 기반으로 배치 유형과 조건을 판단하고, 
+   SQL Template 및 Job Template을 적용하여 batch_spec.json, query.sql, job.py, test_job.py를 자동 생성합니다.
+
+   1. 요청서 입력
+2. Rule 기반으로 batch_spec 생성
+3. batch_spec 기반으로 Template 선택
+4. Template에 spec 값을 주입
+5. SQL / Job / README / Test 생성
+
+출력형식 = CSV
+기준테이블 = TB_TRAD_MARKET_MERCHANT
+조건 = USE_YN='Y'
+
+[배치유형]
+FILE_EXPORT
+
+[입력유형]
+DB_TABLE
+
+[출력유형]
+CSV_FILE
+
+[처리유형]
+MASTER_EXPORT
+
+[기준테이블]
+TB_TRAD_MARKET_MERCHANT
+
+FILE_EXPORT
+→ export template
+
+DB_TO_DB
+→ insert/select template
+
+AGGREGATION
+→ aggregation template
+
+FILE_LOAD
+→ file loader template
+
+1. 파일 수신
+2. 파일 적재
+3. 대상 필터링
+4. 집계
+5. 결과 파일 생성
+6. 대외 송신
+
+- 파일 생성
+- 파일 적재
+- 단순 INSERT
+- 기간 조건 조회
+- 집계
+- 인터페이스 파일 생성
+
+70~80% 자동 생성
+20~30% 개발자 보완
+
+SQL template
+Python template
+Airflow DAG
+Shell script
+Test code

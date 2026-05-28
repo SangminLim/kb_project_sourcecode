@@ -166,33 +166,6 @@ def build_overview_text(overview: Dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
-def build_search_document(
-    *,
-    title: str,
-    system_name: str,
-    task_name: str,
-    section: str,
-    body: str,
-) -> str:
-    """
-    VectorDB 검색/trace 품질 보강용 문서 포맷.
-    - title/system/task/section은 metadata에도 있지만 embedding 대상 document에도 포함한다.
-    - 그래야 "BBB증권 소득공제 업무 개요" 같은 질문이 overview chunk를 안정적으로 찾는다.
-    - 실제 화면 렌더링 source of truth는 기존 structured JSON을 유지한다.
-    """
-    header_parts = [
-        f"제목: {safe_text(title)}",
-        f"시스템: {safe_text(system_name)}",
-        f"업무: {safe_text(task_name)}",
-        f"섹션: {safe_text(section)}",
-    ]
-    header = "\n".join([part for part in header_parts if part.split(': ', 1)[-1]])
-    normalized_body = safe_text(body)
-    if not normalized_body:
-        return header
-    return f"{header}\n\n{normalized_body}".strip()
-
-
 def build_overview_chunks(overview: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     2차 청킹: overview를 의미 단위로 분리
@@ -417,23 +390,13 @@ def flatten_system_docs(system: Dict[str, Any], domain: Dict[str, Any]) -> List[
         overview_title = safe_text(overview.get("title"))
         overview_text = build_overview_text(overview)
 
-        # 기존 전체 overview 문서 유지 + retrieval trace 보강
-        # - document 본문에 title/system/task/section을 함께 넣어 embedding 검색률을 높인다.
-        # - 응답 렌더링은 기존처럼 structured JSON을 source of truth로 사용하면 된다.
+        # 기존 전체 overview 문서 유지
         append_doc(
             section="overview",
             title=overview_title,
-            text=build_search_document(
-                title=overview_title,
-                system_name=system_name,
-                task_name=task_name,
-                section="overview",
-                body=overview_text,
-            ),
+            text=overview_text,
             extra_meta={
                 "doc_level": "section",
-                "source_type": "structured_overview",
-                "trace_enabled": True,
                 "has_summary": bool(safe_text(overview.get("summary"))),
                 "has_input_data": bool(normalize_list(overview.get("input_data"))),
                 "has_outputs": bool(normalize_list(overview.get("outputs"))),
@@ -441,24 +404,14 @@ def flatten_system_docs(system: Dict[str, Any], domain: Dict[str, Any]) -> List[
         )
 
         # 2차 청킹 문서 추가
-        # - section은 그대로 "overview"로 유지한다.
-        #   기존 Builder 검색 조건 {'system_id': ..., 'section': 'overview'}와 호환되게 하기 위함.
         overview_chunks = build_overview_chunks(overview)
         for idx, chunk in enumerate(overview_chunks, start=1):
             append_doc(
                 section="overview",
                 title=f"{overview_title} / semantic chunk {idx}",
-                text=build_search_document(
-                    title=overview_title,
-                    system_name=system_name,
-                    task_name=task_name,
-                    section=f"overview/{chunk['chunk_type']}",
-                    body=chunk["chunk_text"],
-                ),
+                text=chunk["chunk_text"],
                 extra_meta={
                     "doc_level": "chunk",
-                    "source_type": "structured_overview",
-                    "trace_enabled": True,
                     "chunk_id": f"overview_chunk_{idx}",
                     "chunk_type": chunk["chunk_type"],
                     "chunk_order": chunk["chunk_order"],
@@ -678,15 +631,6 @@ def upsert_documents(
     print(f"[INFO] persist_dir = {persist_dir}")
     print(f"[INFO] collection_name = {collection_name}")
     print(f"[INFO] document_count = {collection.count()}")
-
-    # 운영 확인용: overview trace 보강 문서가 실제로 몇 건 생성됐는지 출력
-    overview_trace_count = sum(
-        1
-        for d in docs
-        if d.get("metadata", {}).get("section") == "overview"
-        and d.get("metadata", {}).get("source_type") == "structured_overview"
-    )
-    print(f"[INFO] overview_trace_document_count = {overview_trace_count}")
 
 
 def parse_args() -> argparse.Namespace:

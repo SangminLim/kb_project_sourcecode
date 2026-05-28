@@ -354,6 +354,64 @@ def _write_json(path: str, payload: Dict[str, Any]) -> None:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
+def _format_failed_checks(checks: Any) -> str:
+    """실패한 검증 항목만 보기 좋게 문자열로 변환한다."""
+    if not isinstance(checks, dict):
+        return "-"
+    failed = [name for name, ok in checks.items() if ok is False]
+    return " / ".join(failed) if failed else "-"
+
+
+def print_summary_report(payload: Dict[str, Any], output_csv: str, output_json: str) -> None:
+    """
+    콘솔에는 사람이 읽기 쉬운 요약만 출력한다.
+    상세 debug_logs는 JSON 파일에만 저장한다.
+    """
+    summary = payload.get("summary", {}) or {}
+    results = payload.get("results", []) or []
+
+    failed_cases = [row for row in results if row.get("pass_yn") == "N"]
+    low_score_cases = [
+        row for row in results
+        if row.get("pass_yn") == "Y" and float(row.get("score") or 0) < 85
+    ]
+
+    print("\n" + "=" * 40)
+    print(" Handover Harness Test Result")
+    print("=" * 40)
+    print(f"Total      : {summary.get('total', 0)}")
+    print(f"Passed     : {summary.get('passed', 0)}")
+    print(f"Failed     : {summary.get('failed', 0)}")
+    print(f"Pass Rate  : {summary.get('pass_rate', 0.0)}%")
+    print(f"Avg Score  : {summary.get('avg_score', 0.0)}")
+    print(f"Pass Score : {summary.get('pass_score', 0.0)}")
+
+    if failed_cases:
+        print("\n[FAILED CASES]")
+        for row in failed_cases:
+            print(f"{row.get('case_id')} | {row.get('category')} | {row.get('score')}")
+            print(f"- question : {row.get('question')}")
+            print(f"- reason   : {_format_failed_checks(row.get('checks'))} 불일치")
+            if row.get("error"):
+                print(f"- error    : {row.get('error')}")
+    else:
+        print("\n[FAILED CASES]")
+        print("- 없음")
+
+    if low_score_cases:
+        print("\n[LOW SCORE CASES]")
+        for row in low_score_cases:
+            print(f"{row.get('case_id')} | {row.get('category')} | {row.get('score')}")
+    else:
+        print("\n[LOW SCORE CASES]")
+        print("- 없음")
+
+    print("\n[OUTPUT FILES]")
+    print(f"- CSV  : {output_csv}")
+    print(f"- JSON : {output_json}")
+    print("=" * 40)
+
+
 def run_tests(args: argparse.Namespace) -> Dict[str, Any]:
     llm_module = _load_module(args.llm_path)
     agent = llm_module.HandoverAgent(
@@ -459,9 +517,7 @@ def run_tests(args: argparse.Namespace) -> Dict[str, Any]:
     _write_csv(args.output_csv, rows)
     _write_json(args.output_json, payload)
 
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-    print(f"[INFO] CSV 결과: {args.output_csv}")
-    print(f"[INFO] JSON 결과: {args.output_json}")
+    print_summary_report(payload, args.output_csv, args.output_json)
 
     if args.fail_under is not None and avg_score < args.fail_under:
         raise SystemExit(f"평균 점수 {avg_score}가 기준 {args.fail_under} 미만입니다.")
@@ -472,7 +528,7 @@ def run_tests(args: argparse.Namespace) -> Dict[str, Any]:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="업무 인수인계 에이전트 질의/워크플로우 테스트 하네스")
     parser.add_argument("--llm-path", default="agents.handover.agent", help="테스트할 Agent 모듈 경로 또는 모듈명 예: agents.handover.agent")
-    parser.add_argument("--json-path", default="ingest/handover_with_batch_operation_metadata.json", help="업무 JSON 경로")
+    parser.add_argument("--json-path", default="ingest/handover.json", help="업무 JSON 경로")
     parser.add_argument("--persist-dir", default="./chroma", help="Chroma persist dir")
     parser.add_argument("--collection", default="handover_agent", help="Chroma collection name")
     parser.add_argument("--cases", default="query_routing_test_cases.json", help="테스트 케이스 JSON")

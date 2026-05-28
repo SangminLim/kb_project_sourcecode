@@ -17,12 +17,13 @@ python agents/batch_dev/generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --base-date
 소득대상파일 생성
 python agents/batch_dev\generated\BATCH_CARD_SALES_LEDGER_EXTRACT\job.py --base-date 202604 
 
-그리고 중요한 건 지금 이미:
-
+Ingest
 python ingest/ingest.py --json_path ./ingest/handover.json --persist_dir ./chroma --collection handover_agent --reset
 
+TestCase
+python testCase/handover_harness.py --cases testCase/query_routing_test_cases.json
 
-python testCase/query_routing_test_harness.py --cases testCase/query_routing_test_cases.json
+python testCase/handover_harness_enhanced.py --cases testCase/query_routing_test_cases_enhanced.json
 
 
 python batch_dev/generated/BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py  --base-ym 202604

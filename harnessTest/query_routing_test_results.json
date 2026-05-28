@@ -1654,7 +1654,7 @@
         "[LG 3] node = resolve",
         "[LG 4] node = guard",
         "[LG-B 0] node = billing_planner",
-        "[BILLING PLAN 2] selected_steps = ['prepare_realtime_query', 'validate_chart_fields', 'fetch_monthly_billing']",
+        "[BILLING PLAN 2] selected_steps = ['prepare_realtime_query', 'validate_chart_fields', 'fetch_monthly_billing', 'detect_billing_anomaly']",
         "[LG-B 1] node = billing_prepare",
         "[LG-B 2] node = billing_respond"
       ],
@@ -1669,7 +1669,7 @@
       "expected_reasoning_contains": [
         "월별"
       ],
-      "rewritten_question": "청구쪽 월별 금액을 확인해줘",
+      "rewritten_question": "청구쪽 월금액 이상한 거 확인해줘",
       "score": 90.0,
       "pass_yn": "Y",
       "error": "",
@@ -1702,7 +1702,7 @@
         "[REWRITE 5] llm_rewrite = started",
         "[REWRITE 5-1] langchain_rewrite = fallback_to_requests (RuntimeError: LangChain rewrite chain is disabled.)",
         "[REWRITE 6] llm_rewrite_engine = requests",
-        "[REWRITE 6] final_rewritten_question = 청구쪽 월별 금액을 확인해줘",
+        "[REWRITE 6] final_rewritten_question = 청구쪽 월금액 이상한 거 확인해줘",
         "[LG 3] node = resolve",
         "[STEP 5-3] system_id_fallback_to_history = skipped_not_followup",
         "[STEP 5] detected_system_id = None",
@@ -1712,15 +1712,16 @@
         "[STEP 8] where_filter = {'$and': [{'section': 'realtime_query'}, {'query_id': 'billing_monthly_amount'}]}",
         "[LG-B 0] node = billing_planner",
         "[BILLING PLAN 1] detected_request = billing_monthly_amount",
-        "[BILLING PLAN 2] selected_steps = ['prepare_realtime_query', 'validate_chart_fields', 'fetch_monthly_billing']",
+        "[BILLING PLAN 2] selected_steps = ['prepare_realtime_query', 'validate_chart_fields', 'fetch_monthly_billing', 'detect_billing_anomaly']",
         "[BILLING PLAN 3] requires_chart = False",
         "[BILLING PLAN 4] requires_summary = False",
-        "[BILLING PLAN 4-1] requires_anomaly_check = False",
-        "[BILLING PLAN 5] planner_reasons = ['기본 청구 그래프/요약 절차 적용']",
+        "[BILLING PLAN 4-1] requires_anomaly_check = True",
+        "[BILLING PLAN 5] planner_reasons = ['사용자가 청구 금액 이상징후 확인을 요청함']",
         "[BILLING PLAN 6] selected_workflow = billing_graph_reasoning_flow",
         "[LG-B 1] node = billing_prepare",
         "[BILLING PLAN 7] chart_fields = x:billing_month, y:amount",
         "[BILLING PLAN 8] data_fetch = delegated_to_realtime_payload",
+        "[BILLING PLAN 11] anomaly_check = delegated_to_realtime_payload",
         "[LG-B 2] node = billing_respond"
       ]
     },
@@ -1860,7 +1861,7 @@
       "expected_reasoning_contains": [
         "월별"
       ],
-      "rewritten_question": "청구 이용내역서 월별 금액 변동 이상징후를 분석해줘",
+      "rewritten_question": "청구 이용내역서 월별 금액 변동 이상징후까지 분석해줘",
       "score": 90.0,
       "pass_yn": "Y",
       "error": "",
@@ -1893,7 +1894,7 @@
         "[REWRITE 5] llm_rewrite = started",
         "[REWRITE 5-1] langchain_rewrite = fallback_to_requests (RuntimeError: LangChain rewrite chain is disabled.)",
         "[REWRITE 6] llm_rewrite_engine = requests",
-        "[REWRITE 6] final_rewritten_question = 청구 이용내역서 월별 금액 변동 이상징후를 분석해줘",
+        "[REWRITE 6] final_rewritten_question = 청구 이용내역서 월별 금액 변동 이상징후까지 분석해줘",
         "[LG 3] node = resolve",
         "[STEP 5-3] system_id_fallback_to_history = skipped_not_followup",
         "[STEP 5] detected_system_id = None",
