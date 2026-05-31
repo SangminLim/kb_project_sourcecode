@@ -1277,3 +1277,38 @@ Python template
 Airflow DAG
 Shell script
 Test code
+
+업무 개요는 요약, 입력 데이터, 제외 조건, 산출물 등 의미 단위로 청킹하고, 배치 프로세스는 step/job 단위로 청킹했습니다. 각 청크가 길어지는 경우에는 chunk size와 overlap 기준을 적용해 문맥이 끊기지 않도록 추가 분할했습니다.
+overview       : 의미 단위 + 450자 / overlap 80
+batch_process : step 단위 + 600자 / overlap 100
+기본 fallback : 500자 / overlap 80
+
+
+의미 단위 길이
++
+실제 업무 문장 길이
++
+검색 품질
+
+
+시스템 라우팅이 맞는지
+Intent 분류가 맞는지
+화면 타입이 맞는지
+답변에 필수 키워드가 있는지
+Workflow 흐름이 맞는지
+Tool 호출이 맞는지
+추론 설명이 포함됐는지
+
+weights = {
+    "system_id": 25,
+    "intent": 25,
+    "render_type": 15,
+    "answer_contains": 15,
+    "workflow_steps": 10,
+    "tool_calls": 5,
+    "reasoning_contains": 5,
+}
+
+실무적으로 보면 이 코드는 자동 회귀 테스트 하네스라고 설명하면 돼.
+
+미리 정의한 질문 시나리오를 기반으로 Agent에 실제 질의를 수행하고, 시스템 라우팅, Intent 분류, 응답 타입, 필수 답변 키워드, Workflow 단계, Tool 호출 여부를 자동 검증하여 점수화하는 테스트 하네스입니다.

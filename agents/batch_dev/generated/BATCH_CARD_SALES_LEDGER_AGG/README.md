@@ -1,4 +1,4 @@
-# 매출원장테이블 월별 집계
+# 소득공제 월별 통합 집계 배치
 
 ## Batch ID
 `BATCH_CARD_SALES_LEDGER_AGG`

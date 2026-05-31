@@ -21,9 +21,6 @@ Ingest
 python ingest/ingest.py --json_path ./ingest/handover.json --persist_dir ./chroma --collection handover_agent --reset
 
 TestCase
-python testCase/handover_harness.py --cases testCase/query_routing_test_cases.json
-
-python testCase/handover_harness_enhanced.py --cases testCase/query_routing_test_cases_enhanced.json
-
+python harnessTest/handover_harness.py --cases harnessTest/query_routing_test_cases.json
 
 python batch_dev/generated/BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py  --base-ym 202604

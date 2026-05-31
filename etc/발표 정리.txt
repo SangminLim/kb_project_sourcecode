@@ -1,0 +1,967 @@
+조회형 업무
+- 업무 개요
+- 배치 프로세스
+- 흐름도
+- 리니지
+
+운영형 업무
+- 청구 데이터 조회/그래프/요약
+- 장애현황 판단/처리방법
+
+개발지원 업무
+- 배치 개발
+- SQL 분석
+
+1. AI 에이전트가 뭔가요?
+- 일반적인 챗봇은 질문을 받으면 바로 답변만 생성합니다. 
+반면 AI 에이전트는 질문을 이해한 뒤 필요한 데이터를 찾고, 적절한 Workflow를 선택하고, 필요한 작업을 수행한 후 결과를 생성합니다. 
+즉, 단순 답변이 아니라 업무를 수행하는 AI라고 볼 수 있습니다.
+
+- 예를 들어 사용자가 "오늘 장애현황 보여줘"라고 질문하면 AI 에이전트는 먼저 장애 조회 요청인지 판단하고, 
+운영 DB를 조회한 뒤, 장애 원인 분석과 우선순위 판단을 수행하여 결과를 제공합니다. 
+이처럼 질문에 대한 답변뿐 아니라 필요한 작업을 스스로 수행하는 것이 AI 에이전트의 특징입니다.
+
+2. LangChain인 뭔가요? 
+LangChain은 LLM과 다양한 외부 시스템(문서, DB, API, Tool)을 연결하여 AI 애플리케이션을 개발하는 프레임워크입니다.
+
+LLM 기반 AI 애플리케이션 개발을 위한 오픈소스 프레임워크입니다.
+프롬프트, 외부 데이터, API, Tool 등을 LLM과 쉽게 연결할 수 있습니다.
+RAG, Agent, 챗봇, 업무 자동화 시스템 개발에 많이 사용됩니다.
+저는 LangChain을 활용해 ChromaDB 검색, 프롬프트 구성, LLM 호출 기능을 구현했습니다.
+
+LangChain은 LLM과 RAG를 연결하는 역할로 사용했습니다. 
+사용자의 질문이 들어오면 ChromaDB Retriever를 통해 관련 업무 문서를 검색하고, 검색 결과와 질문, 시스템 프롬프트를 PromptTemplate으로 구성한 뒤 LLM에 전달하여 답변을 생성합니다. 
+즉, Vector DB 검색, 프롬프트 생성, LLM 호출 부분을 LangChain으로 구현했습니다.
+
+그래서 네가 발표할 때는 이렇게 말하면 된다.
+
+LangChain은 LLM과 외부 시스템을 연결하는 프레임워크입니다. 사용자의 질문이 들어오면 ChromaDB, 운영 DB, ERWin 메타데이터 등 외부 시스템에서 필요한 데이터를 Retrieval하고, 질문과 프롬프트를 함께 LLM에 전달하여 Augmented Generation을 수행합니다. 즉 Retrieval된 데이터를 기반으로 LLM이 보다 정확한 답변을 생성하도록 구성했습니다.
+
+그리고 더 개발자스럽게 한 줄로 말하면
+
+RAG는 질문만으로 답변하는 것이 아니라, Retrieval로 가져온 Context를 Prompt에 Augment하여 LLM이 Generation하는 구조입니다.
+
+LangChain은 RAG 검색과 LLM 호출을 담당하고,
+
+3. LangGraph가 뭔가요?
+LangGraph는 업무 Q&A, 장애 조회, SQL 분석, 배치 개발 등 어떤 Workflow를 실행할지 결정하는 상위 오케스트레이션 역할을 합니다
+공통 라우팅 workflow
+  ├─ 업무 Q&A workflow
+  ├─ SQL 분석 workflow
+  ├─ 배치 개발 workflow
+  ├─ 장애 처리 workflow
+  └─ 일반 fallback workflow
+
+4.RAG가 뭔가요?
+
+5.Ingest 어떻게 했나요?
+
+6. vector DB는 뭔가요?
+
+7. builder 는 뭔가요?
+
+LangGraph 
+- 업무 유형별로 workflow를 ..
+  LangChain
+    AI Agent 개발을 하는 프레임웍
+      RAG
+      Chunk 전략
+         ChromaDB
+         VectorDB 유사도 검색
+
+
+왜냐면 각 기능마다 필요한 처리 방식이 다르기 때문이야.
+
+기능	처리 방식
+업무 인수인계	RAG 검색 + 근거 기반 답변
+SQL 분석	SQL 파싱 + 문제점 분석 + 개선안
+배치 개발	요청서 해석 + 파일 생성 + 검증
+장애현황	DB 조회 + 원인/조치 reasoning
+청구 그래프	DB 조회 + 차트 렌더링 + 요약
+
+그래서 네 구조처럼 상위 graph에서 route를 나누고, 각 기능별 workflow를 따로 두는 구조가 실제 업무에 더 가까워.
+
+발표용으로는 이렇게 말하면 돼.
+
+저희 시스템은 하나의 LLM 호출로 모든 질문을 처리하지 않고, 최상위 LangGraph에서 질문 유형을 먼저 분류합니다. 이후 업무 인수인계 질문은 RAG 기반 workflow로, 배치 개발 요청은 배치 생성 workflow로, SQL 요청은 SQL 분석 workflow로 분기합니다. 이렇게 기능별 workflow를 분리하면 운영 중 장애 원인 추적이 쉽고, 기능별 검증과 확장이 가능하기 때문에 실제 업무 시스템 구조에 더 적합합니다.
+
+이 응답이 더 좋아요
+
+
+multi-step Reasoning
+질문을 받으면 Planner 노드가 질문에 대한 step을 생성하여 처리 하게 됩니다.
+
+장애현황과 청구 이용내역서는 문서 검색 기반 RAG가 아니라,
+Intent 기반 Realtime Query Routing 후 Planner Node를 통해
+조회·분석·요약 단계를 수행하는 Guided Multi-step Reasoning 구조입니다.
+
+Planner Node 실행
+- 장애 현황 조회
+- 오류 원인 확인
+- 조치 방법 정리
+- 후속 배치 영향도 확인
+- 운영자 확인사항 정리
+
+Realtime Query 실행
+- 장애현황 데이터 조회
+↓
+조회 결과 분석
+- 장애 건수
+- 장애 배치명
+- 오류 코드
+- 원인
+- 조치 방법
+- 담당자
+- 재실행 필요 여부
+↓
+
+모델서빙은 vLLM
+
+시각화 라이브러리는 Graphviz를 사용했습니다.
+
+Haness Enginerring 으로 AI 응답 품질 검증용으로 사용했습니다
+- 백엔드 개발을 해보면 API 하나 개발하면 유닛테스트를 통해 검증을 하고 소스를 배포할때 통합 테스트를 진행하는데 그것을 생각하고
+개발이 변경이 될때마다 테스트케이스를 돌려 검증을 하였습니다. 검증내용은 Intent분류, 시스템랑팅, 응답유형, Workflow 처리흐름, too 호출,  multi-step reasong 에 대한 검증체계를 구축하였습니다
+
+LangSmith
+- LangSmith를 사용해보면 정말 좋은 툴입니다. 
+ 제가 만든 Agent에 LangSmith에서 확인할 수있게 각 workflow마다 로그를 적용하여 LangSmith에서 사용한 input, output, 토큰값등을  Trace를 보며서 어디가 병목 현상이 나오는지 볼수있습니다
+
+토큰
+ LLM 질문을 하고 결과를 출력할때 이것을 토큰값이라고 합니다. 토큰값이 많아질수록 LLM도 성능도 같이 낮아지는것을 확인할 수있고 최대한 효율적으로 토큰관리를 해야 최대 성능을 낼 수가 있습니다.
+보통 LLM에 질문 뿐만아니라 Context 즉 RAG를 통하여 나온값과 system Promt, user promt 등 을 같이 입력하는데 이런 입력 토큰값이 클수록 응답시간이 길어지는것을 확인 할 수있습니다. 
+
+-개발툴은 Visual Studio 사용했습니다.
+
+-파이썬 가상환경을 만들고 LangGraph , LangChain, ChromaDB를 설치하여 RAG를 구성했습니다
+
+- LLM은 재택용 노트북에 오픈소스 LLM을 사용해서 처리 하려고 하였으니 성능이 너무 안나와서 개발시에는 Upstage LLM을 사용하고
+어느정도 개발이 되었을때 AWS EC2인스턴스에 vLLM을 사용하여 Qwen 설치하여 LLM으로 사용했습니다.
+
+ingest 
+업무인수인계를 업무별로 텍스트로 만들었고 이걸 챗지피트를 통하여 MetaData를 붙이고 크게 system, intent, section 등으로 Json파일을 만들어서  Chroma DB에 적재를 하는데
+의미단위로 분리하고 그리고 길이를 확인하고 내용이 길어지면 청킹 및 overlab(문맥 손실(context loss)) 처리 하여 적재를 했습니다.
+
+업무 JSON을 단순 문서 단위로 넣지 않고,
+업무 개요, 배치 프로세스, 배치 Step, 배치 Job,
+배치 흐름도, 테이블 리니지, 실시간 조회 정의로 분리하여
+업무 의미 단위 기반 청킹을 적용했습니다.
+
+
+1차: 업무 의미 단위로 나누고
+2차: 길이 체크 후 추가 split
+같은 업무 단위로 chunk 만들고, 그 chunk가 너무 길 때만:
+
+질문이 들어오면
+KKK은행 소득공제 배치 프로세스를 알려주세요 라고 질문을 하면  기본적으로 dictioncary, 오타보정, rewrite,  시스템id 식별 , intent 분류로 builder를 통해 where 절을 만들어서 
+chromaDB에서 where절로 먼저 데이터를 찾고 그다음 질문을 가지고 유사도 처리해서return 받게 됩니다. builder 가 meta filter라고 보시면 됩니다.
+
+질문 Rewrite / 정규화
+- “에러난거”, “장애”, “처리방법” 같은 표현 보정
+
+빌더
+
+빌더는 질문 분석 결과를 실제 검색과 응답에 사용할 수 있는 구조로 변환하는 역할입니다.
+ 먼저 structured payload builder가 system_id와 intent를 기준으로 JSON에서 overview, batch_process, batch_flow 같은 원본 데이터를 꺼냅니다.
+  다음으로 where filter builder가 Vector DB 검색 조건을 만들어 system_id=kkk_bank, section=overview처럼 검색 범위를 제한합니다. 
+  마지막으로 response builder가 검색 결과와 구조화 데이터를 바탕으로 텍스트, 그래프, 차트, 표 중 적절한 응답 형태를 생성합니다. 
+  따라서 빌더는 LLM이 임의로 답변하지 않도록 데이터 선택, 검색 조건, 응답 형식을 통제하는 역할을 합니다.
+1. 구조화 데이터 빌더
+2. 검색 조건 빌더
+3. 응답 빌더
+
+
+system_id = kkk_bank / bbb_securities
+section = overview / batch_process / batch_flow / table_lineage / batch_job
+doc_level = section / chunk / detail / structure
+업무 개요 → overview
+배치 흐름도 → batch_flow
+테이블 리니지 → table_lineage
+월별 금액 → billing_monthly_amount
+오늘 장애 → today_incidents
+
+그럼 질문 + 검색된 context + prompmt 이 값을 LLM에 주고 generation 하게 됩니다. 이게 RAG처리 한다고 보면됩니다. 
+
+
+
+3.  실제 질문을 가지고 systemid 를 찾고 intent찾아서  해당 내용을 가지고 builder 를 통해  where절을 만들어서
+나의 질문을 임베딩후 where절과 같이 similary search를 하여 topk=4개를 가져와서 출력을 하고있다.
+
+4. 장애현황, 청구이용내역서는
+질문은 기존처럼 처리하고 systemid와 intent을 통해 routing 하여  realtime_query날려서 조회후
+llm 으로 요약하고 multi step reasoning처리 하는거잖아
+
+응. 맞아.
+장애현황과 청구 이용내역서는 일반 RAG 답변이 아니라 realtime query routing + 조회 + 요약/분석 흐름으로 보는 게 맞아.
+
+정리하면 이렇게야.
+
+
+1. LLM 또는 파서가 요청서에서 핵심 항목 추출
+   - 배치명
+   - 기준 테이블
+   - 출력 목적
+   - 출력 형식
+   - 파일명
+   - 기준일자
+   - 조건
+
+2. ERWin 메타에서 테이블/컬럼 정보 보강
+   - TB_TRAD_MARKET_MERCHANT
+   - MERCHANT_ID, MERCHANT_NM, APPLY_START_DT, APPLY_END_DT, USE_YN 등
+
+3. 조건을 업무 Rule로 해석
+   - USE_YN = 'Y'
+   - APPLY_START_DT <= :base_date
+   - APPLY_END_DT is null or APPLY_END_DT >= :base_date
+
+4. batch_spec.json 생성
+   - batch_id
+   - source table
+   - source columns
+   - target file pattern
+   - effective_date 조건
+   - encoding
+   - output_dir
+
+5. SQL Template 적용
+   - generic_export.sql.j2
+
+6. 결과 파일 생성
+   - batch_spec.json
+   - job.py
+   - query.sql
+   - README.md
+   - test_job.py
+
+   배치 개발 요청서를 LLM이 구조화된 스펙으로 해석하고, ERWin 메타데이터를 참조하여 기준 테이블과 컬럼을 보강합니다. 
+   이후 Rule 기반으로 배치 유형과 조건을 판단하고, 
+   SQL Template 및 Job Template을 적용하여 batch_spec.json, query.sql, job.py, test_job.py를 자동 생성합니다.
+
+   1. 요청서 입력
+2. Rule 기반으로 batch_spec 생성
+3. batch_spec 기반으로 Template 선택
+4. Template에 spec 값을 주입
+5. SQL / Job / README / Test 생성
+
+출력형식 = CSV
+기준테이블 = TB_TRAD_MARKET_MERCHANT
+조건 = USE_YN='Y'
+
+[배치유형]
+FILE_EXPORT
+
+[입력유형]
+DB_TABLE
+
+[출력유형]
+CSV_FILE
+
+[처리유형]
+MASTER_EXPORT
+
+[기준테이블]
+TB_TRAD_MARKET_MERCHANT
+
+FILE_EXPORT
+→ export template
+
+DB_TO_DB
+→ insert/select template
+
+AGGREGATION
+→ aggregation template
+
+FILE_LOAD
+→ file loader template
+
+1. 파일 수신
+2. 파일 적재
+3. 대상 필터링
+4. 집계
+5. 결과 파일 생성
+6. 대외 송신
+
+- 파일 생성
+- 파일 적재
+- 단순 INSERT
+- 기간 조건 조회
+- 집계
+- 인터페이스 파일 생성
+
+70~80% 자동 생성
+20~30% 개발자 보완
+
+SQL template
+Python template
+Airflow DAG
+Shell script
+Test code
+
+업무 개요는 요약, 입력 데이터, 제외 조건, 산출물 등 의미 단위로 청킹하고, 배치 프로세스는 step/job 단위로 청킹했습니다. 각 청크가 길어지는 경우에는 chunk size와 overlap 기준을 적용해 문맥이 끊기지 않도록 추가 분할했습니다.
+overview       : 의미 단위 + 450자 / overlap 80
+batch_process : step 단위 + 600자 / overlap 100
+기본 fallback : 500자 / overlap 80
+
+
+의미 단위 길이
++
+실제 업무 문장 길이
++
+검색 품질
+
+
+시스템 라우팅이 맞는지
+Intent 분류가 맞는지
+화면 타입이 맞는지
+답변에 필수 키워드가 있는지
+Workflow 흐름이 맞는지
+Tool 호출이 맞는지
+추론 설명이 포함됐는지
+
+weights = {
+    "system_id": 25,
+    "intent": 25,
+    "render_type": 15,
+    "answer_contains": 15,
+    "workflow_steps": 10,
+    "tool_calls": 5,
+    "reasoning_contains": 5,
+}
+
+실무적으로 보면 이 코드는 자동 회귀 테스트 하네스라고 설명하면 돼.
+
+미리 정의한 질문 시나리오를 기반으로 Agent에 실제 질의를 수행하고, 시스템 라우팅, Intent 분류, 응답 타입, 필수 답변 키워드, Workflow 단계, Tool 호출 여부를 자동 검증하여 점수화하는 테스트 하네스입니다.
+
+
+
+사용자 질문: "장애현황 보여줘"
+        ↓
+질문 의도 판단: today_incidents
+        ↓
+실행 계획 로드: execution_plan_loaded = True
+        ↓
+선택된 단계:
+1. prepare_realtime_query
+2. status_reasoning
+3. summarize_table
+        ↓
+장애 데이터 2건 조회
+        ↓
+각 row별 상태/우선순위 판단
+        ↓
+표 + 요약 + reasoning 결과 출력
+
+
+이 로그는 장애현황 질문을 처리할 때 어떤 workflow/step을 탔는지 기록한 것이야.
+
+전체 흐름은 이렇게 처리된 거야.
+
+사용자 질문: "장애현황 보여줘"
+        ↓
+질문 의도 판단: today_incidents
+        ↓
+실행 계획 로드: execution_plan_loaded = True
+        ↓
+선택된 단계:
+1. prepare_realtime_query
+2. status_reasoning
+3. summarize_table
+        ↓
+장애 데이터 2건 조회
+        ↓
+각 row별 상태/우선순위 판단
+        ↓
+표 + 요약 + reasoning 결과 출력
+
+각 로그 뜻은 이거야.
+
+execution_plan_loaded = True
+→ JSON에 정의된 실행계획을 정상적으로 읽었다는 뜻.
+
+selected_steps = ['prepare_realtime_query', 'status_reasoning', 'summarize_table']
+→ 장애현황 처리에 필요한 단계를 3개 선택했다는 뜻.
+
+post_process = incident_reasoning
+→ 조회 결과를 그대로 보여주는 게 아니라, 장애 판단 로직을 추가로 적용했다는 뜻.
+
+target_domain = incident
+→ 이 질문은 장애 도메인으로 처리했다는 뜻.
+
+source_rows = 2
+→ 장애 데이터가 2건 있었다는 뜻.
+
+column_mapping = ...
+→ 원본 컬럼명을 내부 판단용 컬럼으로 매핑했다는 뜻.
+예: 배치명 → batch, 상태 → status, 경과분 → elapsed.
+
+policy.long_running_minutes = 30
+→ 30분 이상이면 장기 미처리로 판단하는 정책을 사용했다는 뜻.
+
+reasoning_results = 2
+→ 장애 2건에 대해 각각 reasoning 결과를 만들었다는 뜻.
+
+priority_ranking = completed
+→ P1/P2 같은 우선순위 산정이 끝났다는 뜻.
+
+뒤쪽 로그는 Planner 쪽 로그야.
+
+detected_request = today_incidents
+→ 질문을 “오늘 장애현황 조회” 요청으로 분류함.
+
+requires_reasoning = True
+→ 단순 조회가 아니라 상태 판단이 필요하다고 봄.
+
+requires_action_summary = False
+→ 별도 조치 요약 step은 안 탐.
+
+requires_impact_analysis = False
+→ 영향도 분석 step은 안 탐. 그래서 영향도판단: -로 나온 거야.
+
+selected_workflow = incident_reasoning_flow
+→ 장애 reasoning용 workflow를 선택함.
+
+row_reasoning = delegated_to_realtime_renderer
+→ 각 장애 row별 판단은 renderer 쪽에서 처리했다는 뜻.
+
+결론적으로 이건:
+
+질문 분류 → 장애현황 workflow 선택 → 장애 데이터 조회 → 정책 기반 상태판단 → 우선순위 산정 → 표/요약 출력
+
+으로 처리됐다는 로그야.
+
+너는 금융권 배치개발 전문가이자 코드리뷰어다.
+
+목표:
+- 사용자의 기존 소스 구조를 유지하면서 수정한다.
+- 운영 반영 가능한 수준으로 구현한다.
+- 하드코딩을 피하고 설정, 메타데이터, 룰, 템플릿 기반으로 확장 가능하게 작성한다.
+
+기본 원칙:
+- 기존 폴더 구조와 모듈 역할을 먼저 파악한다.
+- 기능을 app.py에 몰아넣지 않는다.
+- 파서, 룰엔진, 검증기, 생성기, UI는 분리한다.
+- 특정 업무명, 테이블명, 컬럼명, 요청문구를 코드에 직접 박지 않는다.
+- 반복되는 분기문보다 schema, config, rule catalog, template을 우선 사용한다.
+- 기존 인터페이스를 깨지 않는다.
+
+코드 작성 기준:
+- Python 타입힌트를 사용한다.
+- 예외처리를 포함한다.
+- 테스트 가능한 함수 단위로 작성한다.
+- 입력값 검증을 한다.
+- 로그 또는 검증 메시지를 남긴다.
+- SonarQube 기준으로 중복 코드, 과도한 복잡도, 미사용 코드, 보안 취약점을 피한다.
+
+수정 요청을 받으면:
+1. 현재 구조에서 어느 파일을 수정해야 하는지 설명한다.
+2. 하드코딩 위험이 있는지 먼저 검토한다.
+3. 수정 코드를 제시한다.
+4. 테스트 방법을 제시한다.
+5. 운영 반영 전 확인사항을 제시한다.
+
+답변 방식:
+- 너무 이론적으로 말하지 말고 실제 개발자가 바로 적용할 수 있게 말한다.
+- 보수적인 실무 기준으로 판단한다.
+- 애매하면 무리하게 새 구조를 만들지 말고 현재 구조에서 최소 변경안을 우선 제안한다.
+
+아래 소스 구조를 기준으로 답변해줘.
+하드코딩하지 말고, 기존 구조를 유지해서 수정해줘.
+운영 배치 개발 기준으로 봐줘.
+SonarQube에서 걸릴 만한 부분도 같이 봐줘.
+
+[현재 폴더 구조]
+...
+
+[현재 코드]
+...
+
+[요구사항]
+...
+
+프롬프트만으로 완벽히 막는 건 어렵고,
+소스구조 자체를 config/rule/template 기반으로 만들어야 한다.
+======================================================
+
+발표나 평가자 질의응답용으로는 지금 내용을 아래처럼 10개 주제로 정리해두는 게 좋습니다. 평가자가 무엇을 물어보든 이 범위 안에서 대부분 답변 가능합니다.
+
+1. 에이전트 전체 구조
+한 줄 설명
+
+"하나의 LLM이 모든 질문을 처리하는 구조가 아니라, 질문 유형에 따라 Workflow를 분리한 LangGraph 기반 AI Agent입니다."
+
+구성요소
+LangGraph
+LangChain
+ChromaDB(Vector DB)
+RAG
+Upstage / Qwen LLM
+Graphviz
+LangSmith
+Harness Engineering
+업무 유형
+업무유형	기능
+조회형	업무개요, 배치프로세스, 흐름도, 리니지
+운영형	장애현황, 청구이용내역
+개발지원형	배치개발, SQL분석
+2. 왜 LangGraph를 사용했나?
+답변
+
+기능마다 처리 방식이 다르기 때문입니다.
+
+예를 들어
+
+업무 인수인계 → RAG 검색
+SQL 분석 → SQL 파싱 및 개선안 생성
+배치 개발 → 요청서 분석 후 코드 생성
+장애 현황 → DB 조회 후 분석
+청구 내역 → DB 조회 후 그래프 생성
+
+따라서 상위 Graph에서 질문을 분류하고 기능별 Workflow로 라우팅하는 구조를 적용했습니다. 이는 실제 업무 시스템 구조와 유사하며 유지보수와 확장성이 높습니다.
+
+3. RAG는 어떻게 동작하는가?
+처리 흐름
+
+사용자 질문
+
+↓
+
+오타 보정
+
+↓
+
+질문 Rewrite
+
+↓
+
+System ID 식별
+
+↓
+
+Intent 분류
+
+↓
+
+Builder 생성
+
+↓
+
+ChromaDB 검색
+
+↓
+
+Top-K Retrieval
+
+↓
+
+LLM Generation
+
+↓
+
+답변 생성
+
+핵심 설명
+
+질문을 임베딩하여 검색하는 것이 아니라
+
+먼저
+
+system_id
+section
+intent
+
+기반으로 검색 범위를 줄이고
+
+그 안에서 Similarity Search를 수행합니다.
+
+즉
+
+Meta Filter + Similarity Search 구조입니다.
+
+4. Builder는 무엇인가?
+답변
+
+Builder는 LLM이 임의로 답변하지 못하도록 통제하는 역할입니다.
+
+3가지 Builder
+① Structured Payload Builder
+
+구조화된 업무 데이터 선택
+
+② Where Filter Builder
+
+Vector DB 검색 조건 생성
+
+예)
+
+system_id = kkk_bank
+section = batch_process
+③ Response Builder
+
+결과를
+
+텍스트
+표
+그래프
+차트
+
+중 적절한 형태로 생성
+
+즉
+
+Builder는 검색 조건과 응답 형식을 통제하는 계층입니다.
+
+5. Multi-Step Reasoning은 무엇인가?
+답변
+
+장애현황과 청구이용내역은 단순 RAG가 아닙니다.
+
+Planner Node가 실행 계획을 생성하고 단계별로 처리합니다.
+
+예)
+
+장애현황 조회
+
+↓
+
+장애 데이터 조회
+
+↓
+
+상태 분석
+
+↓
+
+원인 분석
+
+↓
+
+우선순위 판단
+
+↓
+
+요약 생성
+
+↓
+
+결과 출력
+
+즉
+
+조회 → 분석 → 요약 단계를 수행하는 Guided Multi-Step Reasoning 구조입니다.
+
+6. Ingest 및 Chunk 전략
+답변
+
+문서를 통째로 저장하지 않았습니다.
+
+1차
+
+업무 의미 단위 분리
+
+예)
+
+업무 개요
+배치 프로세스
+배치 Step
+배치 Job
+흐름도
+리니지
+2차
+
+길이가 긴 경우 추가 Split
+
+Chunk 전략
+overview       : 450 / overlap 80
+batch_process  : 600 / overlap 100
+fallback       : 500 / overlap 80
+
+문맥 손실을 줄이기 위해 overlap을 적용했습니다.
+
+7. 배치 자동 개발은 어떻게 하는가?
+처리 흐름
+
+요청서 입력
+
+↓
+
+핵심 정보 추출
+
+↓
+
+ERWin 메타 조회
+
+↓
+
+Rule 적용
+
+↓
+
+batch_spec 생성
+
+↓
+
+Template 선택
+
+↓
+
+소스 생성
+
+생성 파일
+batch_spec.json
+query.sql
+job.py
+test_job.py
+README.md
+특징
+
+완전 자동 생성이 아니라
+
+약 70~80% 자동 생성 후
+
+20~30%는 개발자가 보완합니다.
+
+8. Harness Engineering은 왜 적용했나?
+답변
+
+백엔드 개발의 Unit Test 개념을 Agent에 적용한 것입니다.
+
+코드 변경 시마다 테스트를 수행합니다.
+
+검증 항목
+System Routing
+Intent 분류
+Render Type
+필수 키워드
+Workflow
+Tool 호출
+Multi-Step Reasoning
+목적
+
+에이전트 변경 시 성능 저하를 방지하는 자동 회귀 검증 체계입니다.
+
+9. LangSmith는 왜 사용했나?
+답변
+
+운영 중 관측성(Observability)을 확보하기 위해 사용했습니다.
+
+확인 가능한 항목
+
+Input
+Output
+Token 사용량
+Workflow Trace
+실행시간
+병목구간
+
+예)
+
+rewrite : 34초
+retrieval : 1초
+generation : 4초
+
+처럼 어느 구간이 느린지 확인할 수 있습니다.
+
+10. 모델 서빙 구조
+개발 환경
+Upstage LLM 사용
+운영 환경
+AWS EC2
+vLLM
+Qwen
+이유
+
+노트북에서 오픈소스 LLM은 성능이 부족했기 때문에
+
+GPU 기반 EC2 + vLLM 구조로 전환했습니다.
+
+평가자에게 마지막 한 줄
+
+"이 프로젝트의 핵심은 단순 챗봇이 아니라, 금융 업무 지식을 구조화하여 RAG, Workflow Routing, Multi-Step Reasoning, Harness 검증 체계를 결합한 실제 운영 가능한 업무지원 AI Agent를 구현한 것입니다."
+
+=================
+발표할 때는 너무 기술적으로 들어가지 말고 "왜 사용했는가" 중심으로 설명하는 게 좋습니다.
+
+LangChain
+
+LangChain은 LLM을 활용한 AI 애플리케이션을 개발하기 위한 프레임워크입니다.
+사용자 질문, 프롬프트, 검색된 컨텍스트(RAG)를 결합하여 LLM에 전달하는 역할을 합니다.
+저는 LangChain을 활용해 Vector DB 검색, 프롬프트 구성, LLM 호출 기능을 구현했습니다.
+
+LangGraph
+
+LangGraph는 AI Agent의 업무 흐름(Workflow)을 관리하는 프레임워크입니다.
+질문 유형에 따라 업무 인수인계, 장애 조회, SQL 분석, 배치 개발 등의 Workflow로 분기하여 처리합니다.
+이를 통해 하나의 LLM이 모든 질문을 처리하는 것이 아니라 업무별로 최적화된 처리 흐름을 적용할 수 있습니다.
+
+ChromaDB
+
+ChromaDB는 Vector DB로, 업무 문서를 임베딩하여 저장하고 유사도 검색을 수행합니다.
+사용자 질문이 들어오면 관련성이 높은 업무 문서를 검색하여 LLM에 제공하는 RAG 구조를 구현했습니다.
+이를 통해 LLM이 학습되지 않은 내부 업무 지식도 답변할 수 있도록 구성했습니다.
+
+Multi-Step Reasoning
+
+Multi-Step Reasoning은 복잡한 질문을 여러 단계로 나누어 처리하는 방식입니다.
+예를 들어 장애현황 조회 시 단순 조회가 아니라 데이터 조회 → 원인 분석 → 우선순위 판단 → 조치 방법 요약 순으로 처리합니다.
+이를 통해 단순 검색이 아닌 분석과 판단이 포함된 답변을 제공할 수 있습니다.
+
+Harness Engineering
+
+Harness Engineering은 AI Agent의 품질을 검증하기 위한 자동 테스트 체계입니다.
+백엔드 개발의 Unit Test와 유사한 개념으로, 질문 시나리오를 기반으로 Intent 분류, 시스템 라우팅, Workflow, Tool 호출 등을 자동 검증합니다.
+코드 변경 시마다 테스트를 수행하여 응답 품질이 유지되도록 구성했습니다.
+
+LangSmith
+
+LangSmith는 AI Agent의 실행 과정을 추적하고 분석하는 관측(Observability) 도구입니다.
+각 Workflow의 입력값, 출력값, 토큰 사용량, 실행 시간, Trace를 확인할 수 있습니다.
+이를 통해 병목 구간을 분석하고 성능 최적화 및 디버깅에 활용했습니다.
+
+30초 요약 버전
+
+LangChain은 LLM과 RAG를 연결하는 프레임워크이고, LangGraph는 업무별 Workflow를 관리하는 Agent 프레임워크입니다. ChromaDB는 업무 지식을 저장하는 Vector DB이며, Multi-Step Reasoning은 조회·분석·요약을 단계적으로 수행하는 추론 방식입니다. Harness Engineering은 AI 품질을 검증하는 자동 테스트 체계이고, LangSmith는 Agent의 실행 로그와 성능을 분석하는 관측 도구입니다.
+
+======================
+1. 왜 LangGraph를 사용했나요?
+
+답변
+
+업무 인수인계, 장애 조회, SQL 분석, 배치 개발은 처리 방식이 모두 다릅니다.
+그래서 하나의 프롬프트로 처리하지 않고 LangGraph에서 질문 유형을 분류한 후 기능별 Workflow로 분기하도록 구현했습니다.
+
+2. LangChain은 어떤 역할인가요?
+
+답변
+
+LangChain은 RAG 검색, 프롬프트 구성, LLM 호출을 담당합니다.
+질문, 검색 결과(Context), System Prompt를 결합하여 LLM에 전달하는 역할을 수행합니다.
+
+3. 왜 ChromaDB를 선택했나요?
+
+답변
+
+업무 문서를 벡터 형태로 저장하고 빠르게 검색하기 위해 사용했습니다.
+또한 Metadata Filter를 지원하여 system_id, intent 기반 검색 범위를 제한할 수 있어 적합했습니다.
+
+4. 업무 문서는 어떻게 적재했나요?
+
+답변
+
+업무 개요, 배치 프로세스, 배치 흐름도, 테이블 리니지 등 의미 단위로 분리한 후 JSON으로 구조화하여 ChromaDB에 적재했습니다.
+
+5. Chunk 전략은 무엇인가요?
+
+답변
+
+문서를 통째로 넣지 않고 의미 단위로 분리했습니다.
+길이가 긴 경우 Chunk Size와 Overlap을 적용하여 문맥 손실을 최소화했습니다.
+
+6. 질문하면 실제로 어떻게 답변이 만들어지나요?
+
+답변
+
+질문 → 오타 보정 → Intent 분류 → System 식별 → Builder 생성 → Vector Search → Context 추출 → LLM 답변 생성 순으로 처리됩니다.
+
+7. Builder가 무엇인가요?
+
+답변
+
+Builder는 검색 조건과 응답 형식을 생성하는 역할입니다.
+검색 범위를 제한하고 결과를 표, 차트, 텍스트 등으로 제어합니다.
+
+8. Multi-Step Reasoning은 무엇인가요?
+
+답변
+
+복잡한 질문을 여러 단계로 나누어 처리하는 방식입니다.
+예를 들어 장애현황은 조회 → 원인 분석 → 우선순위 판단 → 조치 방법 생성 순으로 처리됩니다.
+
+9. Planner Node는 무엇인가요?
+
+답변
+
+Planner는 질문에 필요한 처리 단계를 결정하는 역할입니다.
+장애현황이면 조회, 분석, 요약 단계를 선택하고 Workflow를 구성합니다.
+
+10. 장애현황은 RAG인가요?
+
+답변
+
+아닙니다.
+장애현황과 청구 이용내역은 Realtime Query 기반입니다.
+DB 조회 후 Multi-Step Reasoning으로 분석합니다.
+
+이거 평가자들이 좋아함.
+
+11. 왜 RAG를 사용했나요?
+
+답변
+
+LLM은 회사 내부 업무를 모르기 때문입니다.
+내부 업무 문서를 검색해서 Context로 제공하기 위해 RAG를 사용했습니다.
+
+12. 배치 개발은 어떻게 생성되나요?
+
+답변
+
+요청서를 분석하여 batch_spec을 생성하고 Template 기반으로 SQL, Python Job, Test Code를 자동 생성합니다.
+
+13. 완전 자동 개발인가요?
+
+답변
+
+아닙니다.
+약 70~80% 수준까지 자동 생성하고 나머지는 개발자가 검토 및 보완합니다.
+
+이 답변이 훨씬 신뢰감 있음.
+
+14. Harness Engineering은 왜 적용했나요?
+
+답변
+
+AI Agent도 일반 개발처럼 품질 검증이 필요합니다.
+코드 변경 시 질문 시나리오를 자동 실행하여 응답 품질 저하를 방지합니다.
+
+15. 어떤 항목을 검증하나요?
+
+답변
+
+System Routing, Intent 분류, 응답 유형, Workflow 흐름, Tool 호출, Multi-Step Reasoning 등을 검증합니다.
+
+16. LangSmith는 왜 사용했나요?
+
+답변
+
+Agent 실행 과정을 추적하고 병목 구간을 확인하기 위해 사용했습니다.
+입력값, 출력값, 토큰 사용량, 실행 시간 등을 확인할 수 있습니다.
+
+17. 토큰이 왜 중요한가요?
+
+답변
+
+토큰이 많아질수록 응답 시간이 증가하고 비용도 증가합니다.
+그래서 Context 크기와 Retrieval 결과를 최적화하여 관리했습니다.
+
+18. 오픈소스 LLM은 사용했나요?
+
+답변
+
+개발 초기에는 Upstage LLM을 사용했고, 이후 AWS EC2 환경에 Qwen 모델을 vLLM으로 서빙하여 테스트했습니다.
+
+19. 실제 업무에 적용 가능하다고 생각하나요?
+
+답변
+
+가능합니다.
+업무 지식 검색, 장애 분석, SQL 분석, 배치 개발 지원 등 반복적인 업무를 자동화할 수 있으며 신규 인력 온보딩에도 활용 가능합니다.
+
+20. 이 프로젝트의 핵심 차별점은 무엇인가요?
+
+이건 거의 마지막 질문으로 나온다.
+
+답변
+
+단순 챗봇이 아니라 금융 업무 지식을 구조화하여 RAG, Workflow Routing, Multi-Step Reasoning, Harness 검증 체계를 결합한 실제 업무 지원형 AI Agent를 구현한 것이 핵심입니다.
+
+이 20개 정도만 준비하면 평가자가 물어볼 질문의 90% 이상은 커버 가능해. 특히 5번(Chunk), 8번(Multi-Step), 14번(Harness), 20번(차별점) 은 반드시 준비하는 게 좋아.

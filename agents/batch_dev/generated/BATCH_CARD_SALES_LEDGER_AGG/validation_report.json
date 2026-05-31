@@ -1,6 +1,6 @@
 {
   "valid": true,
-  "score": 0.82,
+  "score": 0.856,
   "summary": "TB_CARD_SALES_LEDGER 기준 데이터를 집계하여 결과를 생성하는 배치입니다.",
   "interpretation": "- TB_CARD_SALES_LEDGER 조회\n- 사용여부/적용기간 조건 필터링\n- 집계 결과 생성",
   "detected_batch_type": "aggregation_to_table",
@@ -39,31 +39,6 @@
       "item": "spec 테이블과 SQL 일치성",
       "result": "PASS",
       "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
-    },
-    {
-      "item": "요청 목적 적합성",
-      "result": "PASS",
-      "detail": "배치명 '소득공제 월별 통합 집계 배치'와 배치 유형 '월별 집계 배치 Delete Insert 방식'이 일치하며, 고객별 월별 소득공제 대상 이용금액 집계 목적을 명확히 반영한다."
-    },
-    {
-      "item": "SQL 의미 일치성",
-      "result": "PASS",
-      "detail": "batch_spec의 source, target, parameters와 SQL의 DELETE/INSERT, WHERE 조건(:base_ym, BASE_YM, CANCEL_YN='N')이 의미적으로 연결된다."
-    },
-    {
-      "item": "파라미터 일치성",
-      "result": "PASS",
-      "detail": "job.py 실행 단서에서 :base_ym 파라미터가 DELETE와 INSERT SQL에 모두 사용되며, test_job.py에서 :BASE_YM 존재 여부를 검증한다."
-    },
-    {
-      "item": "운영 재처리 위험",
-      "result": "WARN",
-      "detail": "DELETE 후 INSERT 방식으로 멱등성이 보장되지 않으며, 재처리 시 중복 적재 또는 데이터 손실 위험이 있다. 테스트 부족 및 데이터 품질 검증(행 수, 중복) 검토가 필요하다."
-    },
-    {
-      "item": "성능 위험",
-      "result": "WARN",
-      "detail": "TB_CARD_SALES_LEDGER의 BASE_YM 기준 전체 스캔 가능성이 있으며, SALES_DT와 MERCHANT_ID에 대한 인덱스 확인이 필요하다. 대량 데이터 조회 시 성능 저하 우려."
     }
   ],
   "issues": [],
@@ -79,54 +54,59 @@
     "금액 합계 검증 확인",
     "row count 및 중복 검증 확인"
   ],
-  "raw_llm_response": "{\"valid\": true, \"score\": 0.75, \"summary\": \"소득공제 월별 통합 집계 배치가 Delete Insert 방식으로 TB_DEDUCTION_MONTHLY_SUMMARY에 적재되며, 다중 JOIN과 집계 로직이 포함된 SQL과 job.py 실행 단서가 제공되었다.\", \"interpretation\": \"TB_CARD_SALES_LEDGER에서 BASE_YM 기준 CANCEL_YN='N' 및 USE_YN='Y'인 거래를 추출하고, 3개 참조 테이블과 LEFT JOIN하여 MERCHANT_TYPE을 CASE로 구분한 후 고객별/월별/유형별로 TOTAL_AMT와 TXN_COUNT를 집계한다.\", \"detected_batch_type\": \"aggregation_to_table\", \"checks\": [{\"item\": \"요청 목적 적합성\", \"result\": \"PASS\", \"detail\": \"배치명 '소득공제 월별 통합 집계 배치'와 배치 유형 '월별 집계 배치 Delete Insert 방식'이 일치하며, 고객별 월별 소득공제 대상 이용금액 집계 목적을 명확히 반영한다.\"}, {\"item\": \"SQL 의미 일치성\", \"result\": \"PASS\", \"detail\": \"batch_spec의 source, target, parameters와 SQL의 DELETE/INSERT, WHERE 조건(:base_ym, BASE_YM, CANCEL_YN='N')이 의미적으로 연결된다.\"}, {\"item\": \"파라미터 일치성\", \"result\": \"PASS\", \"detail\": \"job.py 실행 단서에서 :base_ym 파라미터가 DELETE와 INSERT SQL에 모두 사용되며, test_job.py에서 :BASE_YM 존재 여부를 검증한다.\"}, {\"item\": \"운영 재처리 위험\", \"result\": \"WARN\", \"detail\": \"DELETE 후 INSERT 방식으로 멱등성이 보장되지 않으며, 재처리 시 중복 적재 또는 데이터 손실 위험이 있다. 테스트 부족 및 데이터 품질 검증(행 수, 중복) 검토가 필요하다.\"}, {\"item\": \"성능 위험\", \"result\": \"WARN\", \"detail\": \"TB_CARD_SALES_LEDGER의 BASE_YM 기준 전체 스캔 가능성이 있으며, SALES_DT와 MERCHANT_ID에 대한 인덱스 확인이 필요하다. 대량 데이터 조회 시 성능 저하 우려.\"}], \"issues\": [\"Delete Insert 방식의 멱등성 미보장으로 재처리 시 데이터 손실 또는 중복 적재 위험 존재\", \"TB_CARD_SALES_LEDGER의 BASE_YM 기준 Full Scan 가능성으로 인덱스 최적화 필요\"], \"warnings\": [\"재처리 시 중복 적재 및 데이터 손실 방지를 위한 멱등성 로직 검토 필요\", \"SALES_DT와 MERCHANT_ID 컬럼에 대한 인덱스 확인 및 성능 테스트 수행 권장\"], \"recommendations\": [\"DELETE 대신 MERGE 또는 UPSERT 방식으로 변경하여 멱등성 확보\", \"TB_CARD_SALES_LEDGER에 BASE_YM, SALES_DT, MERCHANT_ID 복합 인덱스 추가 검토\"]}",
+  "raw_llm_response": null,
   "score_breakdown": {
-    "policy_version": "practical-scoring-v3-nonblocking-warn",
-    "final_score": 0.82,
-    "rule_score": 1.0,
-    "llm_score": 0.75,
-    "valid_policy": "실행 차단 FAIL만 blocking. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS",
-    "blocking_fail_checks": [],
-    "downgraded_fail_checks": [],
-    "score_policy": {
-      "policy_version": "practical-scoring-v3-nonblocking-warn",
-      "effective_rule_score": 1.0,
-      "effective_llm_score": 0.75,
-      "base_score_before_penalty": 0.863,
-      "warn_penalty": 0.012,
-      "risk_penalty": 0.055,
-      "pass_count": 10,
-      "warn_count": 2,
-      "fail_count_after_normalization": 0,
-      "has_blocking_fail": false,
-      "score_policy": "실행 차단 오류만 FAIL. 테스트/성능/품질/재처리 보완은 WARN. blocking 없으면 PASS_WITH_WARNINGS 영역 유지"
-    },
-    "risk_penalty": {
-      "total_penalty": 0.055,
-      "penalties": {
-        "join_complexity": 0.018000000000000002,
-        "aggregation_group_by": 0.01,
-        "aggregate_functions": 0.012,
-        "case_classification": 0.006,
-        "table_load": 0.006,
-        "delete_insert_reprocess_review": 0.004,
-        "condition_complexity": 0.006,
-        "performance_review": 0.008,
-        "test_coverage_gap": 0.008,
-        "reprocess_or_duplication_review": 0.008,
-        "data_quality_review": 0.008,
-        "warning_volume": 0.006
+    "query_sql": "DELETE FROM TB_DEDUCTION_MONTHLY_SUMMARY\nWHERE BASE_YM = :base_ym;\n\nINSERT INTO TB_DEDUCTION_MONTHLY_SUMMARY (\n    CUSTOMER_ID,\n    BASE_YM,\n    MERCHANT_TYPE,\n    TOTAL_AMT,\n    TXN_COUNT,\n    REG_DTM\n)\nSELECT\n    S.CUSTOMER_ID AS CUSTOMER_ID,\n    S.BASE_YM AS BASE_YM,\n    S.MERCHANT_TYPE AS MERCHANT_TYPE,\n    S.TOTAL_AMT AS TOTAL_AMT,\n    S.TXN_COUNT AS TXN_COUNT,\n    NOW() AS REG_DTM\nFROM (\nSELECT\n    A.CUSTOMER_ID AS CUSTOMER_ID,\n    A.BASE_YM AS BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND AS MERCHANT_TYPE,\n    SUM(A.SALES_AMT) AS TOTAL_AMT,\n    COUNT(*) AS TXN_COUNT\nFROM TB_CARD_SALES_LEDGER A\nLEFT JOIN TB_BOOK_PERF_MERCHANT J1\n  ON A.MERCHANT_ID = J1.MERCHANT_ID AND A.SALES_DT BETWEEN J1.APPLY_START_DT AND IFNULL(J1.APPLY_END_DT, '99991231')\n AND J1.USE_YN = 'Y'\nLEFT JOIN TB_TRAD_MARKET_MERCHANT J2\n  ON A.MERCHANT_ID = J2.MERCHANT_ID AND A.SALES_DT BETWEEN J2.APPLY_START_DT AND IFNULL(J2.APPLY_END_DT, '99991231')\n AND J2.USE_YN = 'Y'\nLEFT JOIN TB_GENERAL_DEDUCT_MERCHANT J3\n  ON A.MERCHANT_ID = J3.MERCHANT_ID AND A.SALES_DT BETWEEN J3.APPLY_START_DT AND IFNULL(J3.APPLY_END_DT, '99991231')\n AND J3.USE_YN = 'Y'\nWHERE A.BASE_YM = :base_ym\n  AND A.CANCEL_YN = 'N'\n  AND (J1.MERCHANT_ID IS NOT NULL OR J2.MERCHANT_ID IS NOT NULL OR J3.MERCHANT_ID IS NOT NULL)\nGROUP BY\n    A.CUSTOMER_ID,\n    A.BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND\n) S\n",
+    "batch_type": "aggregation_to_table",
+    "target": {
+      "table": "TB_DEDUCTION_MONTHLY_SUMMARY",
+      "table_role": "monthly_summary",
+      "load_strategy": "delete_insert",
+      "execution_strategy": {
+        "type": "replace_partition",
+        "target_table": "TB_DEDUCTION_MONTHLY_SUMMARY",
+        "partition_column": "BASE_YM",
+        "partition_param": "base_ym"
       },
-      "signals": {
-        "join_count": 3,
-        "aggregate_count": 2,
-        "warning_count": 4,
-        "has_group_by": true,
-        "has_case": true,
-        "has_insert": true,
-        "has_delete_or_delete_insert": true,
-        "scoring_source": "query.sql for structural risk; checks/warnings only for review signals"
-      }
-    }
+      "delete_sql": "DELETE FROM TB_DEDUCTION_MONTHLY_SUMMARY WHERE BASE_YM = :base_ym",
+      "columns": [
+        "CUSTOMER_ID",
+        "BASE_YM",
+        "MERCHANT_TYPE",
+        "TOTAL_AMT",
+        "TXN_COUNT",
+        "REG_DTM"
+      ]
+    },
+    "validation_rules": {
+      "min_rows": 0,
+      "not_null_columns": [
+        "CUSTOMER_ID",
+        "BASE_YM"
+      ]
+    },
+    "validation_profile": {
+      "batch_type": "aggregation_to_table",
+      "output_format": "",
+      "source_table": "TB_CARD_SALES_LEDGER",
+      "output_pattern": "",
+      "query_sql": "DELETE FROM TB_DEDUCTION_MONTHLY_SUMMARY\nWHERE BASE_YM = :base_ym;\n\nINSERT INTO TB_DEDUCTION_MONTHLY_SUMMARY (\n    CUSTOMER_ID,\n    BASE_YM,\n    MERCHANT_TYPE,\n    TOTAL_AMT,\n    TXN_COUNT,\n    REG_DTM\n)\nSELECT\n    S.CUSTOMER_ID AS CUSTOMER_ID,\n    S.BASE_YM AS BASE_YM,\n    S.MERCHANT_TYPE AS MERCHANT_TYPE,\n    S.TOTAL_AMT AS TOTAL_AMT,\n    S.TXN_COUNT AS TXN_COUNT,\n    NOW() AS REG_DTM\nFROM (\nSELECT\n    A.CUSTOMER_ID AS CUSTOMER_ID,\n    A.BASE_YM AS BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND AS MERCHANT_TYPE,\n    SUM(A.SALES_AMT) AS TOTAL_AMT,\n    COUNT(*) AS TXN_COUNT\nFROM TB_CARD_SALES_LEDGER A\nLEFT JOIN TB_BOOK_PERF_MERCHANT J1\n  ON A.MERCHANT_ID = J1.MERCHANT_ID AND A.SALES_DT BETWEEN J1.APPLY_START_DT AND IFNULL(J1.APPLY_END_DT, '99991231')\n AND J1.USE_YN = 'Y'\nLEFT JOIN TB_TRAD_MARKET_MERCHANT J2\n  ON A.MERCHANT_ID = J2.MERCHANT_ID AND A.SALES_DT BETWEEN J2.APPLY_START_DT AND IFNULL(J2.APPLY_END_DT, '99991231')\n AND J2.USE_YN = 'Y'\nLEFT JOIN TB_GENERAL_DEDUCT_MERCHANT J3\n  ON A.MERCHANT_ID = J3.MERCHANT_ID AND A.SALES_DT BETWEEN J3.APPLY_START_DT AND IFNULL(J3.APPLY_END_DT, '99991231')\n AND J3.USE_YN = 'Y'\nWHERE A.BASE_YM = :base_ym\n  AND A.CANCEL_YN = 'N'\n  AND (J1.MERCHANT_ID IS NOT NULL OR J2.MERCHANT_ID IS NOT NULL OR J3.MERCHANT_ID IS NOT NULL)\nGROUP BY\n    A.CUSTOMER_ID,\n    A.BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND\n) S",
+      "has_file_output": false,
+      "has_aggregate": true,
+      "has_group_by": true,
+      "has_amount": true,
+      "has_use_yn": true,
+      "has_effective_date": true,
+      "has_base_date_param": false,
+      "has_join": true,
+      "has_insert_or_delete": true,
+      "is_simple_export": false
+    },
+    "policy_version": "practical-scoring-v3-nonblocking-warn-fast-no-llm",
+    "final_score": 0.856,
+    "rule_score": 1.0,
+    "llm_score": null,
+    "validation_mode": "fast_rule_based_no_llm",
+    "token_optimization": "LLM validation skipped. Summary/interpretation/review items are generated from batch_spec/query.sql/profile."
   }
 }

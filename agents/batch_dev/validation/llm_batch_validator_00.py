@@ -127,12 +127,19 @@ def validate_batch_generation(
     """
     배치 생성 결과를 검증하고 리포트를 생성한다.
 
-    토큰/응답시간 최적화 버전:
-    - 기본값은 LLM을 호출하지 않고 룰 기반 검증 결과를 실무형 요약으로 정리한다.
-    - 화면에 표시되는 summary / interpretation / warnings / recommendations는
-      batch_spec, query.sql, validation profile 기반으로 생성하므로 기존 화면 품질을 유지한다.
-    - LLM 검증이 꼭 필요할 때만 BATCH_VALIDATION_USE_LLM=true 와
-      BATCH_VALIDATION_FORCE_LLM=true 를 함께 설정하면 기존 LLM 검증 경로를 탄다.
+    처리 순서
+    1. 룰 기반 검증을 먼저 수행한다.
+       - 파일 존재 여부
+       - SQL 위험 패턴
+       - spec과 SQL 간 기본 일관성
+    2. LLM Client가 있으면 의미 기반 검증을 수행한다.
+       - 요청서 의도와 생성 결과 일치 여부
+       - 누락 조건 여부
+       - 사람이 이해하기 쉬운 해석 생성
+    3. 두 결과를 병합한다.
+    4. output_dir가 있으면 validation_report.json / validation_report.md를 저장한다.
+
+    LLM이 없어도 룰 기반 리포트는 생성된다.
     """
 
     config = config or RuleValidationConfig()
@@ -145,128 +152,28 @@ def validate_batch_generation(
         config=config,
     )
 
-    # 기본은 fast mode: LLM 호출 없이 기존 후처리 함수로 동일한 화면 결과를 만든다.
-    # 35초 이상 걸리던 validate_generated_files > upstage_chat_generate 호출을 제거한다.
-    force_llm = os.getenv("BATCH_VALIDATION_FORCE_LLM", "false").strip().lower() in {"1", "true", "yes", "y"}
-    use_llm = os.getenv("BATCH_VALIDATION_USE_LLM", "true").strip().lower() in {"1", "true", "yes", "y"}
+    effective_llm_client = llm_client or _build_default_llm_client_if_enabled()
 
-    if not (use_llm and force_llm):
-        final_report = _build_fast_validation_report(
-            rule_report=rule_report,
-            batch_spec=batch_spec,
-            generated_files=normalized_files,
-        )
+    if effective_llm_client is None:
+        final_report = rule_report
     else:
-        effective_llm_client = llm_client or _build_default_llm_client_if_enabled()
-        if effective_llm_client is None:
-            final_report = _build_fast_validation_report(
-                rule_report=rule_report,
+        try:
+            llm_report = _run_llm_validation(
+                request_text=request_text,
                 batch_spec=batch_spec,
                 generated_files=normalized_files,
+                llm_client=effective_llm_client,
             )
-        else:
-            try:
-                llm_report = _run_llm_validation(
-                    request_text=request_text,
-                    batch_spec=batch_spec,
-                    generated_files=normalized_files,
-                    llm_client=effective_llm_client,
-                )
-                final_report = _merge_reports(rule_report, llm_report)
-            except Exception as e:
-                final_report = _append_llm_failure_warning(rule_report, e)
+            final_report = _merge_reports(rule_report, llm_report)
+        except Exception as e:
+            # LLM timeout/JSON parsing 오류가 나도 배치 생성 자체를 실패로 만들지 않는다.
+            # 실무에서는 LLM 검증은 보조 검증이고, 최소한의 룰 검증 결과는 반드시 남긴다.
+            final_report = _append_llm_failure_warning(rule_report, e)
 
     if output_dir is not None:
         write_validation_reports(final_report, output_dir)
 
     return final_report
-
-
-def _build_fast_validation_report(
-    *,
-    rule_report: ValidationReport,
-    batch_spec: Mapping[str, Any],
-    generated_files: Mapping[str, str],
-) -> ValidationReport:
-    """LLM 호출 없이 화면용 검증 리포트를 생성한다.
-
-    기존 LLM 응답을 그대로 노출하지 않고도 화면에 필요한 값은 이미 아래 함수들이 만든다.
-    - _make_concise_summary
-    - _make_concise_interpretation
-    - _profile_review_items / _filter_profile_items
-
-    따라서 validate_generated_files 단계의 토큰 사용량과 30초대 LLM 지연을 제거할 수 있다.
-    """
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
-
-    summary = _make_concise_summary(batch_spec, generated_files, rule_report.summary)
-    interpretation = _make_concise_interpretation(batch_spec, generated_files, rule_report.interpretation)
-
-    profile_items = _profile_review_items(profile)
-    warnings = _filter_profile_items(rule_report.warnings + profile_items, profile)
-    recommendations = _filter_profile_items(rule_report.recommendations + profile_items, profile)
-
-    has_blocking_fail = bool(rule_report.issues)
-    score = _calculate_fast_validation_score(
-        rule_report=rule_report,
-        profile=profile,
-        warnings=warnings,
-        has_blocking_fail=has_blocking_fail,
-    )
-
-    return ValidationReport(
-        valid=rule_report.valid and not has_blocking_fail,
-        score=score,
-        summary=summary,
-        interpretation=interpretation,
-        detected_batch_type=rule_report.detected_batch_type,
-        checks=rule_report.checks,
-        issues=rule_report.issues,
-        warnings=warnings,
-        recommendations=recommendations,
-        raw_llm_response=None,
-        score_breakdown={
-            **(rule_report.score_breakdown or {}),
-            "policy_version": f"{VALIDATION_POLICY_VERSION}-fast-no-llm",
-            "final_score": score,
-            "rule_score": rule_report.score,
-            "llm_score": None,
-            "validation_mode": "fast_rule_based_no_llm",
-            "token_optimization": "LLM validation skipped. Summary/interpretation/review items are generated from batch_spec/query.sql/profile.",
-        },
-    )
-
-
-def _calculate_fast_validation_score(
-    *,
-    rule_report: ValidationReport,
-    profile: Mapping[str, Any],
-    warnings: List[str],
-    has_blocking_fail: bool,
-) -> float:
-    """LLM 없이도 기존 LLM 검증 점수대와 유사한 실무형 점수를 만든다."""
-    if has_blocking_fail or not rule_report.valid:
-        return round(min(rule_report.score, 0.69), 3)
-
-    # 기본 산출물/SQL 검증이 통과하면 PASS_WITH_WARNINGS 영역으로 본다.
-    score = max(float(rule_report.score or 0.0), 0.86)
-
-    # 단순 파일 export는 기존 LLM 검증 결과와 유사하게 0.88대 유지.
-    if profile.get("is_simple_export"):
-        score = max(score, 0.888)
-
-    # 유효기간/사용여부/기준일자 조건이 있는 표준 export는 검토사항이 있어도 정상 생성으로 본다.
-    if profile.get("has_file_output") and profile.get("has_effective_date") and profile.get("has_base_date_param"):
-        score = max(score, 0.884)
-
-    # 복잡 배치는 LLM 없이 과대평가하지 않도록 약간 보수적으로 둔다.
-    if profile.get("has_join") or profile.get("has_aggregate") or profile.get("has_group_by"):
-        score = min(score, 0.86)
-
-    # WARN은 실패가 아니므로 작은 감점만 적용한다.
-    score -= min(0.012, len(warnings or []) * 0.001)
-
-    return round(max(0.0, min(1.0, score)), 3)
 
 
 class ProjectLLMClient:

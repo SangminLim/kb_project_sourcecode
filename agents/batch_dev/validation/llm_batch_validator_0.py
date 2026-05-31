@@ -127,12 +127,19 @@ def validate_batch_generation(
     """
     배치 생성 결과를 검증하고 리포트를 생성한다.
 
-    토큰/응답시간 최적화 버전:
-    - 기본값은 LLM을 호출하지 않고 룰 기반 검증 결과를 실무형 요약으로 정리한다.
-    - 화면에 표시되는 summary / interpretation / warnings / recommendations는
-      batch_spec, query.sql, validation profile 기반으로 생성하므로 기존 화면 품질을 유지한다.
-    - LLM 검증이 꼭 필요할 때만 BATCH_VALIDATION_USE_LLM=true 와
-      BATCH_VALIDATION_FORCE_LLM=true 를 함께 설정하면 기존 LLM 검증 경로를 탄다.
+    처리 순서
+    1. 룰 기반 검증을 먼저 수행한다.
+       - 파일 존재 여부
+       - SQL 위험 패턴
+       - spec과 SQL 간 기본 일관성
+    2. LLM Client가 있으면 의미 기반 검증을 수행한다.
+       - 요청서 의도와 생성 결과 일치 여부
+       - 누락 조건 여부
+       - 사람이 이해하기 쉬운 해석 생성
+    3. 두 결과를 병합한다.
+    4. output_dir가 있으면 validation_report.json / validation_report.md를 저장한다.
+
+    LLM이 없어도 룰 기반 리포트는 생성된다.
     """
 
     config = config or RuleValidationConfig()
@@ -145,128 +152,28 @@ def validate_batch_generation(
         config=config,
     )
 
-    # 기본은 fast mode: LLM 호출 없이 기존 후처리 함수로 동일한 화면 결과를 만든다.
-    # 35초 이상 걸리던 validate_generated_files > upstage_chat_generate 호출을 제거한다.
-    force_llm = os.getenv("BATCH_VALIDATION_FORCE_LLM", "false").strip().lower() in {"1", "true", "yes", "y"}
-    use_llm = os.getenv("BATCH_VALIDATION_USE_LLM", "true").strip().lower() in {"1", "true", "yes", "y"}
+    effective_llm_client = llm_client or _build_default_llm_client_if_enabled()
 
-    if not (use_llm and force_llm):
-        final_report = _build_fast_validation_report(
-            rule_report=rule_report,
-            batch_spec=batch_spec,
-            generated_files=normalized_files,
-        )
+    if effective_llm_client is None:
+        final_report = rule_report
     else:
-        effective_llm_client = llm_client or _build_default_llm_client_if_enabled()
-        if effective_llm_client is None:
-            final_report = _build_fast_validation_report(
-                rule_report=rule_report,
+        try:
+            llm_report = _run_llm_validation(
+                request_text=request_text,
                 batch_spec=batch_spec,
                 generated_files=normalized_files,
+                llm_client=effective_llm_client,
             )
-        else:
-            try:
-                llm_report = _run_llm_validation(
-                    request_text=request_text,
-                    batch_spec=batch_spec,
-                    generated_files=normalized_files,
-                    llm_client=effective_llm_client,
-                )
-                final_report = _merge_reports(rule_report, llm_report)
-            except Exception as e:
-                final_report = _append_llm_failure_warning(rule_report, e)
+            final_report = _merge_reports(rule_report, llm_report)
+        except Exception as e:
+            # LLM timeout/JSON parsing 오류가 나도 배치 생성 자체를 실패로 만들지 않는다.
+            # 실무에서는 LLM 검증은 보조 검증이고, 최소한의 룰 검증 결과는 반드시 남긴다.
+            final_report = _append_llm_failure_warning(rule_report, e)
 
     if output_dir is not None:
         write_validation_reports(final_report, output_dir)
 
     return final_report
-
-
-def _build_fast_validation_report(
-    *,
-    rule_report: ValidationReport,
-    batch_spec: Mapping[str, Any],
-    generated_files: Mapping[str, str],
-) -> ValidationReport:
-    """LLM 호출 없이 화면용 검증 리포트를 생성한다.
-
-    기존 LLM 응답을 그대로 노출하지 않고도 화면에 필요한 값은 이미 아래 함수들이 만든다.
-    - _make_concise_summary
-    - _make_concise_interpretation
-    - _profile_review_items / _filter_profile_items
-
-    따라서 validate_generated_files 단계의 토큰 사용량과 30초대 LLM 지연을 제거할 수 있다.
-    """
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
-
-    summary = _make_concise_summary(batch_spec, generated_files, rule_report.summary)
-    interpretation = _make_concise_interpretation(batch_spec, generated_files, rule_report.interpretation)
-
-    profile_items = _profile_review_items(profile)
-    warnings = _filter_profile_items(rule_report.warnings + profile_items, profile)
-    recommendations = _filter_profile_items(rule_report.recommendations + profile_items, profile)
-
-    has_blocking_fail = bool(rule_report.issues)
-    score = _calculate_fast_validation_score(
-        rule_report=rule_report,
-        profile=profile,
-        warnings=warnings,
-        has_blocking_fail=has_blocking_fail,
-    )
-
-    return ValidationReport(
-        valid=rule_report.valid and not has_blocking_fail,
-        score=score,
-        summary=summary,
-        interpretation=interpretation,
-        detected_batch_type=rule_report.detected_batch_type,
-        checks=rule_report.checks,
-        issues=rule_report.issues,
-        warnings=warnings,
-        recommendations=recommendations,
-        raw_llm_response=None,
-        score_breakdown={
-            **(rule_report.score_breakdown or {}),
-            "policy_version": f"{VALIDATION_POLICY_VERSION}-fast-no-llm",
-            "final_score": score,
-            "rule_score": rule_report.score,
-            "llm_score": None,
-            "validation_mode": "fast_rule_based_no_llm",
-            "token_optimization": "LLM validation skipped. Summary/interpretation/review items are generated from batch_spec/query.sql/profile.",
-        },
-    )
-
-
-def _calculate_fast_validation_score(
-    *,
-    rule_report: ValidationReport,
-    profile: Mapping[str, Any],
-    warnings: List[str],
-    has_blocking_fail: bool,
-) -> float:
-    """LLM 없이도 기존 LLM 검증 점수대와 유사한 실무형 점수를 만든다."""
-    if has_blocking_fail or not rule_report.valid:
-        return round(min(rule_report.score, 0.69), 3)
-
-    # 기본 산출물/SQL 검증이 통과하면 PASS_WITH_WARNINGS 영역으로 본다.
-    score = max(float(rule_report.score or 0.0), 0.86)
-
-    # 단순 파일 export는 기존 LLM 검증 결과와 유사하게 0.88대 유지.
-    if profile.get("is_simple_export"):
-        score = max(score, 0.888)
-
-    # 유효기간/사용여부/기준일자 조건이 있는 표준 export는 검토사항이 있어도 정상 생성으로 본다.
-    if profile.get("has_file_output") and profile.get("has_effective_date") and profile.get("has_base_date_param"):
-        score = max(score, 0.884)
-
-    # 복잡 배치는 LLM 없이 과대평가하지 않도록 약간 보수적으로 둔다.
-    if profile.get("has_join") or profile.get("has_aggregate") or profile.get("has_group_by"):
-        score = min(score, 0.86)
-
-    # WARN은 실패가 아니므로 작은 감점만 적용한다.
-    score -= min(0.012, len(warnings or []) * 0.001)
-
-    return round(max(0.0, min(1.0, score)), 3)
 
 
 class ProjectLLMClient:
@@ -1149,92 +1056,91 @@ def _build_validation_prompt(
     """
     LLM 검증 프롬프트를 생성한다.
 
-    토큰 절감 버전:
-    - 화면에 그대로 출력되는 batch_spec, ERWin meta, Rule, SQL, 생성 파일 목록은 UI/평가 패널에서 별도 표시한다.
-    - LLM에는 해석/검증 요약 생성에 필요한 최소 단서만 전달한다.
-    - 최종 summary/interpretation/warnings/recommendations는 기존 후처리 함수
-      (_make_concise_summary, _make_concise_interpretation, _filter_profile_items)에서
-      batch_spec/query.sql 기반으로 다시 정규화하므로 화면 결과 형태는 유지된다.
+    특정 업무/테이블을 하드코딩하지 않고, batch_spec/SQL/job.py 단서만으로
+    생성 배치의 목적 적합성, SQL 의미, 운영 위험, 보완점을 평가하게 한다.
     """
 
     compact_spec = _build_compact_spec(batch_spec)
     query_sql = _extract_query_sql(batch_spec, generated_files)
-    profile = _infer_batch_validation_profile(batch_spec, generated_files)
+    job_py = generated_files.get("job.py", "")
+    readme = generated_files.get("README.md", "")
+    test_job = generated_files.get("test_job.py", "")
 
-    # LLM 입력은 요약 검증에 필요한 최소 정보만 유지한다.
-    # job.py/README/test_job.py 전문은 토큰을 크게 늘리므로 보내지 않는다.
-    # 대신 파일 존재 여부와 실행 단서만 짧게 제공한다.
-    generated_file_names = sorted([str(name) for name in generated_files.keys() if str(name).strip()])
-    job_signals = _summarize_job_py(generated_files.get("job.py", ""))
+    schema = json.dumps(DEFAULT_LLM_JSON_SCHEMA, ensure_ascii=False, indent=2)
 
-    minimal_spec = {
-        "batch_id": compact_spec.get("batch_id"),
-        "batch_name": compact_spec.get("batch_name"),
-        "batch_type": compact_spec.get("batch_type"),
-        "parameters": compact_spec.get("parameters", []),
-        "source": compact_spec.get("source", {}),
-        "target": compact_spec.get("target", {}),
-        "resolved_tables": compact_spec.get("resolved_tables", {}),
-        "resolved_columns": compact_spec.get("resolved_columns", {}),
-        "sql_template": compact_spec.get("sql_template"),
-        "validation_profile": {
-            "has_file_output": profile.get("has_file_output"),
-            "has_use_yn": profile.get("has_use_yn"),
-            "has_effective_date": profile.get("has_effective_date"),
-            "has_base_date_param": profile.get("has_base_date_param"),
-            "has_aggregate": profile.get("has_aggregate"),
-            "has_group_by": profile.get("has_group_by"),
-            "has_amount": profile.get("has_amount"),
-            "is_simple_export": profile.get("is_simple_export"),
-        },
-        "generated_files": generated_file_names,
-        "job_signals": job_signals,
-    }
-
-    # 기존 JSON 스키마 전체 대신 출력 필드만 짧게 고정한다.
-    # checks는 4~6개, warnings/recommendations는 최대 3개로 제한한다.
     return f"""
-너는 금융권 배치 산출물 검증자다.
-아래 입력만 기준으로 JSON 객체 하나만 반환해라. JSON 밖 설명/Markdown/코드블록은 금지한다.
-입력에 없는 테이블/컬럼/업무 규칙은 추측하지 않는다.
+너는 금융권 배치 개발 산출물을 검증하는 수석 배치 아키텍트다.
+아래 입력만 기준으로 생성 결과를 해석하고 검증해라.
 
-출력 형식:
-{{
-  "valid": true,
-  "score": 0.0,
-  "summary": "1문장 요약",
-  "interpretation": "핵심 처리 2~3개",
-  "detected_batch_type": "db_to_file|file_to_db|db_to_db|aggregation_to_table|null",
-  "checks": [
-    {{"item": "요청 목적 적합성", "result": "PASS|WARN|FAIL", "detail": "짧은 근거"}}
-  ],
-  "issues": [],
-  "warnings": [],
-  "recommendations": []
-}}
-
-판단 규칙:
-- FAIL은 필수 파일 누락, query.sql 없음, 위험 SQL, JOIN 조건 누락, 필수 파라미터 불일치처럼 실행 차단 오류에만 사용한다.
-- 테스트 부족, 인덱스 확인, 중복/덮어쓰기, 파일 포맷, 기준일자 검증은 WARN이다.
-- 단순 파일 export에는 금액 합계 검증을 쓰지 않는다.
+절대 규칙:
+- 반드시 JSON 객체 하나만 출력한다.
+- JSON 밖에 설명, Markdown, 코드블록을 쓰지 않는다.
+- 입력에 없는 테이블/컬럼/업무 규칙을 추측하지 않는다.
+- 특정 업무명/테이블명에 하드코딩된 판단을 하지 않는다.
+- PASS만 남발하지 말고, 운영 반영 전 실제로 확인해야 할 위험을 WARN으로 분리한다.
+- FAIL은 필수 파일 누락, query.sql 없음, 위험 SQL, JOIN ON/USING 누락, SQL 구문 오류, 필수 파라미터 불일치처럼 실행 실패 가능성이 직접적인 경우에만 사용한다.
+- 테스트 부족, 인덱스 확인 필요, 데이터 품질 검증 부족, 집계 검증 부족, 운영 재처리 검토, 중복 가능성 검토는 FAIL이 아니라 WARN으로 분류한다.
+- summary는 1문장으로 짧게 쓴다.
+- interpretation은 최대 3개 핵심 처리만 담는다. 장문 설명은 금지한다.
 - warnings/recommendations는 최대 3개만 작성한다.
-- SQL 구조가 정상이고 FAIL이 없으면 score는 보통 0.80~0.89 범위로 둔다.
+- 금액/집계 컬럼이 없는 단순 파일 export에는 금액 합계 검증을 쓰지 않는다.
+- 단순 파일 export에서는 인덱스, 파일 중복 생성, 기준 파라미터, 파일 포맷 확인 위주로 작성한다.
+
+출력 JSON 스키마:
+{schema}
 
 원본 요청:
-{_clip_text(request_text, 600)}
+{_clip_text(request_text, 1500)}
 
-batch_spec 최소 정보:
-{json.dumps(minimal_spec, ensure_ascii=False, separators=(",", ":"))}
+batch_spec 핵심 정보:
+{json.dumps(compact_spec, ensure_ascii=False, indent=2)}
 
 생성 SQL:
-{_clip_text(query_sql, 1200)}
+{_clip_text(query_sql, 2500)}
+
+job.py 실행 단서:
+{_summarize_job_py(job_py)}
+
+README 단서:
+{_clip_text(readme, 700)}
+
+test_job.py 단서:
+{_clip_text(test_job, 700)}
 
 검증 관점:
-1. 요청 목적과 batch_type/source/target이 맞는가?
-2. SQL WHERE/파라미터가 요청 조건과 맞는가?
-3. 파일 출력 설정이 운영 관점에서 적절한가?
-4. 성능/재처리/파일 중복 위험을 WARN으로 분리했는가?
+1. 원본 요청의 목적과 batch_type이 일치하는가?
+2. batch_spec의 source/target/parameters와 SQL이 의미적으로 연결되는가?
+3. SQL의 FROM/JOIN/WHERE/파라미터 조건이 배치 목적에 맞는가?
+4. 기준일자/기간 조건이 있는 경우 경계 조건이 자연스러운가?
+5. 파일 생성 배치라면 output_format, output_file_pattern, output_dir, encoding이 운영 관점에서 적절한가?
+6. job.py가 DB 조회, 파라미터 처리, 파일 출력 또는 테이블 적재를 수행할 단서를 갖는가?
+7. 테스트 파일이 생성 산출물 존재 여부만 보는지, SQL/파일포맷/파라미터까지 검증하는지 판단하라.
+8. 성능 위험: Full Scan, 인덱스 필요 컬럼, 대량 데이터 조회 가능성을 검토하라.
+9. 데이터 품질 위험: row count, 중복, 기준일자 검증 필요 여부를 검토하라. 금액 컬럼이 없으면 금액 합계 검증은 제외하라.
+10. 재처리 위험: 파일 덮어쓰기, 중복 적재, 삭제 후 적재 여부, 멱등성 여부를 검토하라.
+
+checks 작성 가이드:
+- 4~6개만 작성한다.
+- 항목 예시: 요청 목적 적합성, SQL 의미 일치성, 파라미터 일치성, 파일 출력 설정, 운영 재처리 위험, 성능 위험
+- detail에는 입력에서 확인한 근거를 짧게 포함한다.
+
+score 기준:
+- 0.90 이상: 단순하고 위험이 경미하며 테스트/재처리/성능 검토사항이 거의 없음
+- 0.80~0.89: 기본적으로 사용 가능하지만 운영 확인/WARN 필요
+- 0.70~0.79: 실행 가능하지만 JOIN/GROUP BY/INSERT/DELETE 등으로 운영 검증 부담이 큼
+- 0.50~0.69: 실행 가능성은 있으나 운영 반영 전 구조적 보완이 필요함
+- 0.50 미만: 생성 결과를 그대로 쓰기 어려움
+
+실무 해석:
+- valid=true이고 FAIL이 없으면 일반적으로 0.80 이상을 우선 고려한다.
+- 0.70대는 실행은 가능하지만 보완 부담이 큰 경우에만 사용한다.
+
+중요:
+- 단순 파일 export와 다중 JOIN/집계/적재 배치에 같은 점수를 주지 마라.
+- 단, WARN은 실패가 아니다. SQL 구조가 정상이고 FAIL이 없다면 0.70 미만으로 과도하게 낮추지 마라.
+- JOIN, GROUP BY, SUM/COUNT, CASE, INSERT, DELETE/INSERT 재처리, 테스트 부족, 데이터 품질 검증 부족이 있으면 점수를 합리적으로 낮춰라.
 """.strip()
+
 
 def _build_compact_spec(batch_spec: Mapping[str, Any]) -> Dict[str, Any]:
     """LLM에 전달할 batch_spec 핵심 필드만 구성한다."""

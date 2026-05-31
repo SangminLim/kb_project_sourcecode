@@ -1,7 +1,7 @@
 # 🔍 생성 결과 검증
 
 - 상태: **PASS WITH WARNINGS**
-- 점수: **0.82**
+- 점수: **0.86**
 - 배치유형: **aggregation_to_table**
 
 ## 요약
