@@ -6,6 +6,11 @@ from typing import Any, Callable, Dict, List, Optional
 import requests
 
 try:
+    from langsmith.run_helpers import get_current_run_tree as _langsmith_get_current_run_tree
+except Exception:
+    _langsmith_get_current_run_tree = None
+
+try:
     from langsmith import traceable as _langsmith_traceable
 except Exception:
     _langsmith_traceable = None
@@ -131,6 +136,63 @@ def _run_with_langsmith_trace(
     return _wrapped(**(inputs or {}))
 
 
+
+
+def _attach_langsmith_usage_metadata(usage: Dict[str, Any]) -> None:
+    """requests 기반 Upstage 호출에서 받은 token usage를 현재 LangSmith run metadata에 붙인다.
+
+    LangChain ChatModel을 통하지 않고 requests.post로 직접 호출하면 LangSmith가
+    prompt/completion token을 자동 수집하지 못할 수 있다. 이 함수는 Upstage 응답의
+    usage 값을 현재 trace run의 metadata에 명시적으로 기록한다.
+    """
+    if not usage or _langsmith_get_current_run_tree is None:
+        return
+
+    try:
+        run_tree = _langsmith_get_current_run_tree()
+        if run_tree is None:
+            return
+
+        prompt_tokens = usage.get("prompt_tokens") or usage.get("input_tokens")
+        completion_tokens = usage.get("completion_tokens") or usage.get("output_tokens")
+        total_tokens = usage.get("total_tokens")
+
+        if total_tokens is None:
+            try:
+                total_tokens = int(prompt_tokens or 0) + int(completion_tokens or 0)
+            except Exception:
+                total_tokens = None
+
+        token_metadata = {
+            "usage": usage,
+            "token_usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
+            "usage_metadata": {
+                "input_tokens": prompt_tokens,
+                "output_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
+        }
+
+        # langsmith 버전별 RunTree 구조 차이를 흡수한다.
+        if hasattr(run_tree, "metadata") and isinstance(run_tree.metadata, dict):
+            run_tree.metadata.update(token_metadata)
+        elif hasattr(run_tree, "extra") and isinstance(run_tree.extra, dict):
+            metadata = run_tree.extra.setdefault("metadata", {})
+            if isinstance(metadata, dict):
+                metadata.update(token_metadata)
+
+        # 일부 버전은 patch() 호출 시 현재 run metadata가 서버에 반영된다.
+        patch = getattr(run_tree, "patch", None)
+        if callable(patch):
+            patch()
+    except Exception:
+        # 토큰 기록 실패가 실제 업무 응답 실패로 이어지지 않게 한다.
+        return
+
 def get_langchain_feature_flags() -> Dict[str, bool]:
     """운영 중 기능을 켜고 끌 수 있는 확장 옵션."""
     return {
@@ -209,6 +271,17 @@ def _upstage_generate_requests(prompt: str, system_prompt: str, config: ChatConf
         resp.raise_for_status()
 
         payload = resp.json()
+
+        # Upstage가 OpenAI-compatible usage를 내려주는 경우 LangSmith metadata에 직접 기록한다.
+        # requests.post 직접 호출 경로는 LangSmith가 token usage를 자동 수집하지 못할 수 있다.
+        usage = payload.get("usage", {}) or {}
+        if usage:
+            _attach_langsmith_usage_metadata(usage)
+
+        if _env_flag("UPSTAGE_DEBUG_USAGE", "false"):
+            print("[UPSTAGE RESPONSE KEYS]", list(payload.keys()))
+            print("[UPSTAGE USAGE]", usage or "<empty>")
+
         choices = payload.get("choices", [])
         if not choices:
             raise ValueError("Upstage Chat 응답에 choices 값이 없습니다.")

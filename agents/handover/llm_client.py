@@ -222,8 +222,10 @@ def _langchain_generate_text(prompt: str, system_prompt: str, config: ChatConfig
             "pip install langchain langchain-core langchain-openai 를 확인하세요."
         )
 
-    if not config.api_key:
-        raise ValueError("UPSTAGE_API_KEY가 비어 있습니다. .env에 UPSTAGE_API_KEY를 설정하세요.")
+    # vLLM은 API Key가 없어도 동작
+    if os.getenv("LLM_PROVIDER", "upstage").lower() != "vllm":
+        if not config.api_key:
+            raise ValueError("UPSTAGE_API_KEY가 비어 있습니다. .env에 UPSTAGE_API_KEY를 설정하세요.")
 
     llm = ChatOpenAI(
         api_key=config.api_key,
@@ -314,6 +316,14 @@ def ollama_generate(prompt: str, system_prompt: str, config: ChatConfig) -> str:
 
 
 def get_llm_engine_name() -> str:
+    provider = os.getenv("LLM_PROVIDER", "upstage").lower()
+
+    if provider == "vllm":
+        model = os.getenv("VLLM_CHAT_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+        if _use_langchain() and _env_flag("LANGCHAIN_REWRITE_CHAIN_ENABLED", "true"):
+            return f"langchain_vllm:{model}"
+        return f"requests_vllm:{model}"
+
     model = os.getenv("UPSTAGE_CHAT_MODEL", "solar-pro3")
     if _use_langchain() and _env_flag("LANGCHAIN_REWRITE_CHAIN_ENABLED", "true"):
         return f"langchain_upstage:{model}"

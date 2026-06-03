@@ -1,0 +1,1148 @@
+소스 기준으로 설명해야 하니까, 배치개발 요청이 들어왔을 때 실제 호출 흐름과 생성 파일 흐름을 파일별로 묶어서 정리해볼게요.
+
+12s 동안 생각함
+
+평가자에게는 이렇게 설명하면 돼.
+
+한 줄 설명
+
+배치개발 요청서를 자연어로 입력하면, LLM이 초안 Spec을 만들고, ERWin 메타데이터와 Rule 기반으로 검증·보정한 뒤, 선택된 템플릿을 통해 batch_spec.json, query.sql, job.py, README.md, test_job.py를 자동 생성하는 구조입니다.
+
+실제 처리 흐름
+배치개발 요청서 입력
+↓
+BatchDevAgent.run()
+↓
+LangGraph Workflow 실행
+↓
+build_spec
+↓
+validate_spec
+↓
+select_template
+↓
+generate_code
+↓
+validate_generated_files
+↓
+sql_improvement
+↓
+결과 파일 생성
+
+소스상으로는 BatchDevAgent.run()이 시작점이고, LangGraph 사용 설정이 켜져 있으면 run_batch_dev_graph()를 호출하고, 실패하면 기존 선형 처리 방식으로 fallback 하게 되어 있어.
+
+1단계: 요청서를 batch_spec으로 변환
+
+평가자에게 이렇게 말하면 돼.
+
+먼저 사용자가 입력한 배치개발 요청서를 표준 batch_spec으로 변환합니다. 이때 단순 문자열 치환이 아니라 request_schema, ERWin 메타데이터, Rule, LLM draft를 조합해서 배치명, 배치유형, 소스 테이블, 타깃 테이블, 조건, 조인, 출력 형식 등을 구조화합니다.
+
+request_schema.json에는 배치명, 소스테이블, 타깃테이블, 배치유형, 실행주기, 조건, 출력형식 같은 필드와 한글 alias가 정의되어 있어. 그래서 사용자가 “배치명”, “소스 테이블”, “처리유형”처럼 입력하면 이 값을 표준 필드로 뽑을 수 있어.
+
+그리고 llm_spec_builder.py는 LLM의 역할을 명확히 제한하고 있어. LLM은 SQL 전체를 직접 만드는 게 아니라, 요청서 의미를 읽고 표준 draft JSON을 만드는 역할이고, 이후 spec_builder가 ERWin 메타와 rule/template 기준으로 검증·보정해 최종 batch_spec을 만든다고 주석에 명시되어 있어.
+
+2단계: ERWin 메타 기반으로 테이블/컬럼/조인 추론
+
+이 부분은 개발자답게 강조하면 좋아.
+
+배치 요청서에 모든 테이블과 컬럼이 완벽히 적혀 있지 않아도, ERWin 메타의 table_role, column role, relations를 기반으로 기준 테이블, 금액 컬럼, 고객 컬럼, 기준월 컬럼, 조인 관계를 추론합니다. 그래서 특정 업무명을 코드에 하드코딩하지 않고 메타 기반으로 배치 스펙을 생성합니다.
+
+spec_builder.py에는 “업무별 if문을 두지 않는다”, “테이블/컬럼은 ERWin 메타에서 읽는다”, “Rule에는 처리 패턴만 둔다”, “SQL은 메타 역할/관계 기반으로 생성한다”는 설계 원칙이 들어가 있어.
+
+3단계: 템플릿 선택
+
+그 다음은 생성할 배치 유형에 맞는 템플릿을 고르는 단계야.
+
+생성된 batch_spec의 batch_type 또는 template_type을 기준으로 어떤 템플릿을 사용할지 결정합니다. 예를 들어 DB에서 파일을 만드는 배치는 db_to_file, 집계 후 테이블에 적재하는 배치는 aggregation_to_table 템플릿을 선택합니다.
+
+template_selector.py에서는 aggregation_to_table, db_to_file, file_to_db, db_to_db를 구분하고, 알 수 없는 경우 기본값으로 db_to_file을 선택하게 되어 있어.
+
+4단계: 코드 생성
+
+평가자에게는 이 부분을 꼭 보여줘야 해.
+
+최종 batch_spec이 만들어지면 code_generator가 템플릿에 값을 주입해서 실제 실행 가능한 배치 소스 파일을 생성합니다.
+
+생성 대상은 보통 이렇게 설명하면 돼.
+
+batch_spec.json  : 배치 명세
+query.sql        : 실행 SQL
+job.py           : 배치 실행 프로그램
+README.md        : 실행 방법 및 검토사항
+test_job.py      : 생성 파일 존재 여부 테스트
+
+job.py 템플릿은 DB 접속 URL을 CLI 파라미터 또는 .env에서 만들고, query.sql을 읽어서 실행한 뒤, 결과를 csv/txt/xlsx로 저장하는 구조야. base_date와 base_ym 둘 다 지원해서 일배치/월배치에 대응할 수 있게 되어 있어.
+
+README.md 템플릿에는 실행 예시, 출력 파일명, 운영 반영 전 검토사항이 들어가고, 검토사항으로 테이블/컬럼/조건 확인, 실행계획 확인, 파일 구분자/인코딩 확인, 건수/NULL/중복/금액 합계 검증 추가가 명시되어 있어.
+
+test_job.py는 최소한 batch_spec.json, query.sql, job.py가 생성되었는지 확인하는 테스트 코드야.
+
+5단계: 검증과 SQL 개선
+
+LangGraph workflow에서는 단순히 파일만 만들고 끝나는 게 아니야.
+
+validate_spec
+↓
+generate_code
+↓
+validate_generated_files
+↓
+sql_improvement
+
+순서가 있음.
+
+workflow.py에서 validate_spec, select_template, generate_code, validate_generated_files, sql_improvement, finalize 노드가 순차적으로 연결되어 있고, 최종적으로 BatchDevResult에 생성 파일, 경고, 오류, 검증 리포트, SQL 개선 리포트를 담아 반환해.
+
+평가자에게 설명할 문장
+
+이렇게 말하면 제일 자연스러워.
+
+배치개발 기능은 단순히 LLM에게 코드를 생성시키는 방식이 아니라, 요청서를 표준 batch_spec으로 구조화한 뒤 ERWin 메타데이터와 Rule 기반으로 테이블, 컬럼, 조인, 실행전략을 보정합니다. 이후 배치 유형에 맞는 Jinja 템플릿을 선택하여 query.sql, job.py, README, 테스트 파일을 생성하고, LangGraph workflow에서 Spec 검증, 생성물 검증, SQL 개선 분석까지 수행합니다. 즉 LLM은 초안 작성에 사용하고, 실제 생성은 Rule + Template 기반으로 통제하는 구조입니다.
+
+핵심은 “LLM이 마음대로 코드를 짜는 게 아니라, LLM + ERWin 메타 + Rule + Template로 통제된 배치 자동생성”이라고 설명하면 돼.
+
+
+1. 입력 요청서
+
+요청서에는 핵심 항목이 이렇게 들어와 있어.
+
+배치명: 전통시장 가맹점 파일 생성
+기준 테이블: TB_TRAD_MARKET_MERCHANT
+출력 목적: 소득공제 대상 전통시장 가맹점 추출
+출력 형식: CSV
+파일명: traditional_market_merchant_YYYYMMDD.csv
+기준일자: APPLY_START_DT
+조건:
+- 기준일자가 적용시작일자와 종료일자 사이
+- USE_YN = 'Y'
+
+즉 이 요청은 DB 테이블에서 전통시장 가맹점 데이터를 조회해서 CSV 파일로 생성하는 배치야.
+
+2. Agent가 요청서를 받음
+
+처음 시작점은 BatchDevAgent.run()이야.
+
+BatchDevAgent.run(request_text)
+
+여기서 LangGraph가 켜져 있으면 workflow를 타고, 실패하면 _run_linear()로 fallback 하게 되어 있어.
+
+흐름은 이렇게 보면 돼.
+
+전통시장 배치개발 요청서
+↓
+BatchDevAgent.run()
+↓
+build_batch_spec()
+↓
+select_template()
+↓
+generate_code()
+↓
+batch_spec.json / query.sql / job.py 생성
+3. 요청서를 batch_spec으로 구조화
+
+요청서의 한글 항목을 표준 필드로 바꿔.
+
+배치명        → batch_name
+기준 테이블    → source_table
+출력 형식      → output_format
+파일명        → output_file / output_file_prefix
+기준일자      → base_date_column
+조건          → where_clause
+
+그래서 내부적으로는 대략 이런 batch_spec이 만들어진다고 보면 돼.
+
+{
+  "batch_name": "전통시장 가맹점 파일 생성",
+  "batch_type": "db_to_file",
+  "source": {
+    "table": "TB_TRAD_MARKET_MERCHANT",
+    "base_date_column": "APPLY_START_DT"
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "traditional_market_merchant",
+    "output_file_pattern": "traditional_market_merchant_{base_date}.csv",
+    "encoding": "utf-8-sig"
+  },
+  "where_clause": "USE_YN = 'Y' AND APPLY_START_DT <= :base_date AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)"
+}
+
+여기서 중요한 건 LLM이 바로 job.py를 마음대로 만드는 게 아니라, 먼저 표준 batch_spec으로 변환한다는 점이야.
+
+4. 조건이 SQL WHERE 절로 바뀜
+
+요청서 조건은 이거였지.
+
+기준일자가 적용시작일자와 종료일자 사이
+USE_YN = 'Y'
+
+spec_builder.py에는 WHERE 조건 생성 우선순위가 있어. 먼저 요청서/LLM이 명시한 조건을 안전하게 변환하고, 유효기간형 테이블이면 시작일/종료일 조건을 만든 다음, 없으면 rule 조건을 쓰게 되어 있어.
+
+그래서 이 요청은 SQL에서 보통 이렇게 바뀌어.
+
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+즉 “기준일자가 적용시작일자와 종료일자 사이”라는 자연어가 SQL 조건으로 바뀌는 거야.
+
+5. 템플릿 선택
+
+이 요청은 DB에서 조회해서 CSV 파일을 생성하는 유형이니까 db_to_file 템플릿을 타는 게 자연스러워.
+
+template_selector.py는 batch_type을 보고 aggregation_to_table, db_to_file, file_to_db, db_to_db 중 하나를 고르고, 알 수 없으면 기본적으로 db_to_file을 선택해.
+
+즉 평가자에게는 이렇게 말하면 돼.
+
+전통시장 가맹점 요청은 DB 테이블을 조회해 CSV 파일을 생성하는 요구사항이므로 db_to_file 유형으로 분류되고, 해당 템플릿을 선택합니다.
+
+6. query.sql 생성
+
+code_generator.py는 batch_spec 값을 템플릿 변수로 바꿔서 query.sql을 생성해. 여기서 source_table, select_clause, from_clause, where_clause, output_format, output_file_prefix 같은 값을 template 값으로 구성해.
+
+그래서 전통시장 요청서 기준으로 생성되는 SQL은 이런 형태가 돼.
+
+SELECT
+  *
+FROM TB_TRAD_MARKET_MERCHANT
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+운영에서는 * 대신 ERWin 메타나 요청서에 정의된 출력 컬럼으로 바꾸는 게 더 좋고, 지금 구조도 ERWin 메타 기반으로 컬럼/조인 추론하는 쪽으로 설계되어 있어.
+
+7. job.py 생성
+
+job.py.j2 템플릿은 실행 가능한 Python 배치 프로그램이야.
+
+역할은 이거야.
+
+1. DB 접속 정보 생성
+2. query.sql 읽기
+3. base_date 또는 base_ym 파라미터 생성
+4. SQL 실행
+5. 결과를 CSV/TXT/XLSX 파일로 저장
+
+템플릿 안에서 DB URL은 --database-url로 받거나 .env의 DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SERVICE를 조합해서 만든다.
+
+그리고 base_date와 base_ym 둘 다 지원해서, SQL이 :base_date를 쓰든 :base_ym을 쓰든 실행 가능하게 파라미터를 만들어.
+
+전통시장 배치라면 실행 예시는 이런 식이야.
+
+python job.py --base-date 20260428
+
+그러면 내부적으로
+
+base_date = 20260428
+
+가 SQL의 :base_date에 바인딩돼.
+
+8. 출력 파일 생성
+
+요청서 파일명이 이거였지.
+
+traditional_market_merchant_YYYYMMDD.csv
+
+그래서 job.py는 실행 기준일을 붙여서 이런 파일을 만들게 돼.
+
+traditional_market_merchant_20260428.csv
+
+job.py.j2는 출력 형식이 csv, txt, xlsx일 때 각각 다르게 저장하도록 되어 있어. CSV면 to_csv(), TXT면 | 구분자로 저장, XLSX면 to_excel()을 사용해.
+
+9. 실제 생성 파일
+
+generate_code()는 최종적으로 아래 파일들을 만들어.
+
+batch_spec.json
+query.sql
+job.py
+README.md
+test_job.py
+
+소스상으로도 job.py.j2 → job.py, query.sql.j2 → query.sql, README.md.j2 → README.md, test_job.py.j2 → test_job.py로 매핑되어 있어.
+
+test_job.py는 최소한 batch_spec.json, query.sql, job.py가 생성됐는지 확인하는 테스트야.
+
+평가자에게 설명할 문장
+
+이렇게 말하면 돼.
+
+전통시장 가맹점 파일 생성 요청서는 먼저 batch_spec으로 구조화됩니다. 요청서의 기준 테이블 TB_TRAD_MARKET_MERCHANT, 출력 형식 CSV, 파일명, 기준일자, 조건을 파싱하고, 조건 중 “기준일자가 적용시작일자와 종료일자 사이”는 APPLY_START_DT <= :base_date AND APPLY_END_DT >= :base_date 형태의 SQL 조건으로 변환합니다. 이후 배치 유형이 DB 조회 후 파일 생성이므로 db_to_file 템플릿을 선택하고, 템플릿 엔진이 query.sql, job.py, README.md, test_job.py를 생성합니다. 생성된 job.py는 DB에 접속해 query.sql을 실행하고, 결과를 traditional_market_merchant_기준일자.csv 파일로 저장합니다.
+
+핵심은 LLM이 코드를 막 생성하는 게 아니라, 요청서 → batch_spec → template → SQL/job.py 생성 구조로 통제된다는 거야.
+========================================
+
+
+요청서 → LLM draft → rule/spec 보정 → template generation 순서로, 평가자에게 설명 가능한 말과 실제 소스 기준 동작을 같이 정리하겠습니다.
+
+6s 동안 생각함
+
+맞아. 이 기능은 LLM이 바로 SQL/배치파일을 생성하는 구조가 아니라, 중간에 batch_spec이라는 표준 설계서를 만들고, 그걸 Rule + Template로 코드 생성하는 구조야.
+
+전통시장 요청서 기준으로 흐름은 이거야.
+
+배치개발 요청서
+↓
+LLM draft JSON
+↓
+request_schema/parser 값과 병합
+↓
+ERWin 메타 기반 테이블/컬럼/조건 보정
+↓
+Rule 선택
+↓
+최종 batch_spec 생성
+↓
+Template 선택
+↓
+query.sql / job.py / README / test_job.py 생성
+1. 요청서가 들어옴
+
+전통시장 요청서는 이런 내용이야.
+
+배치명: 전통시장 가맹점 파일 생성
+기준 테이블: TB_TRAD_MARKET_MERCHANT
+출력 목적: 소득공제 대상 전통시장 가맹점 추출
+출력 형식: CSV
+파일명: traditional_market_merchant_YYYYMMDD.csv
+기준일자: APPLY_START_DT
+조건:
+- 기준일자가 적용시작일자와 종료일자 사이
+- USE_YN = 'Y'
+
+이 요청서에서 핵심은 TB_TRAD_MARKET_MERCHANT 테이블에서 기준일자에 유효한 전통시장 가맹점을 조회해서 CSV 파일을 만드는 것이야.
+
+2. LLM이 요청서를 draft JSON으로 구조화함
+
+여기서 LLM의 역할은 SQL이나 job.py를 직접 만드는 게 아니야.
+
+llm_spec_builder.py에 역할이 명확히 나뉘어 있어.
+
+LLM: 요청서 의미를 읽고 표준 draft JSON 생성
+spec_builder: draft를 ERWin 메타/rule/template 기준으로 검증·보정
+code_generator: 최종 batch_spec만 받아 파일 생성
+
+이렇게 역할 분리가 되어 있어.
+
+LLM 프롬프트도 이렇게 제한돼 있어.
+
+JSON 객체 하나만 반환
+SQL 전체를 직접 만들지 말 것
+테이블명/컬럼명/조건은 요청서와 ERWin 메타에서 추출
+조건식은 :base_date 또는 :base_ym 바인드 변수 사용
+capabilities는 일반화된 처리 능력으로 표현
+
+즉 LLM이 마음대로 코드를 짜지 못하게 하고, 표준 batch_spec 초안만 만들게 통제하고 있어.
+
+전통시장 요청서라면 LLM draft는 대략 이렇게 나와.
+
+{
+  "batch_name": "전통시장 가맹점 파일 생성",
+  "batch_type": "db_to_file",
+  "source_table": "TB_TRAD_MARKET_MERCHANT",
+  "output_format": "csv",
+  "output_file": "traditional_market_merchant_YYYYMMDD.csv",
+  "base_date_column": "APPLY_START_DT",
+  "base_parameter": "base_date",
+  "capabilities": [
+    "effective_date_matching",
+    "use_flag_filter",
+    "file_export"
+  ],
+  "conditions": [
+    "기준일자가 적용시작일자와 종료일자 사이",
+    "USE_YN = 'Y'"
+  ]
+}
+
+여기서 중요한 건 capabilities야. LLM이 “이건 파일 생성이고, 유효기간 조건이 있고, 사용여부 필터가 있구나”를 구조화해서 넘기는 거야.
+
+3. parser 값과 LLM draft를 병합함
+
+spec_builder.build_batch_spec()이 실제 핵심이야.
+
+소스 흐름은 이래.
+
+text = _normalize(user_request)
+parser_values = _extract_labeled_values(user_request)
+erwin_meta = _load_erwin_meta()
+
+llm_draft = build_batch_spec_draft_with_llm(...)
+values = _merge_llm_draft_values(parser_values, llm_draft)
+
+즉 요청서에서 라벨 기반으로 뽑은 값과 LLM이 만든 draft를 병합해. 명시적으로 적힌 요청서 값이 우선이고, 부족한 값은 LLM draft로 보완하는 방식이야.
+
+전통시장 요청서에서는 이런 식으로 값이 합쳐짐.
+
+batch_name      = 전통시장 가맹점 파일 생성
+source_table    = TB_TRAD_MARKET_MERCHANT
+output_format   = csv
+output_file     = traditional_market_merchant_YYYYMMDD.csv
+base_date_column= APPLY_START_DT
+conditions      = 유효기간 조건 + USE_YN 조건
+4. ERWin 메타로 테이블과 컬럼을 보정함
+
+그 다음 spec_builder는 ERWin 메타를 읽어서 테이블과 컬럼 역할을 확인해.
+
+table = _find_table(user_request, values, erwin_meta)
+
+그리고 role 기반으로 컬럼을 찾을 수 있게 되어 있어.
+
+ROLE_SYNONYMS = {
+  "effective_start_date": {"APPLY_START_DT", "START_DT", "VALID_START_DT"},
+  "effective_end_date": {"APPLY_END_DT", "END_DT", "VALID_END_DT"},
+  "use_flag": {"USE_YN", "VALID_YN"},
+  ...
+}
+
+이게 중요한 이유는 코드에 “전통시장 테이블이면 APPLY_START_DT를 써라”라고 박아둔 게 아니라, 컬럼 역할과 동의어 기반으로 유효시작일, 유효종료일, 사용여부 컬럼을 찾는 구조라는 거야.
+
+전통시장 테이블이 ERWin 메타에서 classification_master 성격이고 컬럼이 이렇게 있다면,
+
+APPLY_START_DT = effective_start_date
+APPLY_END_DT   = effective_end_date
+USE_YN         = use_flag
+
+이걸 이용해서 SQL 조건을 만든다.
+
+5. Rule을 선택함
+
+다음은 처리 패턴을 판단해.
+
+capabilities = _capability_list(user_request, table, erwin_meta, values)
+rule = select_business_rule(user_request, table, erwin_meta, capabilities=capabilities)
+
+build_batch_spec() 안에서 이렇게 처리 능력과 Rule을 선택해.
+
+전통시장 요청은
+
+DB에서 조회
+CSV 파일 생성
+기준일자가 적용시작일자와 종료일자 사이
+USE_YN = 'Y'
+
+이니까 Rule 관점에서는 이런 능력을 가진 요청으로 해석돼.
+
+file_export
+effective_date_matching
+use_flag_filter
+
+즉 “파일 추출 배치 + 유효기간 조건 + 사용여부 조건” 패턴으로 보는 거야.
+
+6. WHERE 조건 생성
+
+전통시장 요청에서 제일 중요한 부분이 여기야.
+
+요청서 조건:
+
+기준일자가 적용시작일자와 종료일자 사이
+USE_YN = 'Y'
+
+spec_builder.py의 _build_conditions()는 조건 생성 우선순위가 있어.
+
+1. 요청서/LLM이 명시한 조건을 안전하게 변환
+2. classification_master / effective-dated table이면 role 기반 유효기간 조건 생성
+3. business rule condition 사용
+4. 최후 fallback으로 기준일 equality 사용
+
+이렇게 설계되어 있어.
+
+전통시장 테이블은 유효기간 성격이 있으니까 SQL 조건은 이런 식으로 만들어짐.
+
+USE_YN = 'Y'
+AND APPLY_START_DT <= :base_date
+AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+즉 자연어였던
+
+기준일자가 적용시작일자와 종료일자 사이
+
+가
+
+APPLY_START_DT <= :base_date
+AND APPLY_END_DT >= :base_date
+
+구조로 바뀌는 거야.
+
+7. 최종 batch_spec이 만들어짐
+
+이제 최종적으로 생성되는 batch_spec은 이런 형태야.
+
+{
+  "version": "1.0",
+  "batch_id": "BATCH_TRAD_MARKET_MERCHANT_EXPORT",
+  "batch_name": "전통시장 가맹점 파일 생성",
+  "batch_type": "db_to_file",
+  "description": "소득공제 대상 전통시장 가맹점 추출",
+  "schedule_type": "manual",
+  "parameters": [
+    {
+      "name": "base_date",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "source": {
+    "table": "TB_TRAD_MARKET_MERCHANT",
+    "base_date_column": "APPLY_START_DT",
+    "effective_date": {
+      "start_column": "APPLY_START_DT",
+      "end_column": "APPLY_END_DT",
+      "parameter": "base_date",
+      "use_flag_column": "USE_YN"
+    }
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "traditional_market_merchant",
+    "output_file_pattern": "traditional_market_merchant_{base_date}.csv",
+    "encoding": "utf-8-sig"
+  },
+  "select_clause": "*",
+  "from_clause": "TB_TRAD_MARKET_MERCHANT",
+  "where_clause": "USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
+  "sql": "SELECT * FROM TB_TRAD_MARKET_MERCHANT WHERE ..."
+}
+
+이게 바로 “설계서”야.
+평가자에게는 batch_spec이 LLM과 코드 생성 사이의 안전장치라고 설명하면 좋아.
+
+8. Template을 선택함
+
+그 다음은 템플릿 선택이야.
+
+전통시장 요청은 DB에서 파일을 만드는 거라서 db_to_file 유형이야.
+
+template_selector.py는 batch_type을 보고 템플릿을 선택해.
+
+if batch_type in {"db_to_file", "file_to_db", "db_to_db"}:
+    return batch_type
+return "db_to_file"
+
+그래서 이 요청은 db_to_file 템플릿을 타게 돼.
+
+LangGraph workflow에서는 이 단계가 select_template 노드야. rule_source.template_type, batch_spec.template_type, select_template(batch_spec) 순서로 실제 템플릿 타입을 결정해.
+
+9. code_generator가 파일을 생성함
+
+마지막으로 generate_code()가 실행돼.
+
+created_files = generate_code(batch_spec, template_type)
+
+generate_code()는 먼저 batch_spec.json을 저장하고, 선택된 템플릿 폴더에서 아래 파일들을 렌더링해.
+
+job.py.j2      → job.py
+query.sql.j2   → query.sql
+README.md.j2   → README.md
+test_job.py.j2 → test_job.py
+
+이 매핑은 소스에 그대로 들어 있어.
+
+렌더링할 때는 batch_spec에서 값을 꺼내서 템플릿 placeholder에 넣어.
+
+{{ batch_id }}
+{{ batch_name }}
+{{ source_table }}
+{{ select_clause }}
+{{ from_clause }}
+{{ where_clause }}
+{{ output_format }}
+{{ output_file_prefix }}
+
+code_generator.py의 _build_template_values()가 이 값들을 만든다. 특히 query.sql.j2에서 쓰는 pre_sql, sql, select_clause, from_clause, where_clause 값을 구성해.
+
+10. query.sql은 이렇게 만들어짐
+
+전통시장 요청서 기준 생성 SQL은 대략 이렇게야.
+
+SELECT
+  *
+FROM TB_TRAD_MARKET_MERCHANT
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+여기서 :base_date는 실행할 때 받는 파라미터야.
+
+즉 평가자에게는 이렇게 설명하면 돼.
+
+요청서에 “기준일자가 적용시작일자와 종료일자 사이”라고 적혀 있으면, LLM은 이를 effective_date_matching capability로 구조화하고, spec_builder가 ERWin 메타의 effective_start_date/effective_end_date 역할 컬럼을 찾아 APPLY_START_DT <= :base_date AND APPLY_END_DT >= :base_date 조건을 생성합니다.
+
+11. job.py는 이렇게 만들어짐
+
+job.py.j2는 실행 가능한 배치 프로그램 템플릿이야.
+
+생성된 job.py는 이런 일을 해.
+
+1. DB 접속 URL 생성
+2. query.sql 파일 읽기
+3. base_date/base_ym 파라미터 생성
+4. SQL 실행
+5. DataFrame 검증
+6. CSV/TXT/XLSX 파일 저장
+
+DB 접속 정보는 --database-url로 받거나 .env의 DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SERVICE로 조합하게 되어 있어.
+
+그리고 SQL이 :base_date를 쓰든 :base_ym을 쓰든 실행 가능하도록 build_sql_params()가 두 파라미터를 모두 만들어 넘기는 구조야.
+
+전통시장 배치는 이렇게 실행해.
+
+python job.py --base-date 20260428
+
+그러면 결과 파일은 이렇게 생성돼.
+
+traditional_market_merchant_20260428.csv
+12. 생성물 검증까지 수행함
+
+LangGraph workflow에서는 파일 생성 후 바로 끝나지 않아.
+
+generate_code
+↓
+validate_generated_files
+↓
+sql_improvement
+↓
+finalize
+
+validate_generated_files 노드에서 생성된 파일 내용을 읽고, validate_batch_generation()으로 검증 리포트를 만든다. 그 다음 SQL 개선 기능이 켜져 있으면 sql_improvement 노드에서 개선 분석도 수행해.
+
+또 test_job.py 템플릿은 최소한 batch_spec.json, query.sql, job.py가 생성되었는지 확인하는 테스트를 포함해.
+
+평가자에게 설명할 최종 문장
+
+그냥 이렇게 말하면 돼.
+
+전통시장 가맹점 파일 생성 요청이 들어오면, 먼저 LLM이 요청서를 직접 코드로 만들지 않고 표준 draft JSON으로 구조화합니다. 예를 들어 기준 테이블, 출력 형식, 파일명, 기준일자, 조건을 source_table, output_format, output_file, base_date_column, conditions, capabilities로 정리합니다. 이후 spec_builder가 request_schema 파싱 결과와 LLM draft를 병합하고, ERWin 메타데이터의 table_role과 column role을 기준으로 테이블, 컬럼, 유효기간 조건을 보정합니다. Rule은 처리 패턴만 결정하고, 최종적으로 batch_spec이라는 표준 설계서를 만듭니다. 그 다음 db_to_file 템플릿을 선택해 query.sql, job.py, README.md, test_job.py를 생성합니다. 즉 LLM은 초안 구조화에 사용하고, 실제 SQL과 배치파일은 Rule + ERWin 메타 + Template 기반으로 통제하여 생성합니다.
+
+핵심은 이거야.
+
+LLM = 요청서 의미 해석 / draft 생성
+Rule = 처리 패턴 결정
+ERWin Meta = 테이블/컬럼/조인 보정
+batch_spec = 표준 설계서
+Template = 실제 SQL/job.py 생성
+
+이렇게 설명하면 “LLM이 그냥 코드를 찍어낸 것”이 아니라 통제 가능한 배치 자동생성 구조로 보일 거야.
+
+
+===============
+
+ERWin 메타데이터에 정의된 column role(effective_start_date, effective_end_date, use_flag)을 기준으로 컬럼을 동적으로 찾고, role별 Rule을 적용하여 SQL 조건을 생성합니다.
+
+그러면
+
+전통시장
+도서공연
+일반소득공제
+
+모두 같은 로직 사용.
+
+실제로 네 소스가 진짜 좋은 구조가 되려면
+
+role = effective_start_date
+
+같은 역할(role) 기준으로 처리해야 하고,
+
+APPLY_START_DT
+
+같은 실제 컬럼명은 ERWin 메타에서 읽어와야 해.
+
+그래서 내가 보기엔 질문 하나만 확인하면 돼.
+
+현재 ERWin 메타에
+
+{
+  "column_name": "APPLY_START_DT",
+  "role": "effective_start_date"
+}
+
+이런 구조가 들어있어?
+
+들어있다면
+
+👉 거의 하드코딩 아님.
+
+안 들어있고 코드에
+
+APPLY_START_DT
+APPLY_END_DT
+
+가 박혀 있으면
+
+👉 부분 하드코딩 맞음.
+
+이 차이가 꽤 커. 경진대회에서 설명할 때도 "컬럼명 기반"이 아니라 "역할(Role) 기반 SQL 생성"이라고 말하는 게 훨씬 점수를 잘 받아.
+
+======================
+
+실제 업무에서는 컬럼명을 코드에 박지 않고, 아래처럼 구현하는 게 맞아.
+
+요청서
+↓
+LLM이 의미 구조화
+↓
+메타데이터에서 테이블/컬럼 role 조회
+↓
+Rule이 role 기준으로 SQL 패턴 생성
+↓
+템플릿이 query.sql/job.py 생성
+↓
+개발자가 검토 후 반영
+
+핵심은 이거야.
+
+APPLY_START_DT를 코드에 박는 게 아니라
+effective_start_date 역할 컬럼을 찾는다
+
+예를 들어 ERWin 메타를 이렇게 관리해.
+
+{
+  "table_name": "TB_TRAD_MARKET_MERCHANT",
+  "table_role": "classification_master",
+  "columns": [
+    {"column_name": "MERCHANT_ID", "role": "merchant_id"},
+    {"column_name": "APPLY_START_DT", "role": "effective_start_date"},
+    {"column_name": "APPLY_END_DT", "role": "effective_end_date"},
+    {"column_name": "USE_YN", "role": "use_flag"}
+  ]
+}
+
+그럼 SQL 생성 코드는 이렇게 가야 해.
+
+start_col = find_column_by_role(table_meta, "effective_start_date")
+end_col = find_column_by_role(table_meta, "effective_end_date")
+use_col = find_column_by_role(table_meta, "use_flag")
+
+conditions = []
+
+if use_col:
+    conditions.append(f"{use_col} = 'Y'")
+
+if start_col and end_col:
+    conditions.append(f"{start_col} <= :base_date")
+    conditions.append(f"({end_col} IS NULL OR {end_col} >= :base_date)")
+
+where_clause = "\n  AND ".join(conditions)
+
+그러면 전통시장은 이렇게 나오고,
+
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+다른 테이블이 이런 컬럼이면,
+
+{"column_name": "VALID_START_DT", "role": "effective_start_date"}
+{"column_name": "VALID_END_DT", "role": "effective_end_date"}
+{"column_name": "ACTIVE_YN", "role": "use_flag"}
+
+자동으로 이렇게 나와.
+
+WHERE ACTIVE_YN = 'Y'
+  AND VALID_START_DT <= :base_date
+  AND (VALID_END_DT IS NULL OR VALID_END_DT >= :base_date)
+
+이게 실무적인 구현이야.
+
+평가자에게는 이렇게 말하면 돼.
+
+실제 운영에서는 특정 컬럼명을 코드에 하드코딩하지 않고, ERWin 메타데이터에 테이블 역할과 컬럼 역할을 정의합니다. LLM은 요청서의 의미를 구조화하고, Rule Engine은 역할 기반으로 필요한 컬럼을 찾아 SQL 조건을 생성합니다. 따라서 전통시장뿐 아니라 도서공연, 일반 소득공제처럼 컬럼명이 달라도 동일한 Rule을 재사용할 수 있습니다.
+
+즉, 하드코딩을 완전히 없애는 게 아니라 업무 규칙은 Rule로 관리하고, 물리 컬럼명은 메타데이터로 분리하는 방식이 실제 업무에 가까워.
+
+
+============
+
+
+응. 네 배치개발 쪽은 이렇게 설명하면 돼.
+
+전체 구조
+배치개발 요청서
+↓
+LLM이 요청서 의미를 draft JSON으로 구조화
+↓
+request_schema 기준으로 라벨 파싱
+↓
+ERWin 메타데이터로 테이블/컬럼 role 확인
+↓
+Rule Catalog로 처리 패턴 선택
+↓
+spec_builder가 최종 batch_spec 생성
+↓
+template_selector가 템플릿 선택
+↓
+code_generator가 query.sql / job.py / README / test_job.py 생성
+↓
+LangGraph workflow에서 검증 및 SQL 개선
+
+핵심은 LLM이 코드를 직접 만드는 게 아니라, LLM은 요청서를 구조화하고 실제 SQL/배치파일은 Rule + Metadata + Template로 생성한다는 거야.
+
+1. 요청서 입력
+
+예를 들어 전통시장 요청서가 들어옴.
+
+배치명: 전통시장 가맹점 파일 생성
+기준 테이블: TB_TRAD_MARKET_MERCHANT
+출력 목적: 소득공제 대상 전통시장 가맹점 추출
+출력 형식: CSV
+파일명: traditional_market_merchant_YYYYMMDD.csv
+기준일자: APPLY_START_DT
+조건:
+- 기준일자가 적용시작일자와 종료일자 사이
+- USE_YN = 'Y'
+
+이건 “전통시장 가맹점 테이블에서 기준일자에 유효하고 사용 중인 데이터를 추출해서 CSV 파일로 만드는 배치”야.
+
+2. LLM이 draft JSON 생성
+
+llm_spec_builder는 LLM의 역할을 제한하고 있어.
+
+LLM: 요청서를 표준 draft JSON으로 변환
+spec_builder: ERWin 메타/rule/template 기준으로 검증·보정
+code_generator: 최종 batch_spec으로 파일 생성
+
+그리고 프롬프트에서도 “SQL 전체를 직접 만들지 말고, SQL 생성을 위한 구조화된 spec 초안만 만들라”고 되어 있어.
+
+즉 LLM은 대략 이런 초안을 만듦.
+
+{
+  "batch_name": "전통시장 가맹점 파일 생성",
+  "batch_type": "db_to_file",
+  "source_table": "TB_TRAD_MARKET_MERCHANT",
+  "output_format": "csv",
+  "output_file": "traditional_market_merchant_YYYYMMDD.csv",
+  "base_date_column": "APPLY_START_DT",
+  "capabilities": [
+    "effective_date_matching",
+    "use_flag_filter",
+    "file_export"
+  ],
+  "conditions": [
+    "기준일자가 적용시작일자와 종료일자 사이",
+    "USE_YN = 'Y'"
+  ]
+}
+3. request_schema로 요청서 라벨 파싱
+
+request_schema에는 “배치명”, “기준 테이블”, “출력 형식”, “파일명”, “조건”, “기준일자” 같은 한글 라벨 alias가 정의돼 있어.
+
+그래서 요청서의 값을 표준 필드로 바꿔.
+
+배치명      → batch_name
+기준 테이블  → source_table
+출력 형식    → output_format
+파일명      → output_file
+조건        → condition
+기준일자    → base_date_column
+4. ERWin 메타데이터로 컬럼 role 확인
+
+여기서 네 구조가 좋아.
+
+전통시장 테이블에는 물리 컬럼만 있는 게 아니라 role이 들어있어.
+
+TB_TRAD_MARKET_MERCHANT
+- APPLY_START_DT → effective_start_date
+- APPLY_END_DT   → effective_end_date
+- USE_YN         → use_flag
+- MERCHANT_ID    → merchant_id
+
+그리고 테이블 자체도 classification_master 역할로 정의돼 있어.
+
+그래서 코드가 “전통시장이면 APPLY_START_DT 써라”가 아니라,
+
+_find_column_by_role(table, "effective_start_date")
+_find_column_by_role(table, "effective_end_date")
+_find_column_by_role(table, "use_flag")
+
+이런 방식으로 실제 컬럼명을 찾아.
+
+5. Rule Catalog로 처리 패턴 선택
+
+Rule Catalog에는 업무명이 아니라 처리 패턴이 정의돼 있어.
+
+예를 들어 단일 테이블 파일 생성은 generic_export_dynamic이고, 거래원장과 분류마스터를 조인하는 추출은 ledger_extract_with_classification, 월별 집계는 monthly_aggregation_dynamic이야.
+
+전통시장 가맹점 파일 생성은 단일 테이블을 조건 조회해서 CSV로 만드는 요청이니까 보통 이런 패턴으로 감.
+
+batch_type = db_to_file
+capability = file_export
+effective_date_matching
+use_flag_filter
+
+Rule Engine은 요청서와 ERWin role, relation을 보고 capability를 추론해. 예를 들어 “파일, csv, 추출, 생성”이면 file_export, “APPLY_START_DT/APPLY_END_DT/유효기간/적용기간”이면 effective_date_matching, “USE_YN/사용여부”면 use_flag_filter를 추가해.
+
+6. spec_builder가 최종 batch_spec 생성
+
+이제 LLM draft, request_schema 파싱값, ERWin 메타, Rule 결과를 합쳐 최종 batch_spec을 만들어.
+
+여기서 중요한 SQL 조건도 생성돼.
+
+요청서 조건:
+
+기준일자가 적용시작일자와 종료일자 사이
+USE_YN = 'Y'
+
+spec_builder는 이걸 보고 유효기간 조건이라고 판단해.
+
+_looks_like_effective_date_condition()
+_build_effective_date_conditions()
+
+그리고 context에서 role 기반 컬럼을 가져와서 조건을 만든다.
+
+use_col = context["use_flag_column"]
+start_col = context["effective_start_column"]
+end_col = context["effective_end_column"]
+
+conditions.append(f"{use_col} = 'Y'")
+conditions.append(f"{start_col} <= :base_date")
+conditions.append(f"({end_col} IS NULL OR {end_col} >= :base_date)")
+
+이 로직이 실제로 spec_builder에 들어있어.
+
+그래서 전통시장에서는 최종 WHERE가 이렇게 됨.
+
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+이건 하드코딩이 아니라,
+
+use_flag role           → USE_YN
+effective_start_date    → APPLY_START_DT
+effective_end_date      → APPLY_END_DT
+
+로 매핑된 결과야.
+
+7. batch_spec 예시
+
+최종적으로 내부에서는 이런 설계서가 만들어진다고 보면 돼.
+
+{
+  "batch_id": "BATCH_TRAD_MARKET_MERCHANT_EXPORT",
+  "batch_name": "전통시장 가맹점 파일 생성",
+  "batch_type": "db_to_file",
+  "source": {
+    "table": "TB_TRAD_MARKET_MERCHANT",
+    "base_date_column": "APPLY_START_DT"
+  },
+  "target": {
+    "output_format": "csv",
+    "output_file_prefix": "traditional_market_merchant",
+    "output_file_pattern": "traditional_market_merchant_{base_date}.csv",
+    "encoding": "utf-8-sig"
+  },
+  "select_clause": "*",
+  "from_clause": "TB_TRAD_MARKET_MERCHANT",
+  "where_clause": "USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)"
+}
+
+이 batch_spec이 SQL과 배치파일 생성의 기준이야.
+
+8. 템플릿 선택
+
+template_selector는 batch_type을 보고 템플릿을 고른다.
+
+aggregation_to_table → aggregation_to_table
+db_to_file           → db_to_file
+file_to_db           → file_to_db
+db_to_db             → db_to_db
+기타                 → db_to_file
+
+전통시장 요청은 DB에서 CSV 파일을 만드는 거라 db_to_file 템플릿을 타.
+
+9. code_generator가 파일 생성
+
+code_generator는 최종 batch_spec을 받아 Jinja 템플릿에 값을 주입해.
+
+생성 파일은 보통 이거야.
+
+batch_spec.json
+query.sql
+job.py
+README.md
+test_job.py
+
+README.md에는 실행 예시와 운영 반영 전 검토사항이 들어가고, test_job.py는 batch_spec.json, query.sql, job.py 생성 여부를 확인해.
+
+10. query.sql 생성
+
+query.sql.j2는 SQL 템플릿이고, batch_spec의 SQL 또는 clause 값이 들어간다.
+
+전통시장 기준 생성 결과는 이런 형태야.
+
+SELECT
+  *
+FROM TB_TRAD_MARKET_MERCHANT
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+11. job.py 생성
+
+job.py.j2는 실행 가능한 배치 프로그램 템플릿이야.
+
+생성된 job.py는 다음 일을 함.
+
+DB 접속 URL 생성
+query.sql 읽기
+base_date/base_ym 파라미터 생성
+SQL 실행
+결과 DataFrame 검증
+CSV/TXT/XLSX 출력
+
+DB 접속은 --database-url로 받거나 .env의 DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_SERVICE를 조합해. 그리고 SQL이 :base_date나 :base_ym 중 무엇을 쓰든 대응하도록 둘 다 파라미터를 만들어 넘긴다.
+
+전통시장 배치 실행 예시는 이거야.
+
+python job.py --base-date 20260428
+
+결과 파일:
+
+traditional_market_merchant_20260428.csv
+12. LangGraph workflow에서 검증
+
+LangGraph workflow를 쓰면 노드가 이렇게 돌아.
+
+prepare
+build_spec
+validate_spec
+select_template
+generate_code
+validate_generated_files
+sql_improvement
+finalize
+
+workflow.py에 이 노드들이 있고, generate_code 후 생성 파일 내용을 읽어서 검증 노드에서 사용해.
+
+즉 단순 생성이 아니라,
+
+Spec 검증
+생성물 검증
+SQL 개선 분석
+경고/오류 수집
+
+까지 하는 구조야.
+
+평가자에게 말할 최종 설명
+
+이렇게 말하면 가장 좋아.
+
+배치개발 기능은 LLM이 배치 소스를 직접 작성하는 방식이 아닙니다. 사용자가 배치개발 요청서를 입력하면 LLM은 요청서 의미를 표준 draft JSON으로 구조화합니다. 이후 request_schema 기반 라벨 파싱 결과와 LLM draft를 병합하고, ERWin 메타데이터의 table_role과 column role을 기준으로 실제 테이블과 컬럼을 동적으로 매핑합니다. Rule Catalog는 업무명이 아니라 file_export, effective_date_matching, classification_join, aggregation 같은 처리 패턴을 선택합니다. 최종적으로 spec_builder가 batch_spec을 만들고, code_generator가 선택된 Jinja 템플릿에 batch_spec 값을 주입해 query.sql, job.py, README, test_job.py를 생성합니다. 따라서 LLM의 자유 생성을 그대로 쓰는 것이 아니라, Rule + Metadata + Template 기반으로 통제된 배치 자동생성 구조입니다.
+
+한마디로 네 구조는 이거야.
+
+LLM = 요청서 해석
+Rule = 처리 패턴 결정
+ERWin = 물리 테이블/컬럼 매핑
+batch_spec = 표준 설계서
+Template = 실제 파일 생성
+LangGraph = 단계별 검증 workflow
+
+=============
+
+SQL은 템플릿이 완성 SQL을 미리 갖고 있는 게 아니라, spec_builder가 만든 SQL 구성요소를 템플릿에 끼워 넣는 방식이야.
+
+핵심은 이거야.
+
+요청서 조건
+↓
+LLM이 의미를 conditions/capabilities로 구조화
+↓
+ERWin 메타에서 table_role / column role 확인
+↓
+Rule이 어떤 SQL 패턴인지 결정
+↓
+spec_builder가 select/from/join/where_clause 생성
+↓
+query.sql 템플릿에 주입
+전통시장 예시
+
+요청서 조건은 이거였지.
+
+기준일자가 적용시작일자와 종료일자 사이
+USE_YN = 'Y'
+
+이걸 SQL로 바꾸는 핵심 함수가 spec_builder.py에 있어.
+
+1. 조건이 유효기간 조건인지 판단
+def _looks_like_effective_date_condition(values, context):
+    raw = values.get("conditions") or values.get("condition") or ""
+    text = _normalize(raw_text).lower()
+
+    request_hint = any(token in text for token in ["사이", "between", "유효", "기간", "시작", "종료"])
+    has_effective_cols = bool(context.get("effective_start_column") and context.get("effective_end_column"))
+    table_role = str(context.get("table_role") or "").lower()
+
+    return has_effective_cols and (table_role == "classification_master" or request_hint)
+
+즉 요청서에 사이, 유효, 기간, 시작, 종료 같은 말이 있고, 메타데이터에 시작일/종료일 role 컬럼이 있으면 “유효기간 조건”이라고 판단해.
+
+2. ERWin 메타에서 실제 컬럼명을 찾음
+
+전통시장 메타에는 이렇게 되어 있어.
+
+APPLY_START_DT → effective_start_date
+APPLY_END_DT   → effective_end_date
+USE_YN         → use_flag
+
+그리고 테이블 역할은 classification_master야.
+
+그래서 코드가 직접 APPLY_START_DT를 박는 게 아니라 이런 식으로 role 컬럼을 찾는 구조야.
+
+_find_column_by_role(table, "effective_start_date")
+_find_column_by_role(table, "effective_end_date")
+_find_column_by_role(table, "use_flag")
+
+이 함수는 먼저 컬럼의 role을 보고, 없으면 ROLE_SYNONYMS 후보명으로 찾게 되어 있어.
+
+3. WHERE 조건 생성
+
+그 다음 이 함수가 실제 SQL 조건을 만들어.
+
+def _build_effective_date_conditions(context):
+    start_col = str(context.get("effective_start_column") or "").upper()
+    end_col = str(context.get("effective_end_column") or "").upper()
+    use_col = str(context.get("use_flag_column") or "").upper()
+
+    conditions = []
+    if use_col:
+        conditions.append(f"{use_col} = 'Y'")
+
+    conditions.append(f"{start_col} <= :base_date")
+    conditions.append(f"({end_col} IS NULL OR {end_col} >= :base_date)")
+    return conditions
+
+그래서 role 매핑 결과가
+
+use_col   = USE_YN
+start_col = APPLY_START_DT
+end_col   = APPLY_END_DT
+
+이면 최종 조건은 이렇게 됨.
+
+WHERE USE_YN = 'Y'
+  AND APPLY_START_DT <= :base_date
+  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)
+
+정리하면
+
+SQL 조회조건은 요청서 문장을 그대로 SQL로 번역하는 게 아니라,
+
+"기준일자가 적용시작일자와 종료일자 사이"
+↓
+effective_date_matching 패턴
+↓
+effective_start_date role 컬럼 찾기
+↓
+effective_end_date role 컬럼 찾기
+↓
+start_col <= :base_date
+AND end_col >= :base_date 생성
+
+이렇게 만들어지는 거야.
+
+그리고 USE_YN = 'Y'는 use_flag role 컬럼이 있으면 자동으로 추가돼.
+
+즉 평가자한테는 이렇게 말하면 돼.
+
+SQL은 LLM이 직접 작성하지 않고, 요청서에서 조건 의미를 뽑은 뒤 ERWin 메타데이터의 column role과 Rule Catalog의 처리 패턴을 기준으로 생성합니다. 전통시장 요청의 경우 classification_master 테이블이므로 effective_start_date, effective_end_date, use_flag 역할 컬럼을 찾아 유효기간 조건과 사용여부 조건을 WHERE 절로 생성합니다.

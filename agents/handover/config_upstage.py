@@ -233,34 +233,12 @@ LLM_LANGGRAPH_ENABLED = os.getenv("LLM_LANGGRAPH_ENABLED", "true").strip().lower
 
 @dataclass
 class ChatConfig:
-    """
-    Chat LLM 설정.
-
-    LLM_PROVIDER 값으로 채팅 모델만 전환한다.
-    - LLM_PROVIDER=upstage : 기존 Upstage Solar 사용
-    - LLM_PROVIDER=vllm    : EC2 로컬 vLLM/Qwen 사용
-
-    주의:
-    EmbedConfig는 기존 Upstage embedding을 계속 사용한다.
-    따라서 ChromaDB를 재적재하지 않아도 된다.
-    """
-    provider: str = os.getenv("LLM_PROVIDER", "upstage").strip().lower()
-
-    api_key: str = os.getenv(
-        "VLLM_API_KEY" if os.getenv("LLM_PROVIDER", "upstage").strip().lower() == "vllm" else "UPSTAGE_API_KEY",
-        "dummy" if os.getenv("LLM_PROVIDER", "upstage").strip().lower() == "vllm" else "",
-    )
-    base_url: str = os.getenv(
-        "VLLM_BASE_URL" if os.getenv("LLM_PROVIDER", "upstage").strip().lower() == "vllm" else "UPSTAGE_BASE_URL",
-        "http://localhost:8000/v1" if os.getenv("LLM_PROVIDER", "upstage").strip().lower() == "vllm" else "https://api.upstage.ai/v1",
-    )
-    model: str = os.getenv(
-        "VLLM_CHAT_MODEL" if os.getenv("LLM_PROVIDER", "upstage").strip().lower() == "vllm" else "UPSTAGE_CHAT_MODEL",
-        "Qwen/Qwen2.5-7B-Instruct" if os.getenv("LLM_PROVIDER", "upstage").strip().lower() == "vllm" else "solar-pro3",
-    )
-    timeout: int = int(os.getenv("UPSTAGE_CHAT_TIMEOUT", os.getenv("VLLM_CHAT_TIMEOUT", "120")))
-    temperature: float = float(os.getenv("UPSTAGE_TEMPERATURE", os.getenv("VLLM_TEMPERATURE", "0.1")))
-    max_tokens: int = int(os.getenv("UPSTAGE_MAX_TOKENS", os.getenv("VLLM_MAX_TOKENS", "2048")))
+    api_key: str = os.getenv("UPSTAGE_API_KEY", "")
+    base_url: str = os.getenv("UPSTAGE_BASE_URL", "https://api.upstage.ai/v1")
+    model: str = os.getenv("UPSTAGE_CHAT_MODEL", "solar-pro3")
+    timeout: int = int(os.getenv("UPSTAGE_CHAT_TIMEOUT", "120"))
+    temperature: float = float(os.getenv("UPSTAGE_TEMPERATURE", "0.1"))
+    max_tokens: int = int(os.getenv("UPSTAGE_MAX_TOKENS", "2048"))
 
 
 @dataclass

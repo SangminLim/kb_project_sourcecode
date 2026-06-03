@@ -269,33 +269,33 @@ def join_jobs(step: Dict[str, Any]) -> str:
 
 def build_batch_process_chunks(batch_process: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    2차 청킹: batch_process는 Step 단위로만 청킹
-    - Step 하나를 하나의 chunk로 적재한다.
-    - 길이 기준으로 추가 분할하지 않으므로 평가/설명 시 Step 단위 청킹 구조가 명확하다.
-    - 개별 배치 상세는 batch_job 문서에서 별도로 검색 가능하다.
+    2차 청킹: batch_process는 step 단위가 핵심
+    - 질문이 단계 중심으로 들어오므로 step 단위가 가장 실무적
+    - 너무 긴 step은 내부적으로만 추가 분할
     """
     chunks: List[Dict[str, Any]] = []
-
     for step in batch_process.get("steps", []):
         step_no = step.get("step")
         step_text = join_jobs(step)
         if not step_text:
             continue
 
-        chunks.append(
-            {
-                "chunk_text": step_text,
-                "chunk_type": "step",
-                "chunk_order": step_no if isinstance(step_no, int) else 0,
-                "step": step_no,
-                "step_name": safe_text(step.get("name")),
-                "execution": safe_text(step.get("execution")),
-                "sub_chunk_index": 1,
-                "sub_chunk_count": 1,
-            }
-        )
-
+        split_chunks = split_long_chunk(step_text, chunk_size=600, overlap=100)
+        for sub_index, chunk_text in enumerate(split_chunks, start=1):
+            chunks.append(
+                {
+                    "chunk_text": chunk_text,
+                    "chunk_type": "step",
+                    "chunk_order": step_no if isinstance(step_no, int) else 0,
+                    "step": step_no,
+                    "step_name": safe_text(step.get("name")),
+                    "execution": safe_text(step.get("execution")),
+                    "sub_chunk_index": sub_index,
+                    "sub_chunk_count": len(split_chunks),
+                }
+            )
     return chunks
+
 
 def build_flow_text(batch_flow: Dict[str, Any]) -> str:
     lines: List[str] = []

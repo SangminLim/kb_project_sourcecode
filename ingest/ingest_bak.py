@@ -169,7 +169,7 @@ def build_overview_text(overview: Dict[str, Any]) -> str:
 def build_overview_chunks(overview: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     2차 청킹: overview를 의미 단위로 분리
-    - 전체 overview section 문서는 적재하지 않고 의미 단위 청크만 생성
+    - 기존 전체 overview 문서도 유지할 수 있도록 별도 청크를 추가 생성
     - 너무 세분화하지 않고 질문 대응에 필요한 정도만 분리
     """
     chunk_specs = [
@@ -269,33 +269,33 @@ def join_jobs(step: Dict[str, Any]) -> str:
 
 def build_batch_process_chunks(batch_process: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    2차 청킹: batch_process는 Step 단위로만 청킹
-    - Step 하나를 하나의 chunk로 적재한다.
-    - 길이 기준으로 추가 분할하지 않으므로 평가/설명 시 Step 단위 청킹 구조가 명확하다.
-    - 개별 배치 상세는 batch_job 문서에서 별도로 검색 가능하다.
+    2차 청킹: batch_process는 step 단위가 핵심
+    - 질문이 단계 중심으로 들어오므로 step 단위가 가장 실무적
+    - 너무 긴 step은 내부적으로만 추가 분할
     """
     chunks: List[Dict[str, Any]] = []
-
     for step in batch_process.get("steps", []):
         step_no = step.get("step")
         step_text = join_jobs(step)
         if not step_text:
             continue
 
-        chunks.append(
-            {
-                "chunk_text": step_text,
-                "chunk_type": "step",
-                "chunk_order": step_no if isinstance(step_no, int) else 0,
-                "step": step_no,
-                "step_name": safe_text(step.get("name")),
-                "execution": safe_text(step.get("execution")),
-                "sub_chunk_index": 1,
-                "sub_chunk_count": 1,
-            }
-        )
-
+        split_chunks = split_long_chunk(step_text, chunk_size=600, overlap=100)
+        for sub_index, chunk_text in enumerate(split_chunks, start=1):
+            chunks.append(
+                {
+                    "chunk_text": chunk_text,
+                    "chunk_type": "step",
+                    "chunk_order": step_no if isinstance(step_no, int) else 0,
+                    "step": step_no,
+                    "step_name": safe_text(step.get("name")),
+                    "execution": safe_text(step.get("execution")),
+                    "sub_chunk_index": sub_index,
+                    "sub_chunk_count": len(split_chunks),
+                }
+            )
     return chunks
+
 
 def build_flow_text(batch_flow: Dict[str, Any]) -> str:
     lines: List[str] = []
@@ -350,10 +350,10 @@ def build_lineage_text(table_lineage: Dict[str, Any]) -> str:
 def flatten_system_docs(system: Dict[str, Any], domain: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     검색 품질을 위해:
-    1) overview / batch_process는 전체 section 문서 대신 의미 단위 청크만 적재
-    2) overview_chunk / batch_process_chunk 를 적재 (2차 청킹)
+    1) overview / batch_process / batch_flow / table_lineage를 별도 문서로 적재
+    2) overview_chunk / batch_process_chunk 를 추가 적재 (2차 청킹)
     3) batch_step / batch_job 도 별도 문서로 적재
-    4) batch_flow / table_lineage / 실시간 구조는 기존처럼 유지
+    4) 흐름도/리니지/실시간 구조는 기존처럼 유지
     """
     docs: List[Dict[str, Any]] = []
     system_id = safe_text(system.get("system_id"))
@@ -388,8 +388,20 @@ def flatten_system_docs(system: Dict[str, Any], domain: Dict[str, Any]) -> List[
     overview = system.get("overview") or {}
     if overview:
         overview_title = safe_text(overview.get("title"))
-        # 전체 overview section 문서는 중복 검색을 방지하기 위해 적재하지 않는다.
-        # overview는 의미 단위 청크만 ChromaDB에 적재한다.
+        overview_text = build_overview_text(overview)
+
+        # 기존 전체 overview 문서 유지
+        append_doc(
+            section="overview",
+            title=overview_title,
+            text=overview_text,
+            extra_meta={
+                "doc_level": "section",
+                "has_summary": bool(safe_text(overview.get("summary"))),
+                "has_input_data": bool(normalize_list(overview.get("input_data"))),
+                "has_outputs": bool(normalize_list(overview.get("outputs"))),
+            },
+        )
 
         # 2차 청킹 문서 추가
         overview_chunks = build_overview_chunks(overview)
@@ -412,8 +424,18 @@ def flatten_system_docs(system: Dict[str, Any], domain: Dict[str, Any]) -> List[
     batch_process = system.get("batch_process") or {}
     if batch_process:
         batch_title = safe_text(batch_process.get("title"))
-        # 전체 batch_process section 문서는 중복 검색을 방지하기 위해 적재하지 않는다.
-        # batch_process는 step 단위 청크와 batch_step / batch_job detail 문서만 적재한다.
+        step_texts: List[str] = []
+        for step in batch_process.get("steps", []):
+            step_texts.append(join_jobs(step))
+        batch_text = "\n\n".join([text for text in step_texts if text])
+
+        # 기존 전체 batch_process 문서 유지
+        append_doc(
+            section="batch_process",
+            title=batch_title,
+            text=batch_text,
+            extra_meta={"doc_level": "section"},
+        )
 
         # 2차 청킹 문서 추가
         process_chunks = build_batch_process_chunks(batch_process)

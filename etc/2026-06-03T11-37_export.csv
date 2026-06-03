@@ -1,0 +1,34 @@
+﻿,rank,title,system_id,system_name,section,doc_level,chunk_id,chunk_type,step,job_id,preview
+0,1,KKK은행 소득공제 배치 프로세스 / step chunk 5,kkk_bank,KKK은행,batch_process,chunk,batch_process_chunk_5,step,2,,"step=2 name=소득공제 대상 처리 execution=sequential
+description=소득공제 대상 거래를 선별하고 고객별 집계 기준 데이터를 생성하는 핵심 처리 단계
+key_jobs=BATCH_06_DEDUCTION_TARGET_FILTER, BATCH_07_DEDUCTION_AGGREGATION
+- BATCH_06_DEDUCTION_TARGET_FILTER: 소득공제 대상 거래 판별 및 제외 업종/비대상 거래 제거
+  배치명: 소득공제 대상 거래 판별
+  실행주기: daily
+  실행시간: 01:00
+  평균수행시..."
+1,2,KKK은행 소득공제 배치 프로세스 / step chunk 6,kkk_bank,KKK은행,batch_process,chunk,batch_process_chunk_6,step,2,,"FO_LOAD, BATCH_04_MERCHANT_INFO_LOAD, BATCH_05_CANCEL_DATA_LOAD
+  후행배치: BATCH_07_DEDUCTION_AGGREGATION
+  장애조치방법: 제외 업종 기준, 취소 거래 반영 여부, 원천 적재 완료 여부를 확인한 뒤 재실행한다.
+  운영비고: 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+- BATCH_07_DEDUCTION_AGGREGATION: 고객별 소득공제 금액 집계 및 월별/연간 기준 데이터 생성
+  배치명: 소득공제 금액 집계
+  실행주기:..."
+2,3,KKK은행 소득공제 배치 프로세스 / step chunk 8,kkk_bank,KKK은행,batch_process,chunk,batch_process_chunk_8,step,3,,"step=3 name=최종 결과 생성 execution=sequential
+description=대외 제출 파일과 내부 조회용 결과 데이터를 생성하는 마감 단계
+key_jobs=BATCH_08_DEDUCTION_FILE_GENERATION
+- BATCH_08_DEDUCTION_FILE_GENERATION: 대외 제출용 소득공제 파일 생성 및 내부 조회 시스템 반영 데이터 생성
+  배치명: 소득공제 파일 생성
+  실행주기: daily
+  실행시간: 02:00
+  평균수행시간초: 300
+  실행배치파일: batch_deduction_f..."
+3,4,KKK은행 소득공제 배치 프로세스 / step chunk 1,kkk_bank,KKK은행,batch_process,chunk,batch_process_chunk_1,step,1,,"step=1 name=데이터 적재 execution=parallel
+description=소득공제 판별을 위한 원천 데이터를 병렬로 수집하고 적재하는 단계
+key_jobs=BATCH_01_CARD_APPROVAL_LOAD, BATCH_02_CARD_PURCHASE_LOAD
+- BATCH_01_CARD_APPROVAL_LOAD: 카드 승인 데이터 수집 및 적재
+  배치명: 카드 승인 데이터 적재
+  실행주기: daily
+  실행시간: 00:10
+  평균수행시간초: 180
+  실행배치파일: batch_card_approval_load...."

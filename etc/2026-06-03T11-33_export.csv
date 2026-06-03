@@ -1,0 +1,14 @@
+﻿,rank,title,system_id,system_name,section,doc_level,chunk_id,chunk_type,step,job_id,preview
+0,1,KKK은행 소득공제 업무 개요 / semantic chunk 1,kkk_bank,KKK은행,overview,chunk,overview_chunk_1,summary_content,,,"카드 승인·매입·가맹점·고객 데이터를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무
+KKK은행에서 발생한 카드 승인 및 매입 데이터, 가맹점 정보, 고객 정보 등을 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 등은 별도 기준에 따라 제외 또는 보정 처리한다."
+1,2,KKK은행 소득공제 업무 개요 / semantic chunk 2,kkk_bank,KKK은행,overview,chunk,overview_chunk_2,input_target,,,"주요 입력 데이터: 카드 승인 데이터, 카드 매입 데이터, 고객 정보, 가맹점 정보, 취소 및 정정 거래
+주요 대상 거래: 체크카드, 신용카드, 현금성 거래 중 소득공제 대상"
+2,3,KKK은행 소득공제 업무 개요 / semantic chunk 4,kkk_bank,KKK은행,overview,chunk,overview_chunk_4,outputs_key_points,,,"최종 산출물: 내부 관리 시스템 반영 데이터, 대외 제출 파일
+핵심 포인트: 원천 데이터 적재 후 대상 거래 선별, 제외 업종/비대상 거래 제거, 고객별 월별·연간 집계 생성"
+3,4,KKK은행 소득공제 업무 개요 / semantic chunk 3,kkk_bank,KKK은행,overview,chunk,overview_chunk_3,exclusions,,,"제외 및 보정 항목: 거래 취소, 오류 데이터, 대상 제외 업종"
+
+
+overview_chunk_1 (업무설명)
+overview_chunk_2 (입력데이터/대상거래)
+overview_chunk_4 (산출물/핵심포인트)
+overview_chunk_3 (제외항목)

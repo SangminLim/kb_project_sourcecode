@@ -1,0 +1,21 @@
+# LLM Provider
+# upstage 로 되돌리려면 LLM_PROVIDER=upstage 로 변경
+LLM_PROVIDER=vllm
+
+# 기존 Upstage embedding은 유지
+UPSTAGE_API_KEY=여기에_기존_업스테이지_API_KEY
+UPSTAGE_BASE_URL=https://api.upstage.ai/v1
+
+# Chat LLM - vLLM/Qwen
+VLLM_BASE_URL=http://localhost:8000/v1
+VLLM_CHAT_MODEL=Qwen/Qwen2.5-7B-Instruct
+VLLM_API_KEY=dummy
+
+# Chat options
+UPSTAGE_CHAT_TIMEOUT=120
+UPSTAGE_TEMPERATURE=0.1
+UPSTAGE_MAX_TOKENS=2048
+
+# Chroma 검색 query embedding - Upstage 유지
+UPSTAGE_EMBED_MODEL=solar-embedding-1-large-query
+UPSTAGE_EMBED_TIMEOUT=60
