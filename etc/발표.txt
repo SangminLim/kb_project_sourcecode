@@ -290,7 +290,8 @@ Partition 조건 검토
 
 발표에서는 이렇게 말하면 돼:
 
-“PoC 단계에서는 로컬 노트북 성능 한계로 인해 Upstage Solar LLM API를 활용했습니다. 다만 에이전트 구조는 LangGraph, LangChain, RAG, Vector DB 중심으로 분리 설계하여 향후 금융권 운영 환경에서는 내부망 GPU 서버와 오픈웨이트 LLM로 전환 가능하도록 구성했습니다.”
+“PoC 단계에서는 로컬 노트북 성능 한계로 인해 Upstage Solar LLM API를 활용했습니다. 다만 에이전트 구조는
+ LangGraph, LangChain, RAG, Vector DB 중심으로 분리 설계하여 향후 금융권 운영 환경에서는 내부망 GPU 서버와 오픈웨이트 LLM로 전환 가능하도록 구성했습니다.”
 
 핵심은 이거야:
 
@@ -350,6 +351,7 @@ Intent 분류, 시스템 식별, 후속질문 처리,
 회귀 테스트 결과를 점수화
 오픈소스 구성 (수정 버전)
 구분	기술
+
 LLM	Upstage AI Solar LLM
 개발 F/W	LangChain, LangGraph
 벡터 DB	Chroma
@@ -386,6 +388,7 @@ LLM 응답 생성
    ↓
 시각화(Graphviz)
 AI 에이전트 시연 (추가)
+
 6. AI 평가 하네스 시연
 사용자입력
 테스트 케이스 기반 질의 평가 실행

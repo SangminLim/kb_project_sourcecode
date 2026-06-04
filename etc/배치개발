@@ -1146,3 +1146,920 @@ AND end_col >= :base_date 생성
 즉 평가자한테는 이렇게 말하면 돼.
 
 SQL은 LLM이 직접 작성하지 않고, 요청서에서 조건 의미를 뽑은 뒤 ERWin 메타데이터의 column role과 Rule Catalog의 처리 패턴을 기준으로 생성합니다. 전통시장 요청의 경우 classification_master 테이블이므로 effective_start_date, effective_end_date, use_flag 역할 컬럼을 찾아 유효기간 조건과 사용여부 조건을 WHERE 절로 생성합니다.
+
+
+
+전체 구조를 파일별로 정리해서, “입력 요청서가 어떻게 최종 SQL/Job 파일이 되는지” 기준으로 묶어볼게요. 지금 핵심은 request_schema → spec_builder → rule_catalog → template/code_generator → agent/workflow 흐름입니다.
+
+13s 동안 생각함
+
+배치 개발쪽 파일을 역할별로 보면 이렇게야.
+
+1. request_schema.json
+
+사용자 요청서에서 어떤 항목을 뽑을지 정의하는 입력 스키마야.
+
+예를 들면 사용자가 배치명, 작업명, JOB명 중 아무거나 써도 내부에서는 batch_name으로 인식하게 함.
+source_table, target_table, condition, columns, base_date_column 같은 필드를 표준화하는 역할이야.
+
+즉:
+
+사용자 요청서 문장
+→ 표준 필드명으로 변환
+2. request_classifier.py
+
+요청이 정말 배치 개발 요청인지 판별하는 파일이야.
+
+request_schema.json을 읽고, 요청서 안에 라벨/alias가 몇 개 이상 있는지 확인해.
+예를 들어 배치명, 소스테이블, 출력컬럼 등이 감지되면 batch_development 요청으로 분류하는 구조야.
+
+즉:
+
+이 질문이 배치 개발 요청인가?
+
+를 판단하는 입구 파일.
+
+3. erwin_meta.json
+
+네가 올린 ERWIN 메타 JSON이야.
+
+실제 테이블명, 컬럼명, 컬럼 role, table_role, relation을 정의해.
+
+예를 들면:
+
+TB_CARD_SALES_LEDGER → transaction_ledger
+SALES_DT → transaction_date
+CUSTOMER_ID → customer_id
+SALES_AMT → amount
+
+그리고 가맹점 마스터들은:
+
+classification_master
+APPLY_START_DT → effective_start_date
+APPLY_END_DT → effective_end_date
+USE_YN → use_flag
+
+로 정의되어 있어.
+
+즉:
+
+실제 테이블/컬럼 사전
+
+이야.
+
+4. llm_spec_builder.py
+
+LLM이 자연어 배치 요청서를 읽고 batch_spec 초안 JSON을 만드는 파일이야.
+
+역할 분리 주석에도 이렇게 되어 있어.
+
+LLM: 배치 개발 요청서 의미를 읽고 draft JSON 생성
+spec_builder: ERWin/rule/template 기준으로 검증·보정
+code_generator: 최종 batch_spec으로 파일 생성
+
+즉 사용자가 자유롭게 쓴 요청서를 LLM이 구조화해주는 단계야.
+
+예:
+
+전통시장 이용내역을 월별 집계해서 적재해줘
+
+를
+
+{
+  "batch_type": "aggregation_to_table",
+  "capabilities": ["aggregation", "group_by"],
+  "source_table": "...",
+  "target_table": "..."
+}
+
+처럼 만드는 역할.
+
+5. spec_builder.py
+
+배치 개발의 핵심 파일이야.
+
+사용자 요청서를 최종 batch_spec으로 변환해.
+
+흐름은:
+
+요청서 파싱
+→ ERWIN 메타 로딩
+→ LLM draft 병합
+→ source table 찾기
+→ capability 추론
+→ business rule 선택
+→ batch_spec 생성
+
+코드에도 build_batch_spec()이 사용자 요청서/자연어를 batch_spec으로 변환한다고 되어 있고, ERWin 메타와 rule을 기준으로 처리한다고 설명되어 있어.
+
+즉:
+
+배치 요청서 → 실행 가능한 설계서(batch_spec)
+
+로 바꾸는 파일.
+
+6. rule_catalog.json
+
+처리 패턴을 정의하는 룰 설정 파일이야.
+
+예를 들면:
+
+monthly_aggregation_dynamic
+ledger_extract_with_classification
+generic_export_dynamic
+
+이런 패턴이 정의돼 있어.
+
+monthly_aggregation_dynamic은 거래 원장과 분류 마스터 relation을 기준으로 월별 집계 SQL을 생성하는 규칙이고, target은 monthly_summary 역할 테이블로 잡도록 되어 있어.
+
+즉:
+
+어떤 요청이면 어떤 배치 패턴을 탈 것인가?
+
+를 정의하는 파일.
+
+단, 네가 지적한 것처럼 generic_export_dynamic.conditions 안에 APPLY_START_DT, USE_YN 같은 물리 컬럼명이 들어가 있어서 이 부분은 개선 여지가 있음.
+
+7. rule_engine.py
+
+rule_catalog를 읽고 요청서/테이블/ERWIN 메타를 보고 capability와 rule을 추론하는 파일이야.
+
+예를 들어 요청서나 컬럼 role을 보고:
+
+aggregation
+group_by
+classification_join
+effective_date_matching
+file_export
+
+같은 처리 능력을 판단해.
+
+또 ERWIN에 transaction_ledger, classification_master, monthly_summary 같은 table_role이 있는지도 본다.
+
+즉:
+
+요청서 의미 + ERWIN 구조 → 어떤 처리 능력이 필요한지 판단
+
+하는 파일.
+
+8. rule_selector.py
+
+rule_catalog 안의 여러 rule 중에서 가장 맞는 rule 하나를 선택하는 파일이야.
+
+요청서에 언급된 테이블을 ERWIN metadata에서 찾고, 그 테이블의 table_role을 기준으로 rule을 고른다. 코드 주석에도 “업무명 하드코딩이 아니라 처리 패턴을 선택한다. 테이블/컬럼/JOIN은 ERWIN meta에서 해석한다”고 되어 있어.
+
+즉:
+
+후보 rule 여러 개
+→ 현재 요청에 맞는 rule 선택
+9. template_selector.py
+
+batch_type을 보고 사용할 템플릿을 고르는 파일이야.
+
+예를 들어:
+
+aggregation_to_table → aggregation_to_table 템플릿
+db_to_file → db_to_file 템플릿
+file_to_db → file_to_db 템플릿
+
+으로 매핑해.
+
+즉:
+
+이 batch_spec은 어떤 템플릿 폴더를 탈 것인가?
+
+를 결정함.
+
+10. code_generator.py
+
+최종 batch_spec을 받아서 실제 파일을 생성하는 파일이야.
+
+템플릿에 값을 주입해서 query.sql, job.py 같은 산출물을 만든다.
+또 replace_partition 같은 실행 전략이 있으면 SQL 앞에 DELETE FROM ... WHERE ... 같은 pre_sql도 만든다.
+
+즉:
+
+batch_spec + template
+→ 실제 배치 소스 파일 생성
+11. config.py
+
+배치 개발 기능의 환경설정 파일이야.
+
+여기서 경로와 옵션을 관리해.
+
+예를 들면:
+
+ERWIN_METADATA_PATH
+REQUEST_SCHEMA_PATH
+BUSINESS_RULE_DIR
+SQL_TEMPLATE_DIR
+GENERATED_DIR
+BATCH_SPEC_USE_LLM
+BATCH_DEV_LANGGRAPH_ENABLED
+BATCH_DEV_LANGSMITH_ENABLED
+
+이런 설정이 들어 있어.
+
+즉:
+
+배치 개발 기능의 설정값 모음
+12. models.py
+
+배치 개발 결과를 담는 데이터 모델이야.
+
+BatchDevResult 안에:
+
+batch_spec
+created_files
+warnings
+errors
+message
+success
+
+가 들어가.
+
+즉:
+
+배치 생성 결과 표준 응답 객체
+
+야.
+
+13. agent.py
+
+배치 개발 기능의 실행 진입점이야.
+
+BatchDevAgent.run()이 호출되면:
+
+LangGraph 사용 설정이면 workflow 실행
+아니면 linear 방식 실행
+
+linear 방식에서는:
+
+build_batch_spec()
+→ template_type 결정
+→ generate_code()
+→ BatchDevResult 반환
+
+순서로 동작해.
+
+즉:
+
+배치 개발 에이전트의 메인 실행 파일
+14. workflow.py
+
+LangGraph 기반 배치 개발 workflow 파일이야.
+
+노드 흐름은:
+
+prepare
+→ build_spec
+→ validate_spec
+→ select_template
+→ generate_code
+→ validate_generated_files
+→ sql_improvement
+→ finalize
+
+로 되어 있어.
+
+즉:
+
+배치 개발 과정을 LangGraph 노드로 쪼개서 실행하는 파일
+
+시연할 때 로그 보여주기 좋은 파일이 이거야.
+[BATCH_LG 1] node = prepare, [BATCH_LG 2] node = build_spec 이런 식으로 단계 로그가 남기 때문이야.
+
+전체 한 줄 요약하면:
+
+request_schema.json
+→ 요청서 항목 정의
+
+request_classifier.py
+→ 배치 개발 요청인지 판별
+
+erwin_meta.json
+→ 실제 테이블/컬럼/관계 메타
+
+llm_spec_builder.py
+→ LLM으로 batch_spec 초안 생성
+
+spec_builder.py
+→ 최종 batch_spec 생성
+
+rule_catalog.json
+→ 처리 패턴 정의
+
+rule_engine.py / rule_selector.py
+→ capability 추론 및 rule 선택
+
+template_selector.py
+→ 템플릿 선택
+
+code_generator.py
+→ SQL/Job 파일 생성
+
+agent.py
+→ 배치 개발 실행 진입점
+
+workflow.py
+→ LangGraph 기반 단계 실행/검증/로그
+
+models.py
+→ 결과 객체
+
+config.py
+→ 환경설정
+
+정확히 말하면 네 배치 개발 구조는 LLM이 코드를 직접 만드는 구조가 아니라, LLM/Parser가 요청서를 구조화하고, ERWIN 메타 + Rule + Template 기반으로 배치 소스를 생성하는 구조야.
+
+
+그래서 네 구조는 실제로
+
+배치 요청서
+      ↓
+request_classifier.py
+      ↓
+필드 추출
+
+      ↓
+(llm 사용시)
+
+llm_spec_builder.py
+      ↓
+Draft Batch Spec 생성
+
+      ↓
+spec_builder.py
+      ↓
+ERWIN + Rule 적용
+
+      ↓
+최종 batch_spec
+
+      ↓
+code_generator.py
+
+이 흐름이야.
+
+그래서 내가 말한
+
+"LLM/Parser가 요청서를 구조화한다"
+
+의 정확한 파일은
+
+정형 요청서 → request_classifier.py
+
+자연어 요청서 → llm_spec_builder.py
+
+최종 통합 → spec_builder.py
+
+라고 보면 돼.
+
+
+==============
+
+전체 흐름
+배치 생성
+      ↓
+query.sql 생성
+      ↓
+analyze_sql_improvement()
+      ↓
+Rule 기반 분석
+      ↓
+LLM 기반 분석
+      ↓
+최종 SQL 개선 리포트
+1단계 Rule 기반 SQL 분석
+
+핵심 함수
+
+build_rule_based_sql_improvement()
+
+여기서 SQL을 직접 분석함.
+
+예를 들어
+
+SELECT *
+FROM TB_CARD_SALES_LEDGER A
+JOIN TB_TRAD_MARKET_MERCHANT B
+
+이면
+
+FROM 테이블 추출
+_extract_base_table()
+TB_CARD_SALES_LEDGER
+
+추출
+
+JOIN 테이블 추출
+_extract_join_tables()
+TB_TRAD_MARKET_MERCHANT
+
+추출
+
+WHERE 컬럼 추출
+_extract_where_columns()
+WHERE A.SALES_DT >= ...
+
+이면
+
+SALES_DT
+
+찾음
+
+JOIN 컬럼 추출
+_extract_on_columns_for_alias()
+ON A.MERCHANT_ID = B.MERCHANT_ID
+
+이면
+
+MERCHANT_ID
+
+찾음
+
+2단계 인덱스 추천
+
+여기가 꽤 괜찮음.
+
+_choose_index_columns()
+
+실제 SQL에서
+
+WHERE
+JOIN
+
+에 사용된 컬럼을 찾아서
+
+예)
+
+WHERE SALES_DT
+JOIN MERCHANT_ID
+
+이면
+
+자동 생성
+
+CREATE INDEX IX_CARD_SALES_LEDGER_01
+ON TB_CARD_SALES_LEDGER(
+    SALES_DT,
+    MERCHANT_ID
+);
+
+추천함.
+
+3단계 LEFT JOIN 문제 찾기
+_has_left_join_filter_pattern()
+
+찾는 패턴
+
+LEFT JOIN
+
+WHERE B.COL IS NOT NULL
+
+이 경우
+
+LEFT JOIN인데
+실제로는 INNER JOIN 효과
+
+라고 판단
+
+추천
+
+INNER JOIN 검토
+EXISTS 검토
+
+4단계 파티션 추천
+
+여기
+
+ROLE_COLUMN_PATTERNS
+"base_period": (
+   r".*_YM$",
+   r".*_DATE$",
+   r".*_DT$"
+)
+
+예를 들어
+
+BASE_YM
+SALES_DT
+
+있으면
+
+파티션 검토
+
+추천
+
+5단계 검증 SQL 생성
+
+이게 꽤 실무적임.
+
+_build_validation_sql()
+
+예를 들어
+
+생성 SQL 결과를
+
+SELECT COUNT(*)
+
+로 검증
+
+고객ID 있으면
+
+COUNT(DISTINCT CUSTOMER_ID)
+
+생성
+
+금액 컬럼 있으면
+
+SUM(SALES_AMT)
+
+생성
+
+즉
+
+배치 전후 건수 검증 SQL
+
+자동 생성함.
+
+6단계 LLM 분석
+
+그 다음
+
+build_llm_prompt()
+
+호출
+
+LLM 입력
+
+생성 SQL
+
+batch_spec
+
+source columns
+
+rule 기반 분석 결과
+
+LLM은
+
+{
+  "risk_level":"MEDIUM",
+  "suggestions":[]
+}
+
+반환
+
+7단계 Hallucination 방지
+
+이 부분이 좋음.
+
+_is_sql_grounded()
+
+LLM이
+
+CUSTOMER_TYPE
+
+추천했는데
+
+실제 SQL에 없으면
+
+제거
+
+즉
+
+LLM이 없는 컬럼 만들면 버림
+결론
+
+네 SQL 분석은
+
+SQL
+ ↓
+정규식 기반 분석
+
+FROM
+JOIN
+WHERE
+
+ ↓
+
+인덱스 추천
+
+ ↓
+
+JOIN 개선
+
+ ↓
+
+파티션 추천
+
+ ↓
+
+검증 SQL 생성
+
+ ↓
+
+LLM 설명 보강
+
+ ↓
+
+Hallucination 제거
+
+구조야.
+
+그래서 발표할 때는
+
+SQL 분석은 단순히 LLM에 SQL을 던지는 방식이 아니라, Rule 기반으로 FROM/JOIN/WHERE 구조를 먼저 분석하여 인덱스, JOIN 방식, 파티션, 검증 SQL을 생성하고, 이후 LLM이 개선 설명을 보강하도록 구현했습니다. 또한 실제 SQL과 batch_spec에 존재하지 않는 컬럼은 제거하여 Hallucination을 방지했습니다.
+
+라고 설명하면 돼.
+
+냉정하게 보면 이 SQL 분석 쪽은 네 배치 생성 기능보다 기술적으로 더 탄탄하게 만든 부분이야. LLM 의존도가 낮고 Rule 기반 검증이 꽤 많이 들어가 있어.
+
+
+=======
+
+좋아. 이번에는 개념 설명 말고, 네가 올린 SQL 분석 파일의 함수 흐름을 실제 코드 순서대로 따라가면서 설명할게.
+
+몇 초 동안 생각함
+
+응. 이 파일은 생성된 SQL을 분석해서 개선 리포트를 만드는 파일이야. 핵심 진입점은 맨 아래 함수야.
+
+def analyze_sql_improvement(
+    batch_spec,
+    generated_files=None,
+    llm_generate_fn=None,
+    model=None,
+    use_llm=True,
+    output_dir=None,
+)
+
+이 함수가 전체 SQL 분석을 시작해.
+
+흐름은 이렇게야.
+
+analyze_sql_improvement()
+→ build_rule_based_sql_improvement()
+→ 필요하면 LLM 분석
+→ LLM 결과 JSON 파싱
+→ 없는 컬럼 추천 제거
+→ sql_improvement_report.json 저장
+
+먼저 여기서 생성된 SQL을 가져와.
+
+query_sql = _compact(batch_spec.get("sql") or generated_files.get("query.sql"))
+
+즉 SQL은 두 군데에서 찾음.
+
+1. batch_spec["sql"]
+2. generated_files["query.sql"]
+
+SQL이 없으면 분석을 못 하니까 리포트에 경고를 담고 끝나.
+
+그 다음 기준 테이블과 조인 테이블을 뽑아.
+
+base_table = _extract_base_table(query_sql)
+join_tables = _extract_join_tables(query_sql)
+
+이 함수들은 정규식으로 SQL을 읽어.
+
+def _extract_base_table(sql):
+    match = re.search(r"\bFROM\s+([A-Za-z0-9_.$]+)", sql, re.IGNORECASE)
+
+즉 SQL에서 FROM TB_CARD_SALES_LEDGER를 찾아서 기준 테이블을 뽑는 거야.
+
+def _extract_join_tables(sql):
+    return [m.group(1).upper() for m in re.finditer(r"\bJOIN\s+([A-Za-z0-9_.$]+)", sql)]
+
+이건 JOIN TB_XXX를 찾아서 참조 테이블 목록을 뽑아.
+
+그 다음 인덱스 추천을 만들어.
+
+cols = _choose_index_columns(query_sql, base_table, prefer_base=True)
+
+이 함수는 SQL에서 alias를 찾고, WHERE 컬럼과 ON 컬럼을 추출해.
+
+where_cols = _extract_where_columns(sql, alias)
+on_cols = _extract_on_columns_for_alias(sql, alias)
+
+예를 들어 SQL이 이렇다면:
+
+FROM TB_CARD_SALES_LEDGER A
+JOIN TB_TRAD_MARKET_MERCHANT B
+  ON A.MERCHANT_ID = B.MERCHANT_ID
+WHERE A.SALES_DT = :base_date
+
+기준 테이블 A에서:
+
+WHERE 컬럼: SALES_DT
+JOIN 컬럼: MERCHANT_ID
+
+을 뽑고, 인덱스 SQL을 추천해.
+
+idx_sql = f"CREATE INDEX {_index_name(base_table, 1)} ON {base_table}({', '.join(cols)});"
+
+결과는 이런 식이야.
+
+CREATE INDEX IX_CARD_SALES_LEDGER_01
+ON TB_CARD_SALES_LEDGER(SALES_DT, MERCHANT_ID);
+
+즉 이 파일은 SQL을 그냥 LLM에 던지는 게 아니라, FROM/JOIN/WHERE를 직접 파싱해서 인덱스 후보를 만든다는 게 핵심이야.
+
+조인 테이블도 같은 방식으로 인덱스를 추천해.
+
+for idx, table in enumerate(join_tables, start=1):
+    cols = _choose_index_columns(query_sql, table, prefer_base=False)
+
+참조 테이블은 보통 ON 조건 컬럼을 우선 봐.
+
+예를 들어:
+
+ON A.MERCHANT_ID = B.MERCHANT_ID
+AND B.USE_YN = 'Y'
+AND A.SALES_DT BETWEEN B.APPLY_START_DT AND B.APPLY_END_DT
+
+이면 참조 테이블 B에서:
+
+MERCHANT_ID
+USE_YN
+APPLY_START_DT
+APPLY_END_DT
+
+같은 컬럼을 후보로 뽑을 수 있어.
+
+그 다음 LEFT JOIN 패턴을 검사해.
+
+if _has_left_join_filter_pattern(query_sql):
+
+이 함수는 이런 SQL을 찾는 거야.
+
+LEFT JOIN ...
+WHERE B.SOME_COL IS NOT NULL
+
+이 패턴은 실제로는 LEFT JOIN을 했지만 WHERE에서 NULL을 제거하니까 INNER JOIN처럼 동작할 수 있어.
+
+그래서 코드에서 이런 제안을 만들어.
+
+LEFT JOIN 유지
+INNER JOIN 비교
+EXISTS 비교
+UNION ALL + 우선순위 분류 검토
+
+그 다음 파티션 후보를 찾음.
+
+base_period_columns = _find_columns_by_role(
+    _source_columns_from_spec(batch_spec),
+    roles=["base_period"]
+)
+
+여기서 _source_columns_from_spec()은 batch_spec 안의 source columns를 가져와.
+
+columns = source.get("columns") or []
+
+그리고 ROLE_COLUMN_PATTERNS로 컬럼 역할을 추정해.
+
+"base_period": (
+    r"BASE_.*",
+    r".*_YM$",
+    r".*_YYMM$",
+    r".*_DATE$",
+    r".*_DT$"
+)
+
+즉 BASE_YM, SALES_DT, APPROVAL_DT 같은 컬럼이 있으면 기준일자/기준년월 컬럼으로 보고 파티션 검토 제안을 만든다.
+
+그 다음 검증 SQL을 만든다.
+
+validation_sql = _build_validation_sql(batch_spec, base_table)
+
+이 함수는 생성된 SQL을 감싸서 검증용 SQL을 만들어.
+
+query_sql = _strip_sql_semicolon(_compact(batch_spec.get("sql")))
+
+그리고 기본으로:
+
+COUNT(*) AS ROW_COUNT
+
+를 넣어.
+
+컬럼 중 고객ID나 가맹점ID가 있으면:
+
+COUNT(DISTINCT V.CUSTOMER_ID)
+
+금액 컬럼이 있으면:
+
+SUM(V.SALES_AMT)
+
+를 추가해.
+
+최종 형태는 이런 식이야.
+
+SELECT
+    COUNT(*) AS ROW_COUNT,
+    COUNT(DISTINCT V.CUSTOMER_ID) AS DISTINCT_CUSTOMER_ID_COUNT,
+    SUM(V.SALES_AMT) AS SALES_AMT_SUM
+FROM (
+    생성된 SQL
+) V;
+
+이건 배치 실행 전후 검증용으로 쓸 수 있어.
+
+여기까지가 Rule 기반 1차 분석이야.
+
+그 다음 LLM을 쓸 수 있으면 2차 분석을 해.
+
+if use_llm and llm_generate_fn is not None and rule_report.enabled:
+
+LLM 프롬프트는 여기서 만들어.
+
+prompt = build_llm_prompt(
+    batch_spec=batch_spec,
+    generated_files=generated_files,
+    rule_report=rule_report
+)
+
+LLM에게 넘기는 내용은:
+
+생성 SQL
+실제 사용 가능한 source columns
+batch_spec
+룰 기반 1차 분석 결과
+
+야.
+
+중요한 건 프롬프트에 이런 제한이 들어가 있어.
+
+테이블명/컬럼명은 입력 SQL과 메타에 있는 값만 사용한다.
+근거 없는 컬럼명은 만들지 않는다.
+실제 사용 가능한 source columns 목록에 없는 컬럼은 SQL 예시에 쓰지 않는다.
+
+즉 LLM이 마음대로 없는 컬럼을 만들지 못하게 막는 구조야.
+
+LLM 응답은 JSON으로 받아.
+
+raw = _call_llm(...)
+payload = _parse_json_object(raw)
+
+여기서 _parse_json_object()는 LLM이 코드블록이나 설명을 섞어도 JSON만 뽑아내려고 만든 함수야.
+
+_strip_markdown_fence()
+_extract_first_json_object()
+_coerce_llm_payload()
+
+순서로 JSON을 정리해.
+
+그 다음이 핵심인데, LLM 결과를 그대로 믿지 않고 검증해.
+
+_filter_ungrounded_suggestions()
+
+이 함수는 LLM이 제안한 SQL 안에 실제 batch_spec이나 SQL에 없는 식별자가 있으면 제거해.
+
+예를 들어 LLM이 갑자기:
+
+CREATE INDEX IX_TEST ON TB_CARD_SALES_LEDGER(CUSTOMER_GRADE);
+
+라고 했는데 CUSTOMER_GRADE가 실제 컬럼 목록에 없으면 제외해.
+
+검증은 여기서 해.
+
+_is_sql_grounded()
+
+알려진 식별자는 여기서 만든다.
+
+_known_identifiers_for_grounding()
+
+여기에는:
+
+source columns
+source table
+target table
+base table
+rule 기반 target
+
+만 들어가.
+
+그래서 LLM hallucination을 줄이는 구조야.
+
+마지막으로 리포트를 저장해.
+
+if output_dir:
+    (output_dir / "sql_improvement_report.json").write_text(...)
+
+즉 결과는 JSON 파일로 저장될 수 있어.
+
+정리하면 이 파일은 이렇게 처리해.
+
+1. 생성된 query.sql 가져오기
+2. FROM 기준 테이블 추출
+3. JOIN 테이블 추출
+4. WHERE / ON 컬럼 추출
+5. 인덱스 추천 생성
+6. LEFT JOIN + IS NOT NULL 패턴 감지
+7. 기준일자/기준년월 컬럼 보고 파티션 추천
+8. COUNT/SUM/DISTINCT 검증 SQL 생성
+9. LLM으로 설명 보강
+10. LLM이 없는 컬럼을 만들면 제거
+11. sql_improvement_report.json 저장
+
+한마디로:
+
+SQL 분석은 LLM이 처음부터 분석하는 게 아니라, 코드가 먼저 SQL 구조를 rule 기반으로 분석하고, LLM은 그 결과를 바탕으로 설명을 보강하는 구조야.

@@ -23,4 +23,10 @@ python ingest/ingest.py --json_path ./ingest/handover.json --persist_dir ./chrom
 TestCase
 python harnessTest/handover_harness.py --cases harnessTest/query_routing_test_cases.json
 
-python batch_dev/generated/BATCH_DEDUCTION_TARGET_TXN_EXTRACT\job.py  --base-ym 202604
+ps -ef | grep vllm
+pkill -f vllm
+pkill -f api_server
+python -m vllm.entrypoints.openai.api_server \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --max-model-len 4096 \
+  --served-model-name qwen2.5-7b
