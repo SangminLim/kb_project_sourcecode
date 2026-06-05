@@ -25,36 +25,12 @@ def replace_aliases(question: str) -> str:
     return normalize_whitespace(normalized)
 
 
-def _collapse_repeated_terms(text: str) -> str:
-    """dictionary/rewrite 후 생긴 반복 토큰을 일반 규칙으로 정리한다.
-
-    특정 질문이나 특정 시스템명을 코드에 박지 않는다.
-    예) "배치배치 프로세스" -> "배치 프로세스"
-        "배치 배치 프로세스" -> "배치 프로세스"
-    """
-    q = normalize_whitespace(text)
-
-    # 공백 없이 같은 한글/영문/숫자 토큰이 붙은 경우를 분리/정리한다.
-    # 예: 배치배치 -> 배치, ABCABC -> ABC
-    q = re.sub(r"\b([0-9A-Za-z가-힣_]{2,})\1\b", r"\1", q)
-
-    # 공백 기준으로 같은 토큰이 연속된 경우를 한 번만 남긴다.
-    # 예: 배치 배치 프로세스 -> 배치 프로세스
-    tokens = q.split()
-    collapsed: List[str] = []
-    for token in tokens:
-        if collapsed and collapsed[-1] == token:
-            continue
-        collapsed.append(token)
-    return normalize_whitespace(" ".join(collapsed))
-
-
 def apply_dictionary_rewrite(question: str) -> str:
     q = replace_aliases(normalize_whitespace(question))
-    for src, dst in sorted(QUESTION_REPLACEMENTS.items(), key=lambda item: len(str(item[0])), reverse=True):
+    for src, dst in QUESTION_REPLACEMENTS.items():
         if src in q:
             q = q.replace(src, dst)
-    return _collapse_repeated_terms(q)
+    return normalize_whitespace(q)
 
 
 def detect_system_id(question: str) -> Optional[str]:

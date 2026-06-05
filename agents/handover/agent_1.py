@@ -5,9 +5,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from .config import LLM_LANGGRAPH_ENABLED, ChatConfig, CONVERSATION_POLICY
 from .data_access import get_system_by_id, get_realtime_intent_spec, get_realtime_query
 from .intent import (
-    apply_dictionary_rewrite, build_canonical_question, detect_intent, detect_previous_user_intent,
-    detect_system_id, detect_system_id_with_history, is_confident_intent_hint,
-    is_followup_question,
+    apply_dictionary_rewrite, detect_intent, detect_previous_user_intent, detect_system_id,
+    detect_system_id_with_history, is_confident_intent_hint, is_followup_question,
 )
 from .llm_client import get_langchain_feature_flags, get_llm_engine_name, ollama_generate, _env_flag, _use_langchain
 from .models import AgentResult, AgentWorkflowState, resolve_response_route
@@ -215,24 +214,9 @@ class HandoverAgent:
         elif not system_id:
             debug_logs.append("[STEP 5-3] system_id_fallback_to_history = skipped_not_followup")
 
-        canonical_rewritten_question = build_canonical_question(
-            rewritten_question,
-            system_id,
-            intent,
-        )
-        if canonical_rewritten_question and canonical_rewritten_question != rewritten_question:
-            rewritten_question = canonical_rewritten_question
-            debug_logs.append(f"[STEP 6-1] rewritten_question_canonicalized = {rewritten_question}")
-
         debug_logs.append(f"[STEP 5] detected_system_id = {system_id}")
         debug_logs.append(f"[STEP 6] detected_intent = {intent}")
-        return {
-            **state,
-            "intent": intent,
-            "system_id": system_id,
-            "rewritten_question": rewritten_question,
-            "debug_logs": debug_logs,
-        }
+        return {**state, "intent": intent, "system_id": system_id, "debug_logs": debug_logs}
 
     def _graph_guard_node(self, state: AgentWorkflowState) -> AgentWorkflowState:
         debug_logs = list(state.get("debug_logs", []))
@@ -643,15 +627,6 @@ class HandoverAgent:
             debug_logs.append("[STEP 5-3] system_id_fallback_to_history_followup = applied")
         elif not system_id:
             debug_logs.append("[STEP 5-3] system_id_fallback_to_history = skipped_not_followup")
-
-        canonical_rewritten_question = build_canonical_question(
-            rewritten_question,
-            system_id,
-            intent,
-        )
-        if canonical_rewritten_question and canonical_rewritten_question != rewritten_question:
-            rewritten_question = canonical_rewritten_question
-            debug_logs.append(f"[STEP 6-1] rewritten_question_canonicalized = {rewritten_question}")
 
         debug_logs.append(f"[STEP 5] detected_system_id = {system_id}")
         debug_logs.append(f"[STEP 6] detected_intent = {intent}")
