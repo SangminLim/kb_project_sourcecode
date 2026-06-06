@@ -655,21 +655,7 @@ def build_realtime_payload(
 
     if _should_generate_summary(query_meta, realtime_mode, policy):
         try:
-            # Planner가 만든 execution_plan은 query_meta에 들어있지만,
-            # generate_incident_summary()는 policy 안의 execution_plan을 기준으로
-            # 영향도 요약 표시 여부를 판단한다.
-            # 따라서 summary 생성에만 사용할 policy에 planner 정보를 보강한다.
-            summary_policy = dict(policy or {})
-
-            execution_plan = (query_meta or {}).get("execution_plan")
-            if isinstance(execution_plan, dict):
-                summary_policy["execution_plan"] = execution_plan
-
-            reasoning_policy = (query_meta or {}).get("reasoning_policy")
-            if isinstance(reasoning_policy, dict):
-                summary_policy["reasoning_policy"] = reasoning_policy
-
-            payload["summary"] = generate_realtime_summary(query_meta, df, summary_policy)
+            payload["summary"] = generate_realtime_summary(query_meta, df, policy)
             if _should_build_billing_plan_logs(query_meta, realtime_mode, policy):
                 payload["debug_logs"] = list(payload.get("debug_logs") or []) + [
                     "[BILLING 7] trend_summary = generated" if payload.get("summary") else "[BILLING 7] trend_summary = skipped"

@@ -38,7 +38,7 @@
     {
       "item": "출력 파일명 패턴",
       "result": "PASS",
-      "detail": "파일명 패턴이 정의되어 있습니다: traditional_market_merchant_{base_date}.csv"
+      "detail": "파일명 패턴이 정의되어 있습니다: trad_market_merchant_{base_date}.csv"
     },
     {
       "item": "spec 테이블과 SQL 일치성",
@@ -61,25 +61,28 @@
   ],
   "raw_llm_response": null,
   "score_breakdown": {
-    "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)\n",
+    "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)\n",
     "batch_type": "db_to_file",
     "target": {
       "output_format": "csv",
-      "output_file_prefix": "traditional_market_merchant",
-      "output_file_pattern": "traditional_market_merchant_{base_date}.csv",
+      "output_file_prefix": "trad_market_merchant",
+      "output_file_pattern": "trad_market_merchant_{base_date}.csv",
       "output_dir": "./output",
       "encoding": "utf-8-sig"
     },
     "validation_rules": {
       "min_rows": 0,
-      "not_null_columns": []
+      "not_null_columns": [
+        "MERCHANT_ID",
+        "APPLY_START_DT"
+      ]
     },
     "validation_profile": {
       "batch_type": "db_to_file",
       "output_format": "csv",
       "source_table": "TB_TRAD_MARKET_MERCHANT",
-      "output_pattern": "traditional_market_merchant_{base_date}.csv",
-      "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
+      "output_pattern": "trad_market_merchant_{base_date}.csv",
+      "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    MARKET_NM,\n    BIZ_NO,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_TRAD_MARKET_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
       "has_file_output": true,
       "has_aggregate": false,
       "has_group_by": false,

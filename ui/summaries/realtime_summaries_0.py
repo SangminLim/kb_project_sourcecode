@@ -23,156 +23,7 @@ def _safe_cell(row: pd.Series, column: Optional[str], default: str = "") -> str:
     return text if text else default
 
 
-def _unique_non_empty(values: List[Any], exclude: Optional[List[str]] = None) -> List[str]:
-    exclude_set = set(exclude or [])
-    result: List[str] = []
-    for value in values:
-        text = str(value or "").strip()
-        if not text or text in exclude_set:
-            continue
-        if text not in result:
-            result.append(text)
-    return result
-
-
-def _to_number(value: Any, default: int = 0) -> int:
-    try:
-        if value is None or str(value).strip() == "":
-            return default
-        return int(float(str(value).strip()))
-    except Exception:
-        return default
-
-
-def _is_truthy_text(value: Any) -> bool:
-    text = str(value or "").strip().upper()
-    return text in {"Y", "YES", "TRUE", "1", "영향", "있음", "높음", "HIGH", "CRITICAL"}
-
-
-def _incident_impact_requested(policy: Optional[Dict[str, Any]] = None) -> bool:
-    """장애 상단 요약에 영향도 분석을 붙일지 판단한다.
-
-    질문 문구를 여기서 다시 판단하지 않고, Planner가 만든 step 정책을 기준으로 한다.
-    """
-    policy = policy or {}
-    for key in ("steps", "default_steps", "mandatory_steps"):
-        steps = policy.get(key)
-        if isinstance(steps, (list, tuple)) and "impact_analysis" in [str(step).strip() for step in steps]:
-            return True
-
-    execution_plan = policy.get("execution_plan")
-    if isinstance(execution_plan, dict):
-        steps = execution_plan.get("steps")
-        if isinstance(steps, (list, tuple)) and "impact_analysis" in [str(step).strip() for step in steps]:
-            return True
-
-    return bool(policy.get("requires_impact_analysis"))
-
-
-def _infer_incident_impact_summary(df: pd.DataFrame, policy: Optional[Dict[str, Any]] = None) -> Optional[str]:
-    """상단 장애 요약용 영향도 분석을 만든다.
-
-    우선 enriched dataframe에 있는 영향도/우선순위/권장조치 컬럼을 사용하고,
-    없으면 상태/심각도/경과분/고객영향 컬럼으로 보수적으로 요약한다.
-    """
-    if df.empty:
-        return None
-
-    impact_col = _get_first_existing_column(df, [
-        "impact_level", "영향도", "영향도판단", "고객영향도", "customer_impact_level"
-    ])
-    priority_col = _get_first_existing_column(df, [
-        "priority", "우선순위", "priority_level"
-    ])
-    followup_col = _get_first_existing_column(df, [
-        "followup_impact", "후속영향확인", "후속배치영향", "후속 영향"
-    ])
-    recommended_action_col = _get_first_existing_column(df, [
-        "recommended_action", "권장조치", "추천조치"
-    ])
-    long_running_col = _get_first_existing_column(df, [
-        "long_running", "장기미처리여부", "long_running_yn"
-    ])
-    status_col = _get_first_existing_column(df, ["status", "상태", "STATUS"])
-    severity_col = _get_first_existing_column(df, ["severity", "심각도", "SEVERITY", "등급"])
-    elapsed_col = _get_first_existing_column(df, ["elapsed_minutes", "경과분", "ELAPSED_MINUTES", "elapsed_min"])
-    impact_yn_col = _get_first_existing_column(df, ["impact_yn", "영향여부", "고객영향", "customer_impact"])
-
-    high_count = 0
-    p1_count = 0
-    long_running_count = 0
-    impact_unknown_count = 0
-    recommended_actions: List[str] = []
-    followup_items: List[str] = []
-
-    for _, row in df.iterrows():
-        impact_value = _safe_cell(row, impact_col, "")
-        priority_value = _safe_cell(row, priority_col, "")
-        followup_value = _safe_cell(row, followup_col, "")
-        action_value = _safe_cell(row, recommended_action_col, "")
-
-        if impact_value:
-            if impact_value.upper() in {"HIGH", "CRITICAL", "높음", "긴급", "심각"} or "높" in impact_value:
-                high_count += 1
-        else:
-            severity_value = _safe_cell(row, severity_col, "")
-            impact_yn_value = _safe_cell(row, impact_yn_col, "")
-            elapsed_value = _to_number(_safe_cell(row, elapsed_col, "0"))
-            status_value = _safe_cell(row, status_col, "").upper()
-            if severity_value.upper() in {"HIGH", "CRITICAL"} or _is_truthy_text(impact_yn_value) or elapsed_value >= 30:
-                high_count += 1
-            if status_value in {"FAIL", "FAILED", "ERROR", "OPEN", "RUNNING"} and not impact_yn_value:
-                impact_unknown_count += 1
-
-        if priority_value.upper() == "P1":
-            p1_count += 1
-
-        if followup_value:
-            followup_items.append(followup_value)
-
-        if action_value:
-            recommended_actions.append(action_value)
-
-        long_value = _safe_cell(row, long_running_col, "")
-        if _is_truthy_text(long_value):
-            long_running_count += 1
-        elif not long_running_col and _to_number(_safe_cell(row, elapsed_col, "0")) >= 30:
-            long_running_count += 1
-
-    lines = ["📌 영향도 요약"]
-
-    if high_count > 0:
-        lines.append(f"- 영향도 높음 판단: {high_count}건")
-    else:
-        lines.append("- 영향도 높음 판단: 없음")
-
-    if p1_count > 0:
-        lines.append(f"- 최우선(P1) 조치 대상: {p1_count}건")
-
-    if long_running_count > 0:
-        lines.append(f"- 장기 미처리 기준 해당: {long_running_count}건")
-
-    unique_followup = _unique_non_empty(followup_items)
-    if unique_followup:
-        lines.append("- 후속 영향 확인:")
-        lines.extend([f"  - {item}" for item in unique_followup[:3]])
-    elif high_count > 0 or impact_unknown_count > 0:
-        lines.append("- 후속 영향 확인: 후속 배치 및 고객 영향 여부 확인 필요")
-
-    unique_actions = _unique_non_empty(recommended_actions)
-    if unique_actions:
-        lines.append("- 권장 조치:")
-        lines.extend([f"  - {item}" for item in unique_actions[:3]])
-    elif high_count > 0:
-        lines.append("- 권장 조치: 담당자 확인 후 우선 조치하고 후속 배치/고객 영향 여부를 공지")
-
-    return "\n".join(lines)
-
-
-def generate_incident_summary(
-    df: pd.DataFrame,
-    policy: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+def generate_incident_summary(df: pd.DataFrame) -> Optional[str]:
     if df.empty:
         return None
 
@@ -215,19 +66,11 @@ def generate_incident_summary(
         "",
         "조치 방법 요약:",
         *action_lines,
-    ]
-
-    if _incident_impact_requested(policy):
-        impact_summary = _infer_incident_impact_summary(df, policy)
-        if impact_summary:
-            lines.extend(["", impact_summary])
-
-    lines.extend([
         "",
         f"담당자: {', '.join(unique_owners) if unique_owners else '담당자 미지정'}",
         "",
         "확인 필요사항: 조치 후 배치 재실행 여부와 후속 배치 영향도를 확인하세요.",
-    ])
+    ]
     return "\n".join(lines)
 
 
@@ -559,6 +402,4 @@ def generate_realtime_summary(query_meta: Dict[str, Any], df: pd.DataFrame, poli
 
     if handler_name == "timeseries_amount_summary":
         return handler(query_meta, df, policy)
-    if handler_name == "incident_summary":
-        return handler(df, policy)
     return handler(df)

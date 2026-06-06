@@ -1,0 +1,691 @@
+============================================================
+소득공제 업무 인수인계서
+============================================================
+
+문서 목적
+- 본 문서는 현업 및 IT 담당자가 소득공제 업무를 인수인계하기 위한 원본 TXT 문서이다.
+- 현업 담당자는 본 문서에 업무 내용을 계속 추가하고, 이후 AI 적재 프로세스에서 TXT를 JSON으로 변환하여 ChromaDB에 적재한다.
+- 본 문서는 KKK은행과 BBB증권 소득공제 업무를 모두 포함한다.
+
+############################################################
+도메인 : 소득공제 (income_deduction)
+############################################################
+
+============================================================
+KKK은행 소득공제 업무 인수인계
+============================================================
+
+[기본정보]
+시스템ID : kkk_bank
+시스템명 : KKK은행
+업무명 : 소득공제
+업무 담당부서 :
+업무 담당자 :
+최종 수정일 :
+
+------------------------------------------------------------
+1. 업무 개요
+------------------------------------------------------------
+제목 : KKK은행 소득공제 업무 개요
+
+[업무 설명]
+KKK은행에서 발생한 카드 승인 및 매입 데이터, 가맹점 정보, 고객 정보 등을 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 등은 별도 기준에 따라 제외 또는 보정 처리한다.
+
+[요약]
+카드 승인·매입·가맹점·고객 데이터를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무
+
+[입력 데이터]
+- 카드 승인 데이터
+- 카드 매입 데이터
+- 고객 정보
+- 가맹점 정보
+- 취소 및 정정 거래
+
+[소득공제 대상 거래]
+- 체크카드
+- 신용카드
+- 현금성 거래 중 소득공제 대상
+
+[제외 및 보정 대상]
+- 거래 취소
+- 오류 데이터
+- 대상 제외 업종
+
+[산출물]
+- 내부 관리 시스템 반영 데이터
+- 대외 제출 파일
+
+[핵심 포인트]
+- 원천 데이터 적재 후 대상 거래 선별
+- 제외 업종/비대상 거래 제거
+- 고객별 월별·연간 집계 생성
+
+------------------------------------------------------------
+2. 배치 프로세스
+------------------------------------------------------------
+제목 : KKK은행 소득공제 배치 프로세스
+
+[STEP 1] 데이터 적재
+실행 방식 : parallel
+단계 설명 : 소득공제 판별을 위한 원천 데이터를 병렬로 수집하고 적재하는 단계
+주요 JOB : BATCH_01_CARD_APPROVAL_LOAD, BATCH_02_CARD_PURCHASE_LOAD
+
+  --------------------------------------------------
+  JOB_ID : BATCH_01_CARD_APPROVAL_LOAD
+  JOB명 : 카드 승인 데이터 적재
+  설명 : 카드 승인 데이터 수집 및 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:10
+  평균 수행시간(초) : 180
+  배치 파일 : batch_card_approval_load.sh
+  프로그램명 : card_approval_load.py
+  담당팀 : 승인계 운영팀
+  재시도 횟수 : 3
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 원천 승인 파일 수신 여부를 확인하고 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 재실행한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_02_CARD_PURCHASE_LOAD
+  JOB명 : 카드 매입 데이터 적재
+  설명 : 카드 매입 데이터 수집 및 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:20
+  평균 수행시간(초) : 240
+  배치 파일 : batch_card_purchase_load.sh
+  프로그램명 : card_purchase_load.py
+  담당팀 : 매입계 운영팀
+  재시도 횟수 : 3
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 매입 원천 데이터 전문 포맷 오류 여부를 확인하고 오류 레코드 분리 후 정상 데이터 기준으로 재처리한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_03_CUSTOMER_INFO_LOAD
+  JOB명 : 고객 정보 적재
+  설명 : 고객 기본정보 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:15
+  평균 수행시간(초) : 150
+  배치 파일 : batch_customer_info_load.sh
+  프로그램명 : customer_info_load.py
+  담당팀 : 고객정보 운영팀
+  재시도 횟수 : 2
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 고객 원천 파일 수신 및 필수 컬럼 누락 여부를 확인한 뒤 재적재한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_04_MERCHANT_INFO_LOAD
+  JOB명 : 가맹점 정보 적재
+  설명 : 가맹점 정보 및 업종코드 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:25
+  평균 수행시간(초) : 210
+  배치 파일 : batch_merchant_info_load.sh
+  프로그램명 : merchant_info_load.py
+  담당팀 : 가맹점 운영팀
+  재시도 횟수 : 2
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 가맹점 기준정보와 업종코드 매핑 오류를 확인하고 기준정보 보정 후 재실행한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_05_CANCEL_DATA_LOAD
+  JOB명 : 취소 및 정정 거래 적재
+  설명 : 취소 및 정정 거래 데이터 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:30
+  평균 수행시간(초) : 180
+  배치 파일 : batch_cancel_data_load.sh
+  프로그램명 : cancel_data_load.py
+  담당팀 : 정산 운영팀
+  재시도 횟수 : 2
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 취소/정정 거래 수신 누락과 원거래 매칭 오류를 확인한 뒤 재처리한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+
+[STEP 2] 소득공제 대상 처리
+실행 방식 : sequential
+단계 설명 : 소득공제 대상 거래를 선별하고 고객별 집계 기준 데이터를 생성하는 핵심 처리 단계
+주요 JOB : BATCH_06_DEDUCTION_TARGET_FILTER, BATCH_07_DEDUCTION_AGGREGATION
+
+  --------------------------------------------------
+  JOB_ID : BATCH_06_DEDUCTION_TARGET_FILTER
+  JOB명 : 소득공제 대상 거래 판별
+  설명 : 소득공제 대상 거래 판별 및 제외 업종/비대상 거래 제거
+  스케줄 유형 : daily
+  실행 시간 : 01:00
+  평균 수행시간(초) : 420
+  배치 파일 : batch_deduction_target_filter.sh
+  프로그램명 : deduction_target_filter.py
+  담당팀 : 소득공제 운영팀
+  재시도 횟수 : 1
+  선행 JOB : BATCH_01_CARD_APPROVAL_LOAD, BATCH_02_CARD_PURCHASE_LOAD, BATCH_03_CUSTOMER_INFO_LOAD, BATCH_04_MERCHANT_INFO_LOAD, BATCH_05_CANCEL_DATA_LOAD
+  후행 JOB : BATCH_07_DEDUCTION_AGGREGATION
+  장애 조치 : 제외 업종 기준, 취소 거래 반영 여부, 원천 적재 완료 여부를 확인한 뒤 재실행한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_07_DEDUCTION_AGGREGATION
+  JOB명 : 소득공제 금액 집계
+  설명 : 고객별 소득공제 금액 집계 및 월별/연간 기준 데이터 생성
+  스케줄 유형 : daily
+  실행 시간 : 01:30
+  평균 수행시간(초) : 360
+  배치 파일 : batch_deduction_aggregation.sh
+  프로그램명 : deduction_aggregation.py
+  담당팀 : 소득공제 운영팀
+  재시도 횟수 : 1
+  선행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  후행 JOB : BATCH_08_DEDUCTION_FILE_GENERATION
+  장애 조치 : 대상 거래 건수와 집계 금액 검증 후 중간 집계 테이블을 재생성한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+
+[STEP 3] 최종 결과 생성
+실행 방식 : sequential
+단계 설명 : 대외 제출 파일과 내부 조회용 결과 데이터를 생성하는 마감 단계
+주요 JOB : BATCH_08_DEDUCTION_FILE_GENERATION
+
+  --------------------------------------------------
+  JOB_ID : BATCH_08_DEDUCTION_FILE_GENERATION
+  JOB명 : 소득공제 파일 생성
+  설명 : 대외 제출용 소득공제 파일 생성 및 내부 조회 시스템 반영 데이터 생성
+  스케줄 유형 : daily
+  실행 시간 : 02:00
+  평균 수행시간(초) : 300
+  배치 파일 : batch_deduction_file_generation.sh
+  프로그램명 : deduction_file_generation.py
+  담당팀 : 대외계 운영팀
+  재시도 횟수 : 1
+  선행 JOB : BATCH_07_DEDUCTION_AGGREGATION
+  후행 JOB : 없음
+  장애 조치 : 집계 결과 존재 여부와 파일 생성 경로 권한을 확인한 뒤 파일을 재생성한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+
+------------------------------------------------------------
+3. 배치 흐름도
+------------------------------------------------------------
+제목 : KKK은행 소득공제 배치 흐름도
+요약 : 1단계 병렬 적재 이후 2단계 대상 판별과 집계를 거쳐 3단계 파일 생성으로 종료된다.
+
+[시작 JOB]
+- BATCH_01_CARD_APPROVAL_LOAD
+- BATCH_02_CARD_PURCHASE_LOAD
+- BATCH_03_CUSTOMER_INFO_LOAD
+- BATCH_04_MERCHANT_INFO_LOAD
+- BATCH_05_CANCEL_DATA_LOAD
+
+[핵심 JOB]
+- BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_07_DEDUCTION_AGGREGATION
+
+[종료 JOB]
+- BATCH_08_DEDUCTION_FILE_GENERATION
+
+[노드 목록]
+- BATCH_01_CARD_APPROVAL_LOAD / 카드 승인 적재 / step=1 / type=job
+- BATCH_02_CARD_PURCHASE_LOAD / 카드 매입 적재 / step=1 / type=job
+- BATCH_03_CUSTOMER_INFO_LOAD / 고객정보 적재 / step=1 / type=job
+- BATCH_04_MERCHANT_INFO_LOAD / 가맹점정보 적재 / step=1 / type=job
+- BATCH_05_CANCEL_DATA_LOAD / 취소데이터 적재 / step=1 / type=job
+- BATCH_06_DEDUCTION_TARGET_FILTER / 소득공제 대상 판별 / step=2 / type=job
+- BATCH_07_DEDUCTION_AGGREGATION / 소득공제 집계 / step=2 / type=job
+- BATCH_08_DEDUCTION_FILE_GENERATION / 파일 생성 / step=3 / type=job
+
+[선후행 관계]
+- BATCH_01_CARD_APPROVAL_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_02_CARD_PURCHASE_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_03_CUSTOMER_INFO_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_04_MERCHANT_INFO_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_05_CANCEL_DATA_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_06_DEDUCTION_TARGET_FILTER -> BATCH_07_DEDUCTION_AGGREGATION
+- BATCH_07_DEDUCTION_AGGREGATION -> BATCH_08_DEDUCTION_FILE_GENERATION
+
+------------------------------------------------------------
+4. 테이블 리니지
+------------------------------------------------------------
+제목 : KKK은행 소득공제 테이블 리니지
+요약 : 원천 테이블을 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.
+
+[원천 테이블]
+- TB_CARD_APPROVAL
+- TB_CARD_PURCHASE
+- TB_CUSTOMER_INFO
+- TB_MERCHANT_INFO
+- TB_CANCEL_DATA
+
+[핵심 테이블]
+- TB_DEDUCTION_TARGET
+- TB_DEDUCTION_AGG
+- TB_DEDUCTION_RESULT
+
+[결과 테이블]
+- TB_DEDUCTION_RESULT
+- TB_DEDUCTION_FILE
+- TB_DEDUCTION_LOG
+
+[테이블 목록]
+- TB_CARD_APPROVAL / layer=source
+- TB_CARD_PURCHASE / layer=source
+- TB_CUSTOMER_INFO / layer=source
+- TB_MERCHANT_INFO / layer=source
+- TB_CANCEL_DATA / layer=source
+- TB_DEDUCTION_TARGET / layer=intermediate
+- TB_DEDUCTION_EXCLUDE / layer=intermediate
+- TB_DEDUCTION_AGG / layer=intermediate
+- TB_DEDUCTION_RESULT / layer=result
+- TB_DEDUCTION_FILE / layer=result
+- TB_DEDUCTION_LOG / layer=result
+
+[테이블 흐름]
+- TB_CARD_APPROVAL -> TB_DEDUCTION_TARGET
+- TB_CARD_PURCHASE -> TB_DEDUCTION_TARGET
+- TB_CUSTOMER_INFO -> TB_DEDUCTION_TARGET
+- TB_MERCHANT_INFO -> TB_DEDUCTION_TARGET
+- TB_CANCEL_DATA -> TB_DEDUCTION_TARGET
+- TB_DEDUCTION_TARGET -> TB_DEDUCTION_EXCLUDE
+- TB_DEDUCTION_TARGET -> TB_DEDUCTION_AGG
+- TB_DEDUCTION_EXCLUDE -> TB_DEDUCTION_AGG
+- TB_DEDUCTION_AGG -> TB_DEDUCTION_RESULT
+- TB_DEDUCTION_RESULT -> TB_DEDUCTION_FILE
+- TB_DEDUCTION_RESULT -> TB_DEDUCTION_LOG
+
+------------------------------------------------------------
+5. 운영 및 장애 대응 가이드
+------------------------------------------------------------
+[공통 점검]
+- 원천 파일 또는 원천 데이터 수신 여부를 확인한다.
+- 원천 데이터 건수와 적재 테이블 건수를 비교한다.
+- 선행 JOB이 모두 정상 종료되었는지 확인한다.
+- 소득공제 대상 판별 기준과 제외 업종 기준 변경 여부를 확인한다.
+- 집계 결과 건수 및 금액을 검증한다.
+- 파일 생성 경로, 권한, 파일 생성 여부를 확인한다.
+
+[JOB별 장애 대응]
+- BATCH_01_CARD_APPROVAL_LOAD : 원천 승인 파일 수신 여부를 확인하고 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 재실행한다.
+- BATCH_02_CARD_PURCHASE_LOAD : 매입 원천 데이터 전문 포맷 오류 여부를 확인하고 오류 레코드 분리 후 정상 데이터 기준으로 재처리한다.
+- BATCH_03_CUSTOMER_INFO_LOAD : 고객 원천 파일 수신 및 필수 컬럼 누락 여부를 확인한 뒤 재적재한다.
+- BATCH_04_MERCHANT_INFO_LOAD : 가맹점 기준정보와 업종코드 매핑 오류를 확인하고 기준정보 보정 후 재실행한다.
+- BATCH_05_CANCEL_DATA_LOAD : 취소/정정 거래 수신 누락과 원거래 매칭 오류를 확인한 뒤 재처리한다.
+- BATCH_06_DEDUCTION_TARGET_FILTER : 제외 업종 기준, 취소 거래 반영 여부, 원천 적재 완료 여부를 확인한 뒤 재실행한다.
+- BATCH_07_DEDUCTION_AGGREGATION : 대상 거래 건수와 집계 금액 검증 후 중간 집계 테이블을 재생성한다.
+- BATCH_08_DEDUCTION_FILE_GENERATION : 집계 결과 존재 여부와 파일 생성 경로 권한을 확인한 뒤 파일을 재생성한다.
+
+------------------------------------------------------------
+6. 인수인계 체크리스트
+------------------------------------------------------------
+□ 업무 개요를 이해했는가?
+□ 입력 데이터와 산출물을 이해했는가?
+□ 배치 STEP과 선후행 관계를 이해했는가?
+□ 주요 JOB의 실행 시간과 담당팀을 확인했는가?
+□ 장애 발생 시 확인할 항목을 이해했는가?
+□ 테이블 리니지와 결과 테이블을 이해했는가?
+□ 실제 운영 스케줄러 및 배치관리대장과 비교 검증했는가?
+
+
+============================================================
+BBB증권 소득공제 업무 인수인계
+============================================================
+
+[기본정보]
+시스템ID : bbb_securities
+시스템명 : BBB증권
+업무명 : 소득공제
+업무 담당부서 :
+업무 담당자 :
+최종 수정일 :
+
+------------------------------------------------------------
+1. 업무 개요
+------------------------------------------------------------
+제목 : BBB증권 소득공제 업무 개요
+
+[업무 설명]
+BBB증권에서 발생한 카드 및 금융거래 데이터, 가맹점 정보, 고객 계좌 및 회원 정보를 수집한 뒤 소득공제 대상 여부를 판별하고, 정제된 결과를 내부 관리 시스템과 외부 제출 파일에 반영하는 일련의 처리 과정이다. 주요 처리 대상은 체크카드, 신용카드, 계좌 기반 결제 및 일부 현금성 거래 중 소득공제 대상 거래이며, 거래 취소, 오류 데이터, 대상 제외 업종 및 금융상품 관련 비대상 거래는 별도 기준에 따라 제외 또는 보정 처리한다.
+
+[요약]
+카드·금융거래·계좌·회원 정보를 기반으로 소득공제 대상 여부를 판별하고 결과를 내부 시스템과 대외 제출 파일에 반영하는 업무
+
+[입력 데이터]
+- 카드 승인 데이터
+- 카드 매입 데이터
+- 고객 기본정보
+- 계좌정보
+- 가맹점 정보
+- 취소 및 정정 거래
+
+[소득공제 대상 거래]
+- 체크카드
+- 신용카드
+- 계좌 기반 결제
+- 일부 현금성 거래 중 소득공제 대상
+
+[제외 및 보정 대상]
+- 거래 취소
+- 오류 데이터
+- 대상 제외 업종
+- 금융상품 관련 비대상 거래
+
+[산출물]
+- 내부 관리 시스템 반영 데이터
+- 고객 리포트 반영 데이터
+- 대외 제출 파일
+
+[핵심 포인트]
+- 계좌 기반 거래를 함께 반영
+- 금융상품 관련 비대상 거래 제거
+- 고객별 월별·연간 집계 생성
+
+------------------------------------------------------------
+2. 배치 프로세스
+------------------------------------------------------------
+제목 : BBB증권 소득공제 배치 프로세스
+
+[STEP 1] 데이터 적재
+실행 방식 : parallel
+단계 설명 : 카드·고객·계좌·가맹점 등 원천 데이터를 병렬로 적재하는 단계
+주요 JOB : BATCH_03_CUSTOMER_INFO_LOAD
+
+  --------------------------------------------------
+  JOB_ID : BATCH_01_CARD_APPROVAL_LOAD
+  JOB명 : 카드 승인 데이터 적재
+  설명 : 카드 승인 데이터 수집 및 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:10
+  평균 수행시간(초) : 180
+  배치 파일 : batch_card_approval_load.sh
+  프로그램명 : card_approval_load.py
+  담당팀 : 승인계 운영팀
+  재시도 횟수 : 3
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 원천 승인 파일 수신 여부를 확인하고 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 재실행한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_02_CARD_PURCHASE_LOAD
+  JOB명 : 카드 매입 데이터 적재
+  설명 : 카드 매입 데이터 수집 및 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:20
+  평균 수행시간(초) : 240
+  배치 파일 : batch_card_purchase_load.sh
+  프로그램명 : card_purchase_load.py
+  담당팀 : 매입계 운영팀
+  재시도 횟수 : 3
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 매입 원천 데이터 전문 포맷 오류 여부를 확인하고 오류 레코드 분리 후 정상 데이터 기준으로 재처리한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_03_CUSTOMER_INFO_LOAD
+  JOB명 : 고객 정보 적재
+  설명 : 고객 기본정보 및 계좌정보 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:15
+  평균 수행시간(초) : 150
+  배치 파일 : batch_customer_info_load.sh
+  프로그램명 : customer_info_load.py
+  담당팀 : 고객정보 운영팀
+  재시도 횟수 : 2
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 고객 원천 파일 수신 및 필수 컬럼 누락 여부를 확인한 뒤 재적재한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_04_MERCHANT_INFO_LOAD
+  JOB명 : 가맹점 정보 적재
+  설명 : 가맹점 정보 및 업종코드 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:25
+  평균 수행시간(초) : 210
+  배치 파일 : batch_merchant_info_load.sh
+  프로그램명 : merchant_info_load.py
+  담당팀 : 가맹점 운영팀
+  재시도 횟수 : 2
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 가맹점 기준정보와 업종코드 매핑 오류를 확인하고 기준정보 보정 후 재실행한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_05_CANCEL_DATA_LOAD
+  JOB명 : 취소 및 정정 거래 적재
+  설명 : 취소 및 정정 거래 데이터 적재
+  스케줄 유형 : daily
+  실행 시간 : 00:30
+  평균 수행시간(초) : 180
+  배치 파일 : batch_cancel_data_load.sh
+  프로그램명 : cancel_data_load.py
+  담당팀 : 정산 운영팀
+  재시도 횟수 : 2
+  선행 JOB : 없음
+  후행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  장애 조치 : 취소/정정 거래 수신 누락과 원거래 매칭 오류를 확인한 뒤 재처리한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+
+[STEP 2] 소득공제 대상 처리
+실행 방식 : sequential
+단계 설명 : 금융상품 관련 비대상 거래를 제거하고 계좌 기준을 반영해 고객별 집계를 생성하는 핵심 단계
+주요 JOB : BATCH_06_DEDUCTION_TARGET_FILTER, BATCH_07_DEDUCTION_AGGREGATION
+
+  --------------------------------------------------
+  JOB_ID : BATCH_06_DEDUCTION_TARGET_FILTER
+  JOB명 : 소득공제 대상 거래 판별
+  설명 : 소득공제 대상 거래 판별 및 금융상품 관련 거래/제외 업종 제거
+  스케줄 유형 : daily
+  실행 시간 : 01:00
+  평균 수행시간(초) : 420
+  배치 파일 : batch_deduction_target_filter.sh
+  프로그램명 : deduction_target_filter.py
+  담당팀 : 소득공제 운영팀
+  재시도 횟수 : 1
+  선행 JOB : BATCH_01_CARD_APPROVAL_LOAD, BATCH_02_CARD_PURCHASE_LOAD, BATCH_03_CUSTOMER_INFO_LOAD, BATCH_04_MERCHANT_INFO_LOAD, BATCH_05_CANCEL_DATA_LOAD
+  후행 JOB : BATCH_07_DEDUCTION_AGGREGATION
+  장애 조치 : 제외 업종 기준, 취소 거래 반영 여부, 원천 적재 완료 여부를 확인한 뒤 재실행한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+  --------------------------------------------------
+  JOB_ID : BATCH_07_DEDUCTION_AGGREGATION
+  JOB명 : 소득공제 금액 집계
+  설명 : 고객별 소득공제 금액 집계, 계좌 기준 통합 및 월별/연간 데이터 생성
+  스케줄 유형 : daily
+  실행 시간 : 01:30
+  평균 수행시간(초) : 360
+  배치 파일 : batch_deduction_aggregation.sh
+  프로그램명 : deduction_aggregation.py
+  담당팀 : 소득공제 운영팀
+  재시도 횟수 : 1
+  선행 JOB : BATCH_06_DEDUCTION_TARGET_FILTER
+  후행 JOB : BATCH_08_DEDUCTION_FILE_GENERATION
+  장애 조치 : 대상 거래 건수와 집계 금액 검증 후 중간 집계 테이블을 재생성한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+
+[STEP 3] 최종 결과 생성
+실행 방식 : sequential
+단계 설명 : 대외 제출 파일과 내부 조회/고객 리포트 반영 데이터를 생성하는 마감 단계
+주요 JOB : BATCH_08_DEDUCTION_FILE_GENERATION
+
+  --------------------------------------------------
+  JOB_ID : BATCH_08_DEDUCTION_FILE_GENERATION
+  JOB명 : 소득공제 파일 생성
+  설명 : 대외 제출용 소득공제 파일 생성 및 내부 조회 시스템/고객 리포트 반영 데이터 생성
+  스케줄 유형 : daily
+  실행 시간 : 02:00
+  평균 수행시간(초) : 300
+  배치 파일 : batch_deduction_file_generation.sh
+  프로그램명 : deduction_file_generation.py
+  담당팀 : 대외계 운영팀
+  재시도 횟수 : 1
+  선행 JOB : BATCH_07_DEDUCTION_AGGREGATION
+  후행 JOB : 없음
+  장애 조치 : 집계 결과 존재 여부와 파일 생성 경로 권한을 확인한 뒤 파일을 재생성한다.
+  운영 참고 : 운영 반영 전 실제 스케줄러 정보와 배치관리대장 기준으로 검증 필요
+
+
+------------------------------------------------------------
+3. 배치 흐름도
+------------------------------------------------------------
+제목 : BBB증권 소득공제 배치 흐름도
+요약 : 1단계 병렬 적재 이후 2단계 대상 판별과 계좌 기준 집계를 거쳐 3단계 파일 생성으로 종료된다.
+
+[시작 JOB]
+- BATCH_01_CARD_APPROVAL_LOAD
+- BATCH_02_CARD_PURCHASE_LOAD
+- BATCH_03_CUSTOMER_INFO_LOAD
+- BATCH_04_MERCHANT_INFO_LOAD
+- BATCH_05_CANCEL_DATA_LOAD
+
+[핵심 JOB]
+- BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_07_DEDUCTION_AGGREGATION
+
+[종료 JOB]
+- BATCH_08_DEDUCTION_FILE_GENERATION
+
+[노드 목록]
+- BATCH_01_CARD_APPROVAL_LOAD / 카드 승인 적재 / step=1 / type=job
+- BATCH_02_CARD_PURCHASE_LOAD / 카드 매입 적재 / step=1 / type=job
+- BATCH_03_CUSTOMER_INFO_LOAD / 고객/계좌정보 적재 / step=1 / type=job
+- BATCH_04_MERCHANT_INFO_LOAD / 가맹점정보 적재 / step=1 / type=job
+- BATCH_05_CANCEL_DATA_LOAD / 취소데이터 적재 / step=1 / type=job
+- BATCH_06_DEDUCTION_TARGET_FILTER / 소득공제 대상 판별 / step=2 / type=job
+- BATCH_07_DEDUCTION_AGGREGATION / 소득공제 집계 / step=2 / type=job
+- BATCH_08_DEDUCTION_FILE_GENERATION / 파일 생성 / step=3 / type=job
+
+[선후행 관계]
+- BATCH_01_CARD_APPROVAL_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_02_CARD_PURCHASE_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_03_CUSTOMER_INFO_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_04_MERCHANT_INFO_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_05_CANCEL_DATA_LOAD -> BATCH_06_DEDUCTION_TARGET_FILTER
+- BATCH_06_DEDUCTION_TARGET_FILTER -> BATCH_07_DEDUCTION_AGGREGATION
+- BATCH_07_DEDUCTION_AGGREGATION -> BATCH_08_DEDUCTION_FILE_GENERATION
+
+------------------------------------------------------------
+4. 테이블 리니지
+------------------------------------------------------------
+제목 : BBB증권 소득공제 테이블 리니지
+요약 : 원천 테이블과 계좌 정보를 기반으로 대상/제외/집계 테이블을 거쳐 결과·파일·로그 테이블이 생성된다.
+
+[원천 테이블]
+- TB_CARD_APPROVAL
+- TB_CARD_PURCHASE
+- TB_CUSTOMER_INFO
+- TB_ACCOUNT_INFO
+- TB_MERCHANT_INFO
+- TB_CANCEL_DATA
+
+[핵심 테이블]
+- TB_DEDUCTION_TARGET
+- TB_DEDUCTION_AGG
+- TB_DEDUCTION_RESULT
+
+[결과 테이블]
+- TB_DEDUCTION_RESULT
+- TB_DEDUCTION_FILE
+- TB_DEDUCTION_LOG
+
+[테이블 목록]
+- TB_CARD_APPROVAL / layer=source
+- TB_CARD_PURCHASE / layer=source
+- TB_CUSTOMER_INFO / layer=source
+- TB_ACCOUNT_INFO / layer=source
+- TB_MERCHANT_INFO / layer=source
+- TB_CANCEL_DATA / layer=source
+- TB_DEDUCTION_TARGET / layer=intermediate
+- TB_DEDUCTION_EXCLUDE / layer=intermediate
+- TB_DEDUCTION_AGG / layer=intermediate
+- TB_DEDUCTION_RESULT / layer=result
+- TB_DEDUCTION_FILE / layer=result
+- TB_DEDUCTION_LOG / layer=result
+
+[테이블 흐름]
+- TB_CARD_APPROVAL -> TB_DEDUCTION_TARGET
+- TB_CARD_PURCHASE -> TB_DEDUCTION_TARGET
+- TB_CUSTOMER_INFO -> TB_DEDUCTION_TARGET
+- TB_ACCOUNT_INFO -> TB_DEDUCTION_TARGET
+- TB_MERCHANT_INFO -> TB_DEDUCTION_TARGET
+- TB_CANCEL_DATA -> TB_DEDUCTION_TARGET
+- TB_DEDUCTION_TARGET -> TB_DEDUCTION_EXCLUDE
+- TB_DEDUCTION_TARGET -> TB_DEDUCTION_AGG
+- TB_DEDUCTION_EXCLUDE -> TB_DEDUCTION_AGG
+- TB_DEDUCTION_AGG -> TB_DEDUCTION_RESULT
+- TB_DEDUCTION_RESULT -> TB_DEDUCTION_FILE
+- TB_DEDUCTION_RESULT -> TB_DEDUCTION_LOG
+
+------------------------------------------------------------
+5. 운영 및 장애 대응 가이드
+------------------------------------------------------------
+[공통 점검]
+- 원천 파일 또는 원천 데이터 수신 여부를 확인한다.
+- 원천 데이터 건수와 적재 테이블 건수를 비교한다.
+- 선행 JOB이 모두 정상 종료되었는지 확인한다.
+- 소득공제 대상 판별 기준과 제외 업종 기준 변경 여부를 확인한다.
+- 집계 결과 건수 및 금액을 검증한다.
+- 파일 생성 경로, 권한, 파일 생성 여부를 확인한다.
+
+[JOB별 장애 대응]
+- BATCH_01_CARD_APPROVAL_LOAD : 원천 승인 파일 수신 여부를 확인하고 파일 건수와 적재 건수를 비교한 뒤 누락 파일 재수신 후 재실행한다.
+- BATCH_02_CARD_PURCHASE_LOAD : 매입 원천 데이터 전문 포맷 오류 여부를 확인하고 오류 레코드 분리 후 정상 데이터 기준으로 재처리한다.
+- BATCH_03_CUSTOMER_INFO_LOAD : 고객 원천 파일 수신 및 필수 컬럼 누락 여부를 확인한 뒤 재적재한다.
+- BATCH_04_MERCHANT_INFO_LOAD : 가맹점 기준정보와 업종코드 매핑 오류를 확인하고 기준정보 보정 후 재실행한다.
+- BATCH_05_CANCEL_DATA_LOAD : 취소/정정 거래 수신 누락과 원거래 매칭 오류를 확인한 뒤 재처리한다.
+- BATCH_06_DEDUCTION_TARGET_FILTER : 제외 업종 기준, 취소 거래 반영 여부, 원천 적재 완료 여부를 확인한 뒤 재실행한다.
+- BATCH_07_DEDUCTION_AGGREGATION : 대상 거래 건수와 집계 금액 검증 후 중간 집계 테이블을 재생성한다.
+- BATCH_08_DEDUCTION_FILE_GENERATION : 집계 결과 존재 여부와 파일 생성 경로 권한을 확인한 뒤 파일을 재생성한다.
+
+------------------------------------------------------------
+6. 인수인계 체크리스트
+------------------------------------------------------------
+□ 업무 개요를 이해했는가?
+□ 입력 데이터와 산출물을 이해했는가?
+□ 배치 STEP과 선후행 관계를 이해했는가?
+□ 주요 JOB의 실행 시간과 담당팀을 확인했는가?
+□ 장애 발생 시 확인할 항목을 이해했는가?
+□ 테이블 리니지와 결과 테이블을 이해했는가?
+□ 실제 운영 스케줄러 및 배치관리대장과 비교 검증했는가?
+
+
+============================================================
+실시간 조회성 업무
+============================================================
+
+------------------------------------------------------------
+조회ID : billing_monthly_amount
+제목 : 청구 이용내역서 월별 금액 조회
+렌더 유형 : chart
+차트 유형 : bar
+X축 필드 : billing_month
+Y축 필드 : amount
+시리즈명 : 월별 청구금액
+데이터소스 유형 : database
+테이블 : TB_BILLING_MONTHLY
+조회 목적 : 월별 청구 금액 조회
+응답 템플릿 : 청구 이용내역서 월별 금액을 조회한 후 월별 그래프로 표시한다.
+
+------------------------------------------------------------
+조회ID : today_incidents
+제목 : 오늘 장애현황
+렌더 유형 : table
+응답 템플릿 : 오늘 장애현황을 조회한 후 표 형태로 보여준다.
+
+============================================================
+변경 이력
+============================================================
+[YYYY-MM-DD]
+작성자 :
+변경 내용 :

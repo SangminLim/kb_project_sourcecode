@@ -27,22 +27,6 @@ def _contains_any_keyword(text: str, keywords: Sequence[Any]) -> bool:
     return any(_text(keyword).lower() in normalized for keyword in keywords if _text(keyword))
 
 
-def _build_planner_question_text(state: AgentWorkflowState) -> str:
-    """Planner 판단용 질문 텍스트를 만든다.
-
-    rewrite/canonical 단계에서 사용자의 분석·요약·이상징후·조치 의도가
-    짧은 표준 질문으로 줄어들 수 있으므로, 특정 업무 키워드를 코드에
-    박지 않고 원문/정규화/재작성 결과를 모두 합쳐 정책 기반 step_rules가
-    안정적으로 판단하도록 한다.
-    """
-    parts = [
-        _text(state.get("question")),
-        _text(state.get("normalized_question")),
-        _text(state.get("rewritten_question")),
-    ]
-    return " ".join(dict.fromkeys([part for part in parts if part]))
-
-
 def _ordered_unique_steps(steps: Sequence[Any], step_order: Sequence[Any]) -> List[str]:
     """정책 step_order 기준으로 정렬하되, 알 수 없는 확장 step은 원래 순서를 보존한다."""
     unique_steps = [str(step).strip() for step in steps if str(step).strip()]
@@ -187,9 +171,12 @@ def billing_planner_node(agent: Any, state: AgentWorkflowState) -> AgentWorkflow
     debug_logs.append("[LG-B 0] node = billing_planner")
 
     query_meta = dict(state.get("query_meta") or {})
-    question = _build_planner_question_text(state)
-    debug_logs.append(f"[BILLING PLAN 0] planner_question = {question}")
-    plan = build_billing_plan(question, query_meta)
+    question = (
+        state.get("rewritten_question")
+        or state.get("normalized_question")
+        or state.get("question", "")
+    )
+    plan = build_billing_plan(str(question), query_meta)
 
     query_meta["execution_plan"] = plan
     query_meta.setdefault("post_process", "billing_graph_reasoning")
