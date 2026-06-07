@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 BATCH_ID = "BATCH_CARD_SALES_LEDGER_AGG"
-BATCH_NAME = "매출원장테이블 월별 집계"
+BATCH_NAME = "소득공제 월별 통합 집계 배치"
 OUTPUT_FILE_PREFIX = "batch_output"
 OUTPUT_FORMAT = "csv"
 OUTPUT_ENCODING = "utf-8-sig"

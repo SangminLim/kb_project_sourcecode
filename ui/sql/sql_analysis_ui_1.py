@@ -969,13 +969,8 @@ def render_sql_analysis_evaluation_panel(result: Any) -> None:
     with st.expander("📊 SQL 분석 평가용 근거 확인", expanded=False):
         st.markdown("##### 1) 요청 파싱 결과")
         st.json(payload.get("parsed", {}))
-
-        # 룰 기반 분석 결과는 내부 분석/LLM 보강에는 사용하지만,
-        # 평가용 화면에서는 중복 노출을 줄이기 위해 숨긴다.
-        #
-        # st.markdown("##### 2) 룰 기반 분석 결과")
-        # st.json(payload.get("rule_report", {}))
-
+        st.markdown("##### 2) 룰 기반 분석 결과")
+        st.json(payload.get("rule_report", {}))
         if payload.get("llm_report"):
-            st.markdown("##### 2) LLM 보강 분석 결과")
+            st.markdown("##### 3) LLM 보강 분석 결과")
             st.json(payload.get("llm_report", {}))

@@ -74,12 +74,7 @@
       "min_rows": 0,
       "not_null_columns": [
         "MERCHANT_ID",
-        "MERCHANT_NM",
-        "BIZ_NO",
-        "MCC_CD",
-        "APPLY_START_DT",
-        "APPLY_END_DT",
-        "USE_YN"
+        "APPLY_START_DT"
       ]
     },
     "validation_profile": {

@@ -10,9 +10,9 @@ import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-BATCH_ID = "BATCH_BOOK_PERF_MERCHANT_EXPORT"
-BATCH_NAME = "도서공연가맹점테이블 파일 생성"
-OUTPUT_FILE_PREFIX = "book_perf_merchant"
+BATCH_ID = "BATCH_CARD_SALES_LEDGER_EXTRACT"
+BATCH_NAME = "소득공제 대상 거래 추출 배치"
+OUTPUT_FILE_PREFIX = "card_sales_ledger"
 OUTPUT_FORMAT = "csv"
 OUTPUT_ENCODING = "utf-8-sig"
 

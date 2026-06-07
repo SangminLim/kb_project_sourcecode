@@ -65,100 +65,34 @@ def _json_object_from_text(text: str) -> Dict[str, Any]:
     return payload
 
 
-def _extract_requested_table_names(request_text: str) -> List[str]:
-    """요청서에 명시된 물리 테이블명을 추출한다.
-
-    LLM 입력 토큰을 줄이기 위해 ERWin 전체 메타를 보내지 않고,
-    요청서에 직접 언급된 테이블만 우선 전달한다.
-    """
-    names: List[str] = []
-    for match in re.finditer(r"\b([A-Za-z][A-Za-z0-9_\.]*\.[A-Za-z][A-Za-z0-9_]*|TB_[A-Za-z0-9_]+)\b", request_text or "", flags=re.IGNORECASE):
-        table_name = match.group(1).strip().upper()
-        if table_name not in names:
-            names.append(table_name)
-    return names
-
-
-def _table_matches_request(table: Mapping[str, Any], request_text: str, requested_table_names: List[str]) -> bool:
-    table_name = str(table.get("table_name") or "").upper()
-    if table_name and table_name in requested_table_names:
-        return True
-
-    # 물리 테이블명이 없거나 한글 요청서인 경우를 위한 보조 매칭.
-    # aliases/table_kor_name은 매칭 판단에만 사용하고 LLM 입력에는 싣지 않는다.
-    normalized_request = _normalize_text(request_text).lower()
-    candidates = [
-        table.get("table_kor_name"),
-        *(table.get("aliases") or []),
-    ]
-    return any(str(candidate).strip() and str(candidate).strip().lower() in normalized_request for candidate in candidates)
-
-
-def _compact_erwin_context(
-    erwin_meta: Optional[Mapping[str, Any]],
-    request_text: str = "",
-    max_tables: Optional[int] = None,
-    max_columns: Optional[int] = None,
-    max_relations: Optional[int] = None,
-) -> Dict[str, Any]:
-    """LLM에 넘길 ERWin 컨텍스트를 요청서 기준으로 최소화한다.
-
-    핵심 변경:
-    - 요청서에 나온 테이블만 우선 전달한다.
-    - data_type/table_kor_name/aliases는 LLM 입력에서 제거한다.
-    - relation은 선택된 테이블과 직접 관련된 것만 전달한다.
-    """
+def _compact_erwin_context(erwin_meta: Optional[Mapping[str, Any]], max_tables: int = 30, max_columns: int = 80) -> Dict[str, Any]:
+    """LLM에 넘길 ERWin 컨텍스트를 작고 안정적인 형태로 압축한다."""
     if not erwin_meta:
         return {"tables": [], "relations": []}
 
-    max_tables = max_tables or int(os.getenv("BATCH_SPEC_LLM_MAX_TABLES", "3"))
-    max_columns = max_columns or int(os.getenv("BATCH_SPEC_LLM_MAX_COLUMNS", "30"))
-    max_relations = max_relations or int(os.getenv("BATCH_SPEC_LLM_MAX_RELATIONS", "20"))
-
-    all_tables = list(erwin_meta.get("tables", []) or [])
-    requested_table_names = _extract_requested_table_names(request_text)
-
-    selected_tables: List[Mapping[str, Any]] = []
-    for table in all_tables:
-        if _table_matches_request(table, request_text, requested_table_names):
-            selected_tables.append(table)
-
-    # 요청서에서 테이블을 못 찾은 경우에만 안전망으로 앞쪽 일부를 보낸다.
-    # 정상적인 배치 요청서에는 기준 테이블명이 있으므로 보통 이 fallback은 타지 않는다.
-    if not selected_tables:
-        selected_tables = all_tables[:max_tables]
-    else:
-        selected_tables = selected_tables[:max_tables]
-
-    selected_names = {str(table.get("table_name") or "").upper() for table in selected_tables if table.get("table_name")}
-
     tables: List[Dict[str, Any]] = []
-    for table in selected_tables:
+    for table in list(erwin_meta.get("tables", []) or [])[:max_tables]:
         columns = []
         for col in list(table.get("columns", []) or [])[:max_columns]:
-            column_name = col.get("column_name")
-            if not column_name:
-                continue
             columns.append(
                 {
-                    "column_name": column_name,
+                    "column_name": col.get("column_name"),
                     "role": col.get("role"),
+                    "data_type": col.get("data_type"),
                 }
             )
         tables.append(
             {
                 "table_name": table.get("table_name"),
+                "table_kor_name": table.get("table_kor_name"),
                 "table_role": table.get("table_role"),
+                "aliases": table.get("aliases", []),
                 "columns": columns,
             }
         )
 
     relations: List[Dict[str, Any]] = []
-    for rel in list(erwin_meta.get("relations", []) or []):
-        left_table = str(rel.get("left_table") or "").upper()
-        right_table = str(rel.get("right_table") or "").upper()
-        if left_table not in selected_names and right_table not in selected_names:
-            continue
+    for rel in list(erwin_meta.get("relations", []) or [])[:100]:
         relations.append(
             {
                 "left_table": rel.get("left_table"),
@@ -167,8 +101,6 @@ def _compact_erwin_context(
                 "effective_date": rel.get("effective_date", {}),
             }
         )
-        if len(relations) >= max_relations:
-            break
 
     return {"tables": tables, "relations": relations}
 
@@ -196,7 +128,7 @@ def _build_prompt(
     request_schema: Optional[Mapping[str, Any]],
 ) -> tuple[str, str]:
     schema_context = _compact_request_schema(request_schema)
-    erwin_context = _compact_erwin_context(erwin_meta, request_text=request_text)
+    erwin_context = _compact_erwin_context(erwin_meta)
 
     system_prompt = """
 너는 금융권 배치 개발 요청서를 표준 batch_spec draft JSON으로 변환하는 수석 배치 설계자다.
@@ -211,14 +143,43 @@ SQL 전체를 직접 만들지 말고, SQL 생성을 위한 구조화된 spec �
 
     user_prompt = f"""
 [출력 JSON 스키마]
-JSON object only. 필요한 필드만 채운다.
-필드: batch_name, batch_type, schedule_type, source_table, target_table,
-target_role, output_format, output_file, output_file_prefix,
-base_date_column, base_parameter, capabilities, output_columns,
-conditions, joins, validation_rules, llm_notes.
-허용 capabilities: aggregation, group_by, classification_join,
-effective_date_matching, exclude_cancelled, use_flag_filter,
-replace_partition, file_export.
+{{
+  "batch_name": "string",
+  "batch_type": "db_to_file|file_to_db|db_to_db|aggregation_to_table",
+  "schedule_type": "daily|monthly|manual|string",
+  "source_table": "string",
+  "target_table": "string",
+  "target_role": "monthly_summary|file|string",
+  "output_format": "csv|txt|xlsx|string",
+  "output_file": "string",
+  "output_file_prefix": "string",
+  "base_date_column": "string",
+  "base_parameter": "base_date|base_ym|string",
+  "capabilities": [
+    "aggregation",
+    "group_by",
+    "classification_join",
+    "effective_date_matching",
+    "exclude_cancelled",
+    "use_flag_filter",
+    "replace_partition",
+    "file_export"
+  ],
+  "output_columns": ["COLUMN_NAME"],
+  "conditions": ["safe SQL WHERE condition fragment"],
+  "joins": [
+    {{
+      "join_type": "INNER|LEFT|string",
+      "table": "string",
+      "on": ["safe SQL ON condition fragment"]
+    }}
+  ],
+  "validation_rules": {{
+    "min_rows": 0,
+    "not_null_columns": ["COLUMN_NAME"]
+  }},
+  "llm_notes": ["string"]
+}}
 
 [request_schema]
 {json.dumps(schema_context, ensure_ascii=False, indent=2)}

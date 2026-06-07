@@ -1,0 +1,107 @@
+{
+  "valid": true,
+  "score": 0.856,
+  "summary": "TB_CARD_SALES_LEDGER에서 사용가능(USE_YN='Y') + 적용기간 유효 데이터를 조회하여 CSV 파일로 생성하는 배치입니다.",
+  "interpretation": "- TB_CARD_SALES_LEDGER 조회\n- 사용여부/적용기간 조건 필터링\n- CSV 파일 생성",
+  "detected_batch_type": "db_to_file",
+  "checks": [
+    {
+      "item": "batch_spec.json",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "query.sql",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "job.py",
+      "result": "PASS",
+      "detail": "생성 파일이 존재합니다."
+    },
+    {
+      "item": "SQL 위험 패턴",
+      "result": "PASS",
+      "detail": "명백한 위험 SQL 패턴은 발견되지 않았습니다."
+    },
+    {
+      "item": "SQL 파라미터와 batch_spec 일치성",
+      "result": "PASS",
+      "detail": "SQL 파라미터가 batch_spec.parameters와 연결됩니다: base_ym"
+    },
+    {
+      "item": "출력 형식",
+      "result": "PASS",
+      "detail": "출력 형식이 정의되어 있습니다: csv"
+    },
+    {
+      "item": "출력 파일명 패턴",
+      "result": "PASS",
+      "detail": "파일명 패턴이 정의되어 있습니다: card_sales_ledger_{base_ym}.csv"
+    },
+    {
+      "item": "spec 테이블과 SQL 일치성",
+      "result": "PASS",
+      "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
+    }
+  ],
+  "issues": [],
+  "warnings": [
+    "USE_YN / APPLY_START_DT 조건 인덱스 확인",
+    "CSV 파일 중복 생성 방지 확인",
+    "출력 헤더/구분자 확인",
+    "금액 합계 검증 확인"
+  ],
+  "recommendations": [
+    "USE_YN / APPLY_START_DT 조건 인덱스 확인",
+    "CSV 파일 중복 생성 방지 확인",
+    "출력 헤더/구분자 확인",
+    "금액 합계 검증 확인"
+  ],
+  "raw_llm_response": null,
+  "score_breakdown": {
+    "query_sql": "SELECT\n    L.SALES_SEQ_NO AS SALES_SEQ_NO,\n    L.SALES_DT AS SALES_DT,\n    L.CUSTOMER_ID AS CUSTOMER_ID,\n    L.MERCHANT_ID AS MERCHANT_ID,\n    L.SALES_AMT AS SALES_AMT,\n    L.BASE_YM AS BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND AS MERCHANT_TYPE\nFROM TB_CARD_SALES_LEDGER L\nLEFT JOIN TB_BOOK_PERF_MERCHANT J1\n  ON L.MERCHANT_ID = J1.MERCHANT_ID AND L.SALES_DT BETWEEN J1.APPLY_START_DT AND IFNULL(J1.APPLY_END_DT, '99991231')\n AND J1.USE_YN = 'Y'\nLEFT JOIN TB_TRAD_MARKET_MERCHANT J2\n  ON L.MERCHANT_ID = J2.MERCHANT_ID AND L.SALES_DT BETWEEN J2.APPLY_START_DT AND IFNULL(J2.APPLY_END_DT, '99991231')\n AND J2.USE_YN = 'Y'\nLEFT JOIN TB_GENERAL_DEDUCT_MERCHANT J3\n  ON L.MERCHANT_ID = J3.MERCHANT_ID AND L.SALES_DT BETWEEN J3.APPLY_START_DT AND IFNULL(J3.APPLY_END_DT, '99991231')\n AND J3.USE_YN = 'Y'\nWHERE L.BASE_YM = :base_ym\n  AND L.CANCEL_YN = 'N'\n  AND (J1.MERCHANT_ID IS NOT NULL OR J2.MERCHANT_ID IS NOT NULL OR J3.MERCHANT_ID IS NOT NULL)\n",
+    "batch_type": "db_to_file",
+    "target": {
+      "output_format": "csv",
+      "output_file_prefix": "card_sales_ledger",
+      "output_file_pattern": "card_sales_ledger_{base_ym}.csv",
+      "output_dir": "./output",
+      "encoding": "utf-8-sig"
+    },
+    "validation_rules": {
+      "min_rows": 0,
+      "not_null_columns": [
+        "SALES_DT",
+        "CUSTOMER_ID",
+        "MERCHANT_ID",
+        "BASE_YM",
+        "MERCHANT_TYPE"
+      ]
+    },
+    "validation_profile": {
+      "batch_type": "db_to_file",
+      "output_format": "csv",
+      "source_table": "TB_CARD_SALES_LEDGER",
+      "output_pattern": "card_sales_ledger_{base_ym}.csv",
+      "query_sql": "SELECT\n    L.SALES_SEQ_NO AS SALES_SEQ_NO,\n    L.SALES_DT AS SALES_DT,\n    L.CUSTOMER_ID AS CUSTOMER_ID,\n    L.MERCHANT_ID AS MERCHANT_ID,\n    L.SALES_AMT AS SALES_AMT,\n    L.BASE_YM AS BASE_YM,\n    CASE\n    WHEN J1.MERCHANT_ID IS NOT NULL THEN 'BOOK_PERF'\n    WHEN J2.MERCHANT_ID IS NOT NULL THEN 'TRAD_MARKET'\n    WHEN J3.MERCHANT_ID IS NOT NULL THEN 'GENERAL'\n    ELSE 'UNKNOWN'\nEND AS MERCHANT_TYPE\nFROM TB_CARD_SALES_LEDGER L\nLEFT JOIN TB_BOOK_PERF_MERCHANT J1\n  ON L.MERCHANT_ID = J1.MERCHANT_ID AND L.SALES_DT BETWEEN J1.APPLY_START_DT AND IFNULL(J1.APPLY_END_DT, '99991231')\n AND J1.USE_YN = 'Y'\nLEFT JOIN TB_TRAD_MARKET_MERCHANT J2\n  ON L.MERCHANT_ID = J2.MERCHANT_ID AND L.SALES_DT BETWEEN J2.APPLY_START_DT AND IFNULL(J2.APPLY_END_DT, '99991231')\n AND J2.USE_YN = 'Y'\nLEFT JOIN TB_GENERAL_DEDUCT_MERCHANT J3\n  ON L.MERCHANT_ID = J3.MERCHANT_ID AND L.SALES_DT BETWEEN J3.APPLY_START_DT AND IFNULL(J3.APPLY_END_DT, '99991231')\n AND J3.USE_YN = 'Y'\nWHERE L.BASE_YM = :base_ym\n  AND L.CANCEL_YN = 'N'\n  AND (J1.MERCHANT_ID IS NOT NULL OR J2.MERCHANT_ID IS NOT NULL OR J3.MERCHANT_ID IS NOT NULL)",
+      "has_file_output": true,
+      "has_aggregate": false,
+      "has_group_by": false,
+      "has_amount": true,
+      "has_use_yn": true,
+      "has_effective_date": true,
+      "has_base_date_param": false,
+      "has_join": true,
+      "has_insert_or_delete": false,
+      "is_simple_export": false
+    },
+    "policy_version": "practical-scoring-v3-nonblocking-warn-fast-no-llm",
+    "final_score": 0.856,
+    "rule_score": 1.0,
+    "llm_score": null,
+    "validation_mode": "fast_rule_based_no_llm",
+    "token_optimization": "LLM validation skipped. Summary/interpretation/review items are generated from batch_spec/query.sql/profile."
+  }
+}

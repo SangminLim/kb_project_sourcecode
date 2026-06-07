@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -1140,52 +1139,6 @@ def _source_date_metadata(table: Optional[Dict[str, Any]], base_date_column: str
     }
 
 
-
-# -----------------------------------------------------------------------------
-# LLM/화면 전달용 compact batch_spec
-# -----------------------------------------------------------------------------
-# full batch_spec에는 code_generator/검증/디버깅에 필요한 값까지 모두 들어간다.
-# 하지만 LLM에 다시 넘기거나 화면에 표시할 때는 아래 항목들이 토큰만 많이 쓰므로 제거한다.
-# 제거 대상:
-# - description: 요청서 원문 전체라 토큰이 큼
-# - sql: 코드 생성/검증/query.sql 생성에 필요하므로 최종 batch_spec에서는 유지
-# - validation_rules: 검증 단계에서 사용할 수 있으므로 최종 batch_spec에서는 유지
-# - meta_source / llm_spec_source / rule_source: 추적/디버깅용
-# - source.column_roles / source.dynamic_inference: 내부 처리 플래그
-# - target.output_dir / target.encoding: 파일 생성 실행 설정
-#
-# 필요하면 환경변수로 full 출력 가능:
-#   BATCH_SPEC_COMPACT_OUTPUT=false
-def _compact_batch_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
-    """최종 batch_spec을 LLM/화면 전달용으로 축약한다."""
-    if os.getenv("BATCH_SPEC_COMPACT_OUTPUT", "true").strip().lower() in {"0", "false", "no", "n"}:
-        return spec
-
-    compact: Dict[str, Any] = dict(spec or {})
-
-    # 주의: sql / validation_rules / target 실행 정보는 code_generator와 validator가 사용한다.
-    # 그래서 토큰 절약 대상이라도 최종 batch_spec에서는 제거하지 않는다.
-    remove_top_keys = {
-        "description",
-        "meta_source",
-        "llm_spec_source",
-        "rule_source",
-    }
-
-    for key in remove_top_keys:
-        compact.pop(key, None)
-
-    source = compact.get("source")
-    if isinstance(source, dict):
-        source = dict(source)
-        source.pop("column_roles", None)
-        source.pop("dynamic_inference", None)
-        compact["source"] = source
-
-    # target.output_dir / target.encoding은 실제 파일 생성 단계에서 사용할 수 있어 유지한다.
-
-    return compact
-
 def build_batch_spec(user_request: str) -> Dict[str, Any]:
     """
     사용자 요청서/자연어를 batch_spec으로 변환한다.
@@ -1244,7 +1197,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
         dynamic = _build_dynamic_aggregation_spec(user_request, values, erwin_meta, rule or {}, aggregation_table)
         batch_name = values.get("batch_name") or f"{aggregation_table.get('table_kor_name', aggregation_table.get('table_name'))} 월별 집계"
         resolved = dynamic.get("resolved") or {}
-        return _compact_batch_spec({
+        return {
             "version": "1.0",
             "batch_id": dynamic["batch_id"],
             "batch_name": batch_name,
@@ -1271,8 +1224,13 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "notes": llm_draft.get("llm_notes", []) if isinstance(llm_draft, dict) else [],
                 "capabilities": capabilities,
             },
-            # rule_source 제거: LLM/화면 전달용 batch_spec에서는 디버깅 메타 제외
-        })
+            "rule_source": {
+                "rule_id": (rule or {}).get("rule_id") or ("generic_export_dynamic" if sql_template == "generic_export.sql.j2" else None),
+                "path": (rule or {}).get("_path") or ("rule_catalog.rules[generic_export_dynamic]" if sql_template == "generic_export.sql.j2" else None),
+                "mode": "dynamic_meta_inference",
+                "template_type": (rule or {}).get("template_type") or ("db_to_file" if sql_template == "generic_export.sql.j2" else None),
+            },
+        }
 
     if rule_type in {"ledger_extract", "ledger_extract_with_classification"}:
         ledger_tables = [
@@ -1288,7 +1246,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
         dynamic = _build_dynamic_ledger_extract_spec(user_request, values, erwin_meta, rule or {}, ledger_table)
         batch_name = values.get("batch_name") or "소득공제 대상 거래 추출 배치"
         resolved = dynamic.get("resolved") or {}
-        return _compact_batch_spec({
+        return {
             "version": "1.0",
             "batch_id": dynamic["batch_id"],
             "batch_name": batch_name,
@@ -1314,8 +1272,13 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "notes": llm_draft.get("llm_notes", []) if isinstance(llm_draft, dict) else [],
                 "capabilities": capabilities,
             },
-            # rule_source 제거: LLM/화면 전달용 batch_spec에서는 디버깅 메타 제외
-        })
+            "rule_source": {
+                "rule_id": (rule or {}).get("rule_id") or ("generic_export_dynamic" if sql_template == "generic_export.sql.j2" else None),
+                "path": (rule or {}).get("_path") or ("rule_catalog.rules[generic_export_dynamic]" if sql_template == "generic_export.sql.j2" else None),
+                "mode": "dynamic_meta_inference",
+                "template_type": (rule or {}).get("template_type") or ("db_to_file" if sql_template == "generic_export.sql.j2" else None),
+            },
+        }
 
     table_name = str((table or {}).get("table_name") or "TODO_SOURCE_TABLE").upper()
     table_kor_name = str((table or {}).get("table_kor_name") or table_name)
@@ -1353,7 +1316,7 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
     batch_id = _default_batch_id(table_name)
     source_date_meta = _source_date_metadata(table, base_date_column)
 
-    return _compact_batch_spec({
+    return {
         "version": "1.0",
         "batch_id": batch_id,
         "batch_name": batch_name,
@@ -1400,5 +1363,10 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
             "notes": llm_draft.get("llm_notes", []) if isinstance(llm_draft, dict) else [],
                 "capabilities": capabilities,
         },
-        # rule_source 제거: LLM/화면 전달용 batch_spec에서는 디버깅 메타 제외
-    })
+        "rule_source": {
+            "rule_id": (rule or {}).get("rule_id") or ("generic_export_dynamic" if sql_template == "generic_export.sql.j2" else None),
+            "path": (rule or {}).get("_path") or ("rule_catalog.rules[generic_export_dynamic]" if sql_template == "generic_export.sql.j2" else None),
+            "sql_template": sql_template,
+            "template_type": (rule or {}).get("template_type") or ("db_to_file" if sql_template == "generic_export.sql.j2" else None),
+        },
+    }

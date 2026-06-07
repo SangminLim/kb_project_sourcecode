@@ -146,15 +146,11 @@ def render_batch_development_evaluation_panel(result: Any) -> None:
             "target": batch_spec.get("target"),
         })
 
-        # 내부 디버그 정보는 화면에 표시하지 않는다.
-        # 다른 배치 요청서를 실행해도 ERWIN 메타 / Rule Template 항목이 다시 나오지 않도록
-        # 3) 사용한 ERWIN 메타, 4) 사용한 Rule / SQL Template 출력 블록을 비활성화한다.
-        #
-        # st.markdown("##### 3) 사용한 ERWIN 메타")
-        # st.json(batch_spec.get("meta_source", {}))
-        #
-        # st.markdown("##### 4) 사용한 Rule / SQL Template")
-        # st.json(batch_spec.get("rule_source", {}))
+        st.markdown("##### 3) 사용한 ERWIN 메타")
+        st.json(batch_spec.get("meta_source", {}))
+
+        st.markdown("##### 4) 사용한 Rule / SQL Template")
+        st.json(batch_spec.get("rule_source", {}))
 
         st.markdown("##### 5) 생성 SQL")
         st.code(batch_spec.get("sql", ""), language="sql")
