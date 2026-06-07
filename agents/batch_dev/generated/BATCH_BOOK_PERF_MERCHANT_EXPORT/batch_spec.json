@@ -66,10 +66,12 @@
     }
   },
   "llm_spec_source": {
-    "enabled": false,
+    "enabled": true,
     "used": false,
-    "error": null,
-    "draft_keys": [],
+    "error": "HTTPError: 400 Client Error: Bad Request for url: http://13.124.194.236:8000/v1/chat/completions",
+    "draft_keys": [
+      "llm_error"
+    ],
     "notes": [],
     "capabilities": [
       "aggregation_source",

@@ -1225,10 +1225,10 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "capabilities": capabilities,
             },
             "rule_source": {
-                "rule_id": (rule or {}).get("rule_id") or ("generic_export_dynamic" if sql_template == "generic_export.sql.j2" else None),
-                "path": (rule or {}).get("_path") or ("rule_catalog.rules[generic_export_dynamic]" if sql_template == "generic_export.sql.j2" else None),
+                "rule_id": (rule or {}).get("rule_id"),
+                "path": (rule or {}).get("_path"),
                 "mode": "dynamic_meta_inference",
-                "template_type": (rule or {}).get("template_type") or ("db_to_file" if sql_template == "generic_export.sql.j2" else None),
+                "template_type": (rule or {}).get("template_type"),
             },
         }
 
@@ -1273,10 +1273,10 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "capabilities": capabilities,
             },
             "rule_source": {
-                "rule_id": (rule or {}).get("rule_id") or ("generic_export_dynamic" if sql_template == "generic_export.sql.j2" else None),
-                "path": (rule or {}).get("_path") or ("rule_catalog.rules[generic_export_dynamic]" if sql_template == "generic_export.sql.j2" else None),
+                "rule_id": (rule or {}).get("rule_id"),
+                "path": (rule or {}).get("_path"),
                 "mode": "dynamic_meta_inference",
-                "template_type": (rule or {}).get("template_type") or ("db_to_file" if sql_template == "generic_export.sql.j2" else None),
+                "template_type": (rule or {}).get("template_type"),
             },
         }
 
@@ -1364,9 +1364,9 @@ def build_batch_spec(user_request: str) -> Dict[str, Any]:
                 "capabilities": capabilities,
         },
         "rule_source": {
-            "rule_id": (rule or {}).get("rule_id") or ("generic_export_dynamic" if sql_template == "generic_export.sql.j2" else None),
-            "path": (rule or {}).get("_path") or ("rule_catalog.rules[generic_export_dynamic]" if sql_template == "generic_export.sql.j2" else None),
+            "rule_id": (rule or {}).get("rule_id"),
+            "path": (rule or {}).get("_path"),
             "sql_template": sql_template,
-            "template_type": (rule or {}).get("template_type") or ("db_to_file" if sql_template == "generic_export.sql.j2" else None),
+            "template_type": (rule or {}).get("template_type"),
         },
     }

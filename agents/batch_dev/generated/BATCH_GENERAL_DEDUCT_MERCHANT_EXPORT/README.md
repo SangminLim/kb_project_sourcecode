@@ -1,4 +1,4 @@
-# 일반 소득공제 가맹점 파일 생성
+# general_deduct_merchant_file_creation
 
 ## Batch ID
 `BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT`

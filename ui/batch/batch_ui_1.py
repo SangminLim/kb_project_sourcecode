@@ -579,55 +579,6 @@ def render_batch_development_result(result: Any) -> None:
 
     st.info("운영 반영 전 query.sql, 주요 조건, 인덱스, 파일 포맷을 확인하세요.")
 
-
-def _build_display_rule_source(batch_spec: Dict[str, Any]) -> Dict[str, Any]:
-    """평가 패널 표시용 Rule/Template 정보를 보강한다.
-
-    rule_source가 비어 있거나 일부 값이 None이어도 화면에 NULL만 보이지 않도록,
-    batch_spec에 있는 sql_template/template_type/rule_id 후보와 기본 export template 정보를 사용한다.
-    실제 생성 로직은 바꾸지 않고 화면 표시 정보만 정리한다.
-    """
-    batch_spec = batch_spec or {}
-    rule_source = dict(batch_spec.get("rule_source") or {})
-
-    sql_template = (
-        rule_source.get("sql_template")
-        or batch_spec.get("sql_template")
-        or batch_spec.get("template")
-        or batch_spec.get("template_name")
-        or "generic_export.sql.j2"
-    )
-
-    template_type = (
-        rule_source.get("template_type")
-        or batch_spec.get("template_type")
-        or batch_spec.get("batch_type")
-        or ("file_export" if "export" in str(sql_template).lower() else "generic")
-    )
-
-    rule_id = (
-        rule_source.get("rule_id")
-        or batch_spec.get("rule_id")
-        or batch_spec.get("matched_rule_id")
-        or batch_spec.get("selected_rule_id")
-        or ("generic_export_fallback" if str(sql_template).strip() else "unknown_rule")
-    )
-
-    path = (
-        rule_source.get("path")
-        or batch_spec.get("rule_path")
-        or batch_spec.get("matched_rule_path")
-        or f"rule_catalog.rules[{rule_id}]"
-    )
-
-    return {
-        "rule_id": rule_id,
-        "path": path,
-        "sql_template": sql_template,
-        "template_type": template_type,
-    }
-
-
 def render_batch_development_evaluation_panel(result: Any) -> None:
     """배치개발 평가용 근거 패널.
 
@@ -662,7 +613,7 @@ def render_batch_development_evaluation_panel(result: Any) -> None:
         st.json(batch_spec.get("meta_source", {}))
 
         st.markdown("##### 4) 사용한 Rule / SQL Template")
-        st.json(_build_display_rule_source(batch_spec))
+        st.json(batch_spec.get("rule_source", {}))
 
         st.markdown("##### 5) 생성 SQL")
         st.code(batch_spec.get("sql", ""), language="sql")

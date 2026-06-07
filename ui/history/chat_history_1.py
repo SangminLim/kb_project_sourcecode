@@ -426,13 +426,11 @@ def render_agent_result(result: Any) -> None:
         elif result.render_type == "chart" and result.query_meta:
             render_chart_summary(result)
             render_chart(result.query_meta, getattr(result, "realtime_payload", None), getattr(result, "message_id", None))
-            # 발표 화면 정리: 청구 데이터 상세 분석/Planner Log 숨김
-            # render_billing_reasoning_panel(result)
+            render_billing_reasoning_panel(result)
         elif result.render_type == "table" and result.query_meta:
             render_table_summary(result)
             render_table(result.query_meta, getattr(result, "realtime_mode", None), getattr(result, "realtime_payload", None))
-            # 발표 화면 정리: 장애 데이터 상세 분석/Planner Log 숨김
-            # render_incident_reasoning_panel(result)
+            render_incident_reasoning_panel(result)
         else:
             st.write(result.answer)
 
@@ -485,13 +483,11 @@ def render_history_messages() -> None:
                 elif result.render_type == "chart" and result.query_meta:
                     render_chart_summary(result)
                     render_chart(result.query_meta, result.realtime_payload, result.message_id)
-                    # 발표 화면 정리: 청구 데이터 상세 분석/Planner Log 숨김
-            # render_billing_reasoning_panel(result)
+                    render_billing_reasoning_panel(result)
                 elif result.render_type == "table" and result.query_meta:
                     render_table_summary(result)
                     render_table(result.query_meta, result.realtime_mode, result.realtime_payload)
-                    # 발표 화면 정리: 장애 데이터 상세 분석/Planner Log 숨김
-            # render_incident_reasoning_panel(result)
+                    render_incident_reasoning_panel(result)
                 else:
                     st.write(content)
             else:

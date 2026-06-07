@@ -30,12 +30,17 @@ RAG, Agent, 챗봇, 업무 자동화 시스템 개발에 많이 사용됩니다.
 저는 LangChain을 활용해 ChromaDB 검색, 프롬프트 구성, LLM 호출 기능을 구현했습니다.
 
 LangChain은 LLM과 RAG를 연결하는 역할로 사용했습니다. 
-사용자의 질문이 들어오면 ChromaDB Retriever를 통해 관련 업무 문서를 검색하고, 검색 결과와 질문, 시스템 프롬프트를 PromptTemplate으로 구성한 뒤 LLM에 전달하여 답변을 생성합니다. 
+사용자의 질문이 들어오면 ChromaDB Retriever를 통해 관련 업무 문서를 검색하고, 검색 결과와 질문, 
+시스템 프롬프트를 PromptTemplate으로 구성한 뒤 LLM에 전달하여 답변을 생성합니다. 
 즉, Vector DB 검색, 프롬프트 생성, LLM 호출 부분을 LangChain으로 구현했습니다.
 
 그래서 네가 발표할 때는 이렇게 말하면 된다.
 
-LangChain은 LLM과 외부 시스템을 연결하는 프레임워크입니다. 사용자의 질문이 들어오면 ChromaDB, 운영 DB, ERWin 메타데이터 등 외부 시스템에서 필요한 데이터를 Retrieval하고, 질문과 프롬프트를 함께 LLM에 전달하여 Augmented Generation을 수행합니다. 즉 Retrieval된 데이터를 기반으로 LLM이 보다 정확한 답변을 생성하도록 구성했습니다.
+LangChain은 LLM과 외부 시스템을 연결하는 프레임워크입니다. 사용자의 질문이 들어오면 ChromaDB, 운영 DB, E
+RWin 메타데이터 등 외부 시스템에서 필요한 데이터를 
+Retrieval하고, 
+질문과 프롬프트를 함께 LLM에 전달하여 Augmented Generation을 수행합니다. 
+즉 Retrieval된 데이터를 기반으로 LLM이 보다 정확한 답변을 생성하도록 구성했습니다.
 
 그리고 더 개발자스럽게 한 줄로 말하면
 

@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "batch_id": "BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT",
-  "batch_name": "일반 소득공제 가맹점 파일 생성",
+  "batch_name": "general_deduct_merchant_file_creation",
   "batch_type": "db_to_file",
   "description": "[배치 개발 요청서] 배치명: 일반 소득공제 가맹점 파일 생성 기준 테이블: - TB_GENERAL_DEDUCT_MERCHANT 출력 목적: - 일반 소득공제 대상 가맹점 정보 추출 출력 형식: - CSV 파일명: - general_deduct_merchant_YYYYMMDD.csv 기준일자: - APPLY_START_DT 처리 내용: - 일반 소득공제 대상 가맹점 정보를 조회한다. - 기준일자가 적용시작일자와 종료일자 사이인 데이터만 조회한다. - 사용여부가 'Y'인 데이터만 추출한다. 출력 컬럼: - MERCHANT_ID - MERCHANT_NM - BIZ_NO - MCC_CD - APPLY_START_DT - APPLY_END_DT - USE_YN 조건: - USE_YN = 'Y' - 기준일자 BETWEEN APPLY_START_DT AND APPLY_END_DT 배치 유형: - 파일 생성 배치 - 일 배치",
   "schedule_type": "daily",
@@ -79,22 +79,15 @@
       "batch_type",
       "capabilities",
       "conditions",
-      "llm_notes",
       "output_columns",
       "output_file",
-      "output_file_prefix",
       "output_format",
       "schedule_type",
       "source_table",
       "target_role",
       "validation_rules"
     ],
-    "notes": [
-      "일반 소득공제 가맹점 정보 추출",
-      "기준일자 기준 유효 기간 매칭",
-      "사용여부 'Y' 필터링",
-      "CSV 파일 생성"
-    ],
+    "notes": [],
     "capabilities": [
       "aggregation_source",
       "classification_master_available",
@@ -106,9 +99,9 @@
     ]
   },
   "rule_source": {
-    "rule_id": null,
-    "path": null,
+    "rule_id": "generic_export_dynamic",
+    "path": "rule_catalog.rules[generic_export_dynamic]",
     "sql_template": "generic_export.sql.j2",
-    "template_type": null
+    "template_type": "db_to_file"
   }
 }

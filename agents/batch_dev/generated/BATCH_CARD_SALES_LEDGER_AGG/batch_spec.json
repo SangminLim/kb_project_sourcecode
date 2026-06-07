@@ -78,7 +78,7 @@
   "llm_spec_source": {
     "enabled": true,
     "used": false,
-    "error": "HTTPError: 400 Client Error: Bad Request for url: http://3.38.95.208:8000/v1/chat/completions",
+    "error": "HTTPError: 400 Client Error: Bad Request for url: http://13.124.194.236:8000/v1/chat/completions",
     "draft_keys": [
       "llm_error"
     ],

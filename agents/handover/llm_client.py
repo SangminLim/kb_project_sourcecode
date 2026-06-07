@@ -292,7 +292,7 @@ def _upstage_generate_requests(prompt: str, system_prompt: str, config: ChatConf
         return str(message.get("content", "")).strip()
 
     return _run_with_langsmith_trace(
-        name="upstage_chat_generate",
+        name="QWEN_LLM",
         run_type="llm",
         inputs={"prompt": prompt, "system_prompt": system_prompt, "model": config.model},
         metadata={

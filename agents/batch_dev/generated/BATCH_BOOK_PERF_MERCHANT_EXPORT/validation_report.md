@@ -5,10 +5,12 @@
 - 배치유형: **db_to_file**
 
 ## 요약
-기본 룰 검증을 완료했습니다.
+TB_BOOK_PERF_MERCHANT에서 사용가능(USE_YN='Y') + 적용기간 유효 + 기준일자 기준 데이터를 조회하여 CSV 파일로 생성하는 배치입니다.
 
 ## 주요 처리
-도서공연가맹점테이블 파일 생성은 batch_type=db_to_file 유형으로 생성되었습니다. 주요 기준 테이블은 TB_BOOK_PERF_MERCHANT로 해석됩니다. 출력은 csv 파일이며 파일명 패턴은 book_perf_merchant_{base_date}.csv입니다. 배치 파라미터는 base_date 기준으로 사용됩니다. SQL에는 조건절이 포함되어 있어 무조건 전체 추출보다는 기준 조건 기반 처리로 보입니다. 운영 반영 전에는 실제 컬럼 존재 여부, 인덱스, 파일 경로 권한, 재실행 시 중복/덮어쓰기 정책을 확인해야 합니다. LLM 의미 검증은 호출 오류로 생략되었으므로, 위 해석은 룰 기반 정적 해석입니다.
+- TB_BOOK_PERF_MERCHANT 조회
+- 기준일자(base_date) 기준 유효 데이터 필터링
+- CSV 파일 생성
 
 ## 검토 필요
 - USE_YN / APPLY_START_DT 조건 인덱스 확인

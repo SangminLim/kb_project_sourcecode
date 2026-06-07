@@ -26,6 +26,10 @@ python harnessTest/handover_harness.py --cases harnessTest/query_routing_test_ca
 
 python harnessTest/handover_harness_workflow_fixed.py --cases harnessTest/query_routing_test_cases.json
 
+putty ip변경
+g6 load -> ip변경 ->  저장
+
+login as : ubuntu
 
 LLM 실행
 ps -ef | grep vllm
@@ -33,10 +37,9 @@ pkill -f vllm
 pkill -f api_server
 
 cd llm
-venv/bin/activate
+. venv/bin/activate
 
 .env 수정
-
 LLM_PROVIDER=vllm
 VLLM_BASE_URL=http://54.180.158.162:8000/v1
 VLLM_CHAT_MODEL=qwen2.5-7b
@@ -48,7 +51,9 @@ python -m vllm.entrypoints.openai.api_server \
   --max-model-len 4096 \
   --served-model-name qwen2.5-7b
 
-  INSERT INTO TB_BATCH_INCIDENT (
+
+장애현황
+INSERT INTO TB_BATCH_INCIDENT (
     batch_name,
     status,
     severity,

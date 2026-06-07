@@ -1,8 +1,8 @@
 {
   "valid": true,
-  "score": 1.0,
-  "summary": "기본 룰 검증을 완료했습니다.",
-  "interpretation": "도서공연가맹점테이블 파일 생성은 batch_type=db_to_file 유형으로 생성되었습니다. 주요 기준 테이블은 TB_BOOK_PERF_MERCHANT로 해석됩니다. 출력은 csv 파일이며 파일명 패턴은 book_perf_merchant_{base_date}.csv입니다. 배치 파라미터는 base_date 기준으로 사용됩니다. SQL에는 조건절이 포함되어 있어 무조건 전체 추출보다는 기준 조건 기반 처리로 보입니다. 운영 반영 전에는 실제 컬럼 존재 여부, 인덱스, 파일 경로 권한, 재실행 시 중복/덮어쓰기 정책을 확인해야 합니다. LLM 의미 검증은 호출 오류로 생략되었으므로, 위 해석은 룰 기반 정적 해석입니다.",
+  "score": 0.996,
+  "summary": "TB_BOOK_PERF_MERCHANT에서 사용가능(USE_YN='Y') + 적용기간 유효 + 기준일자 기준 데이터를 조회하여 CSV 파일로 생성하는 배치입니다.",
+  "interpretation": "- TB_BOOK_PERF_MERCHANT 조회\n- 기준일자(base_date) 기준 유효 데이터 필터링\n- CSV 파일 생성",
   "detected_batch_type": "db_to_file",
   "checks": [
     {
@@ -44,11 +44,6 @@
       "item": "spec 테이블과 SQL 일치성",
       "result": "PASS",
       "detail": "batch_spec의 테이블 후보가 SQL에서 확인됩니다."
-    },
-    {
-      "item": "LLM 의미 검증",
-      "result": "WARN",
-      "detail": "LLM 검증 실패: JSONDecodeError: Expecting value: line 1 column 43 (char 42)"
     }
   ],
   "issues": [],
@@ -56,16 +51,54 @@
     "USE_YN / APPLY_START_DT 조건 인덱스 확인",
     "CSV 파일 중복 생성 방지 확인",
     "출력 헤더/구분자 확인",
-    "기준일자(base_date) 파라미터 검증 확인",
-    "LLM 검증 실패: JSONDecodeError: Expecting value: line 1 column 43 (char 42)"
+    "기준일자(base_date) 파라미터 검증 확인"
   ],
   "recommendations": [
     "USE_YN / APPLY_START_DT 조건 인덱스 확인",
     "CSV 파일 중복 생성 방지 확인",
     "출력 헤더/구분자 확인",
-    "LLM 검증이 반복해서 느리면 BATCH_VALIDATION_USE_LLM=false로 끄고 룰 검증만 사용하세요.",
-    "BATCH_VALIDATION_LLM_TIMEOUT, UPSTAGE_CHAT_MODEL, UPSTAGE_BASE_URL, UPSTAGE_MAX_TOKENS 설정을 확인하세요."
+    "기준일자(base_date) 파라미터 검증 확인"
   ],
   "raw_llm_response": null,
-  "score_breakdown": {}
+  "score_breakdown": {
+    "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_BOOK_PERF_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)\n",
+    "batch_type": "db_to_file",
+    "target": {
+      "output_format": "csv",
+      "output_file_prefix": "book_perf_merchant",
+      "output_file_pattern": "book_perf_merchant_{base_date}.csv",
+      "output_dir": "./output",
+      "encoding": "utf-8-sig"
+    },
+    "validation_rules": {
+      "min_rows": 0,
+      "not_null_columns": [
+        "MERCHANT_ID",
+        "APPLY_START_DT"
+      ]
+    },
+    "validation_profile": {
+      "batch_type": "db_to_file",
+      "output_format": "csv",
+      "source_table": "TB_BOOK_PERF_MERCHANT",
+      "output_pattern": "book_perf_merchant_{base_date}.csv",
+      "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_BOOK_PERF_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
+      "has_file_output": true,
+      "has_aggregate": false,
+      "has_group_by": false,
+      "has_amount": false,
+      "has_use_yn": true,
+      "has_effective_date": true,
+      "has_base_date_param": true,
+      "has_join": false,
+      "has_insert_or_delete": false,
+      "is_simple_export": true
+    },
+    "policy_version": "practical-scoring-v3-nonblocking-warn-fast-no-llm",
+    "final_score": 0.996,
+    "rule_score": 1.0,
+    "llm_score": null,
+    "validation_mode": "fast_rule_based_no_llm",
+    "token_optimization": "LLM validation skipped. Summary/interpretation/review items are generated from batch_spec/query.sql/profile."
+  }
 }

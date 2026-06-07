@@ -147,7 +147,10 @@ def build_incident_plan(question: str, query_meta: Optional[Mapping[str, Any]] =
         return {
             "enabled": False,
             "steps": steps,
-            "step_labels": policy.get("step_labels", {}),
+            "step_labels": {
+                step: policy.get("step_labels", {}).get(step, step)
+                for step in steps
+            },
             "reasons": ["planner_policy.enabled=false"],
         }
 
@@ -175,10 +178,15 @@ def build_incident_plan(question: str, query_meta: Optional[Mapping[str, Any]] =
     if "summarize_table" not in steps:
         steps.append("summarize_table")
 
+    selected_step_labels = {
+        step: policy.get("step_labels", {}).get(step, step)
+        for step in steps
+    }
+
     return {
         "enabled": True,
         "steps": steps,
-        "step_labels": policy.get("step_labels", {}),
+        "step_labels": selected_step_labels,
         "reasons": reasons or ["기본 장애현황 조회 절차 적용"],
     }
 

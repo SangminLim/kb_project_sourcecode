@@ -66,7 +66,7 @@
   {
     "case_id": "TC006",
     "category": "followup_typo_batch_process",
-    "question": "소드공제 배치 프러세스를 설명",
+    "question": "소득공제 배치 프러세스를 설명해줘",
     "chat_history": [
       {
         "role": "user",
@@ -87,7 +87,7 @@
   {
     "case_id": "TC007",
     "category": "typo_batch_flow",
-    "question": "KKK은해 소덕공제 배치 흐르도를 그려줘",
+    "question": "KKK은행 소득공제 배치 흐름도를 그려줘",
     "expected_system_id": "kkk_bank",
     "expected_intent": "batch_flow",
     "expected_render_type": "graph",
@@ -292,7 +292,7 @@
   {
     "case_id": "TC018",
     "category": "followup_batch_flow",
-    "question": "그럼 흐름도는?",
+    "question": "KKK은행 소득공제 배치 흐름도를 그려줘",
     "chat_history": [
       {
         "role": "user",

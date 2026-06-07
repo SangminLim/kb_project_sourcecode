@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
 BATCH_ID = "BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT"
-BATCH_NAME = "일반 소득공제 가맹점 파일 생성"
+BATCH_NAME = "general_deduct_merchant_file_creation"
 OUTPUT_FILE_PREFIX = "general_deduct_merchant"
 OUTPUT_FORMAT = "csv"
 OUTPUT_ENCODING = "utf-8-sig"
