@@ -61,7 +61,7 @@
   ],
   "raw_llm_response": null,
   "score_breakdown": {
-    "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)\n",
+    "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)\n",
     "batch_type": "db_to_file",
     "target": {
       "output_format": "csv",
@@ -82,7 +82,7 @@
       "output_format": "csv",
       "source_table": "TB_GENERAL_DEDUCT_MERCHANT",
       "output_pattern": "general_deduct_merchant_{base_date}.csv",
-      "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
+      "query_sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
       "has_file_output": true,
       "has_aggregate": false,
       "has_group_by": false,

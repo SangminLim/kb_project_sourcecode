@@ -1,9 +1,9 @@
 {
   "version": "1.0",
   "batch_id": "BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT",
-  "batch_name": "일반 소득공제 가맹점 파일 생성",
+  "batch_name": "소득공제가맹점테이블 파일 생성",
   "batch_type": "db_to_file",
-  "schedule_type": "일 배치",
+  "schedule_type": "manual",
   "parameters": [
     {
       "name": "base_date",
@@ -20,7 +20,9 @@
       "MCC_CD",
       "APPLY_START_DT",
       "APPLY_END_DT",
-      "USE_YN"
+      "USE_YN",
+      "REG_DTM",
+      "UPD_DTM"
     ],
     "table_role": "classification_master",
     "base_date_column_role": "effective_date_range",
@@ -39,7 +41,7 @@
     "output_dir": "./output",
     "encoding": "utf-8-sig"
   },
-  "sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
+  "sql": "SELECT\nMERCHANT_ID,\n    MERCHANT_NM,\n    BIZ_NO,\n    MCC_CD,\n    APPLY_START_DT,\n    APPLY_END_DT,\n    USE_YN,\n    REG_DTM,\n    UPD_DTM\nFROM TB_GENERAL_DEDUCT_MERCHANT\nWHERE USE_YN = 'Y'\n  AND APPLY_START_DT <= :base_date\n  AND (APPLY_END_DT IS NULL OR APPLY_END_DT >= :base_date)",
   "validation_rules": {
     "min_rows": 0,
     "not_null_columns": [

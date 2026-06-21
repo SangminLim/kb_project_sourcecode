@@ -1,21 +1,25 @@
 from __future__ import annotations
-
+# 답변마다 고유 id 생성
+# UUID.randomUUID().toString()
 import uuid
 
 from .context import *
 from .state import *
+
+# 핵심서비스 호출 사용자가 질문하면 실제 AI처리, RAG 검색, DB 조회, 그래프 생성 같은 핵심 로직은 여기서 수행됨
 from .workflow.handover_graph import run_handover_graph
+
 from .history.chat_history import (
     render_agent_result,
     render_history_messages,
     read_uploaded_text_file,
 )
+
 from .sql.sql_analysis_ui import parse_sql_analysis_request
 
-
+# 이 함수는 AI 답변 결과를 세션에 저장하는 함수야
 def _append_assistant_message(result: Any, message_id: str) -> None:
     """assistant 응답을 session_state.message_list에 저장한다.
-
     리팩토링 후 result 타입이 AgentResult/SimpleNamespace 등으로 달라질 수 있으므로
     모든 부가 필드는 getattr 기반으로 안전하게 저장한다.
     """
@@ -40,6 +44,110 @@ def _append_assistant_message(result: Any, message_id: str) -> None:
     })
 
 
+#하네스 테스트 실행 화면이야
+def _render_harness_test_panel() -> None:
+    """하네스 테스트를 Streamlit 화면에서 실행하고 결과를 표시한다."""
+    if not st.session_state.get("run_harness_test", False):
+        return
+
+    try:
+        import argparse
+        import pandas as pd
+        from harnessTest.handover_harness import run_tests
+    except Exception as exc:
+        st.error(f"Harness 모듈을 불러오지 못했습니다: {type(exc).__name__}: {exc}")
+        st.info("handover_harness.py가 프로젝트 루트에 있는지 확인하세요.")
+        st.session_state.run_harness_test = False
+        return
+
+    st.subheader("🧪 Harness Test Result")
+
+    args = argparse.Namespace(
+        llm_path="agents.handover.agent",
+        json_path="ingest/handover.json",
+        persist_dir="./chroma",
+        collection="handover_agent",
+        cases="harnessTest/query_routing_test_cases.json",
+        output_csv="harnessTest/query_routing_test_results.csv",
+        output_json="harnessTest/query_routing_test_results.json",
+        top_k=4,
+        pass_score=80.0,
+        fail_under=None,
+    )
+
+    try:
+        with st.spinner("Harness 테스트 실행 중입니다..."):
+            payload = run_tests(args)
+    except Exception as exc:
+        st.error(f"Harness 테스트 실행 중 오류가 발생했습니다: {type(exc).__name__}: {exc}")
+        st.session_state.run_harness_test = False
+        return
+
+    summary = payload.get("summary", {}) or {}
+    results = payload.get("results", []) or []
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Total", summary.get("total", 0))
+    c2.metric("Passed", summary.get("passed", 0))
+    c3.metric("Failed", summary.get("failed", 0))
+    c4.metric("Pass Rate", f"{summary.get('pass_rate', 0.0)}%")
+    c5.metric("Avg Score", summary.get("avg_score", 0.0))
+
+    category_summary = summary.get("category_summary", {}) or {}
+    if category_summary:
+        st.markdown("#### 카테고리별 결과")
+        category_df = pd.DataFrame.from_dict(category_summary, orient="index").reset_index()
+        category_df = category_df.rename(columns={"index": "category"})
+        st.dataframe(category_df, use_container_width=True, hide_index=True)
+
+    if results:
+        df = pd.DataFrame(results)
+        base_columns = [
+            "case_id", "category", "question", "score", "pass_yn",
+            "actual_system_id", "actual_intent", "actual_render_type",
+            "rewritten_question", "error",
+        ]
+        visible_columns = [col for col in base_columns if col in df.columns]
+
+        st.markdown("#### 상세 결과")
+        st.dataframe(df[visible_columns], use_container_width=True, hide_index=True)
+
+        failed_df = df[df.get("pass_yn") == "N"] if "pass_yn" in df.columns else pd.DataFrame()
+        if not failed_df.empty:
+            st.markdown("#### 실패 케이스")
+            failed_columns = [
+                "case_id", "category", "question", "score",
+                "actual_system_id", "actual_intent", "actual_render_type", "error",
+            ]
+            failed_columns = [col for col in failed_columns if col in failed_df.columns]
+            st.dataframe(failed_df[failed_columns], use_container_width=True, hide_index=True)
+
+            with st.expander("실패 케이스 검증 항목 보기"):
+                for row in failed_df.to_dict("records"):
+                    st.markdown(f"**{row.get('case_id')} | {row.get('category')} | score={row.get('score')}**")
+                    st.write(row.get("question", ""))
+                    st.json(row.get("checks", {}))
+        else:
+            st.success("실패 케이스 없음")
+
+    st.download_button(
+        "CSV 결과 다운로드",
+        data=open(args.output_csv, "rb").read(),
+        file_name="query_routing_test_results.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+    st.download_button(
+        "JSON 결과 다운로드",
+        data=open(args.output_json, "rb").read(),
+        file_name="query_routing_test_results.json",
+        mime="application/json",
+        use_container_width=True,
+    )
+
+    st.session_state.run_harness_test = False
+
+# 화면 시작점
 def main() -> None:
     st.set_page_config(page_title=PAGE_TITLE, page_icon=PAGE_ICON, layout="wide")
     init_session_state()
@@ -91,7 +199,13 @@ def main() -> None:
         else:
             st.caption("아직 질문 내역이 없습니다.")
 
+        st.markdown("---")
+        st.markdown("### 품질 검증")
+        if st.button("🧪 Harness 테스트 실행", use_container_width=True):
+            st.session_state.run_harness_test = True
+
     render_history_messages()
+    _render_harness_test_panel()
 
     chat_input_question = st.chat_input(
         placeholder="예) KKK은행 소득공제 배치 프로세스를 설명해줘"

@@ -1,4 +1,4 @@
-# 일반 소득공제 가맹점 파일 생성
+# 소득공제가맹점테이블 파일 생성
 
 ## Batch ID
 `BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT`

@@ -1,6 +1,6 @@
 
 전통시장
-python agents/batch_dev/generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --base-date 20260430
+python agents/batch_dev/generated/BATCH_TRAD_MARKET_MERCHANT_EXPORT/job.py --base-date 20260601
 
 도서공연
 
@@ -8,23 +8,20 @@ python agents/batch_dev/generated/BATCH_BOOK_PERF_MERCHANT_EXPORT/job.py --base-
 
 일반소득공제
 
-python agents/batch_dev/generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py   --base-date 20260430
+python agents/batch_dev/generated/BATCH_GENERAL_DEDUCT_MERCHANT_EXPORT/job.py   --base-date 20260601
 
 소득집계 
-python agents/batch_dev/generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --base-date 202604
+python agents/batch_dev/generated/BATCH_CARD_SALES_LEDGER_AGG/job.py --base-date 202606
 -- TB_DEDUCTION_MONTHLY_SUMMARY 
 
 소득대상파일 생성
-python agents/batch_dev\generated\BATCH_CARD_SALES_LEDGER_EXTRACT\job.py --base-date 202604 
+python agents/batch_dev\generated\BATCH_CARD_SALES_LEDGER_EXTRACT\job.py --base-date 202606 
 
 Ingest
 python ingest/ingest.py --json_path ./ingest/handover.json --persist_dir ./chroma --collection handover_agent --reset
 
 TestCase
 python harnessTest/handover_harness.py --cases harnessTest/query_routing_test_cases.json
-
-
-python harnessTest/handover_harness_workflow_fixed.py --cases harnessTest/query_routing_test_cases.json
 
 putty ip변경
 g6 load -> ip변경 ->  저장
